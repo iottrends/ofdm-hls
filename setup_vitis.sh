@@ -422,10 +422,9 @@ set_part xc7a50tcsg325-1
 create_clock -period 10
 # Step 1: C synthesis → generate RTL
 csynth_design
-# Step 2: Pre-create the cosim wrapc working dir and copy test vectors.
-# The cosim C-TB runs from {proj}/sol1/sim/wrapc/ — must exist before cosim_design.
-file mkdir ${proj_dir}/sol1/sim/wrapc
-file copy -force ${bits_src} ${proj_dir}/sol1/sim/wrapc/tb_input_to_tx.bin
+# Step 2: Set HLS_TBDATA_DIR so cosim.tv.exe finds test vectors regardless of CWD.
+# The TB uses tb_path() which prepends this dir when the env var is set.
+set ::env(HLS_TBDATA_DIR) "$SCRIPT_DIR"
 # Step 3: RTL co-simulation
 # -rtl verilog      : Verilog RTL (faster than VHDL)
 # -trace_level none : no waveform dump (faster)
@@ -465,11 +464,8 @@ set_part xc7a50tcsg325-1
 create_clock -period 10
 # Step 1: C synthesis → generate RTL
 csynth_design
-# Step 2: Pre-create cosim wrapc working dir and copy test vectors.
-# The cosim C-TB runs from {proj}/sol1/sim/wrapc/ — must exist before cosim_design.
-file mkdir ${proj_dir}/sol1/sim/wrapc
-file copy -force ${tx_out}  ${proj_dir}/sol1/sim/wrapc/tb_tx_output_hls.txt
-file copy -force ${in_bits} ${proj_dir}/sol1/sim/wrapc/tb_input_to_tx.bin
+# Step 2: Set HLS_TBDATA_DIR so cosim.tv.exe finds test vectors regardless of CWD.
+set ::env(HLS_TBDATA_DIR) "$SCRIPT_DIR"
 # Step 3: RTL co-simulation (only ofdm_rx becomes RTL; rest of TB runs as C)
 cosim_design -rtl verilog -trace_level none -O -argv "--mod ${mod_arg}"
 puts "@I RX cosim complete"

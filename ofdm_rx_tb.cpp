@@ -31,6 +31,12 @@
 #include <cstring>
 #include <cmath>
 
+// tb_path: resolves a filename via HLS_TBDATA_DIR if set (cosim), else relative (csim).
+static std::string tb_path(const char* fname) {
+    const char* dir = std::getenv("HLS_TBDATA_DIR");
+    return dir ? (std::string(dir) + "/" + fname) : fname;
+}
+
 // Test configuration — must match TX testbench
 #define TB_N_SYMS    255
 #define TB_FEC_RATE  0    // 0 = rate 1/2, 1 = rate 2/3
@@ -58,7 +64,7 @@ int main(int argc, char* argv[]) {
     // ── Load TX output into IQ stream ─────────────────────────
     // File format: one "I Q\n" per line, floating-point values.
     // Convert to ap_fixed<16,1> (Q0.15).
-    std::ifstream ftx(TX_OUT_FILE);
+    std::ifstream ftx(tb_path(TX_OUT_FILE));
     if (!ftx.is_open()) {
         std::cerr << "[TB] ERROR: cannot open " << TX_OUT_FILE
                   << " — run TX C-sim first\n";
@@ -165,7 +171,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Write decoded bytes to file
-    std::ofstream frx(RX_OUT_FILE, std::ios::binary);
+    std::ofstream frx(tb_path(RX_OUT_FILE), std::ios::binary);
     if (!frx.is_open()) {
         std::cerr << "[TB] ERROR: cannot open " << RX_OUT_FILE << " for writing\n";
         return 1;
@@ -177,7 +183,7 @@ int main(int argc, char* argv[]) {
               << RX_OUT_FILE << "\n";
 
     // ── Compare with original bits ────────────────────────────
-    std::ifstream fref(IN_BITS_FILE, std::ios::binary);
+    std::ifstream fref(tb_path(IN_BITS_FILE), std::ios::binary);
     if (!fref.is_open()) {
         std::cerr << "[TB] WARNING: " << IN_BITS_FILE
                   << " not found — skipping BER check\n";

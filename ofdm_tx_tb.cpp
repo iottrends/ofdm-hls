@@ -16,6 +16,16 @@
 #include <iostream>
 #include <cstdlib>
 #include <cmath>
+#include <cstring>
+
+// tb_path: resolves a filename relative to HLS_TBDATA_DIR if set.
+// During C-sim  : env var unset → uses plain relative path (current dir = build/).
+// During RTL cosim: set HLS_TBDATA_DIR to project root in the TCL script so
+//                   cosim.tv.exe (which runs in wrapc/) can find the test vectors.
+static std::string tb_path(const char* fname) {
+    const char* dir = std::getenv("HLS_TBDATA_DIR");
+    return dir ? (std::string(dir) + "/" + fname) : fname;
+}
 
 // Test configuration — must match values used in ofdm_reference.py
 #define TB_N_SYMS   255
@@ -52,7 +62,7 @@ int main(int argc, char* argv[]) {
                                               : (total_coded * 2 / 3);
 
     // ── Load raw data bytes ───────────────────────────────────
-    std::ifstream fin(IN_FILE, std::ios::binary);
+    std::ifstream fin(tb_path(IN_FILE), std::ios::binary);
     if (!fin.is_open()) {
         std::cerr << "[TB] ERROR: cannot open " << IN_FILE
                   << " — run ofdm_reference.py first\n";
@@ -97,7 +107,7 @@ int main(int argc, char* argv[]) {
     // Includes preamble symbol + TB_N_SYMS data symbols.
     // Total expected samples: (TB_N_SYMS + 1) × (FFT_SIZE + CP_LEN)
     //                       = (4 + 1) × 288 = 1440
-    std::ofstream fout(OUT_FILE);
+    std::ofstream fout(tb_path(OUT_FILE));
     if (!fout.is_open()) {
         std::cerr << "[TB] ERROR: cannot open " << OUT_FILE << " for writing\n";
         return 1;
