@@ -1,0 +1,33 @@
+# Vitis HLS project directories (generated — large, not needed for source control)
+*_proj/
+
+# Vitis HLS log files
+*.log
+hs_err_pid*.log
+
+# Generated test vectors and IQ output files
+tb_input_to_tx.bin
+tb_tx_output_hls.txt
+tb_tx_output_hls_noise.txt
+tb_tx_output_ref.txt
+tb_rx_decoded_hls.bin
+tb_decoded_noisy.bin
+
+# Generated BER results and plots
+ber_results*.csv
+ber_vs_snr.csv
+*.png
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Temp TCL scripts written at runtime
+/tmp/ofdm*.tcl
+/tmp/ofdm_rx*.tcl
+/tmp/fec_csim.tcl
+/tmp/conv_enc_synth.tcl
+/tmp/viterbi_synth.tcl
+/tmp/sync_detect_synth.tcl
+/tmp/cfo_correct_synth.tcl
