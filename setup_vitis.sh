@@ -404,7 +404,6 @@ _write_tx_cosim_tcl() {
     local mod_arg="${1:-1}"
     local proj_dir="$SCRIPT_DIR/ofdm_tx_proj"
     local bits_src="$SCRIPT_DIR/tb_input_to_tx.bin"
-    local build_dir="${proj_dir}/sol1/sim/wrapc"
     cat > /tmp/ofdm_tx_cosim.tcl << EOF
 open_project ofdm_tx_proj
 set_top ofdm_tx
@@ -423,21 +422,14 @@ set_part xc7a50tcsg325-1
 create_clock -period 10
 # Step 1: C synthesis → generate RTL
 csynth_design
-# Step 2: Copy test vectors so cosim testbench can find them
-foreach dir {
-    ${proj_dir}/sol1/sim/wrapc
-    ${proj_dir}/sol1/sim/wrapc_pc
-    ${proj_dir}/sol1/sim
-    $SCRIPT_DIR
-} {
-    if {[file isdirectory \$dir] || \$dir eq "$SCRIPT_DIR"} {
-        catch {file copy -force ${bits_src} \$dir/tb_input_to_tx.bin}
-    }
-}
+# Step 2: Pre-create the cosim wrapc working dir and copy test vectors.
+# The cosim C-TB runs from {proj}/sol1/sim/wrapc/ — must exist before cosim_design.
+file mkdir ${proj_dir}/sol1/sim/wrapc
+file copy -force ${bits_src} ${proj_dir}/sol1/sim/wrapc/tb_input_to_tx.bin
 # Step 3: RTL co-simulation
-# -rtl verilog   : Verilog RTL (faster to simulate than VHDL)
-# -trace_level none : no waveform dump (much faster)
-# -O             : enable simulation optimisation
+# -rtl verilog      : Verilog RTL (faster than VHDL)
+# -trace_level none : no waveform dump (faster)
+# -O                : enable simulation optimisation
 cosim_design -rtl verilog -trace_level none -O -argv "--mod ${mod_arg}"
 puts "@I TX cosim complete"
 close_project
@@ -473,18 +465,11 @@ set_part xc7a50tcsg325-1
 create_clock -period 10
 # Step 1: C synthesis → generate RTL
 csynth_design
-# Step 2: Copy test vectors to all candidate cosim working dirs
-foreach dir {
-    ${proj_dir}/sol1/sim/wrapc
-    ${proj_dir}/sol1/sim/wrapc_pc
-    ${proj_dir}/sol1/sim
-    $SCRIPT_DIR
-} {
-    if {[file isdirectory \$dir] || \$dir eq "$SCRIPT_DIR"} {
-        catch {file copy -force ${tx_out}  \$dir/tb_tx_output_hls.txt}
-        catch {file copy -force ${in_bits} \$dir/tb_input_to_tx.bin}
-    }
-}
+# Step 2: Pre-create cosim wrapc working dir and copy test vectors.
+# The cosim C-TB runs from {proj}/sol1/sim/wrapc/ — must exist before cosim_design.
+file mkdir ${proj_dir}/sol1/sim/wrapc
+file copy -force ${tx_out}  ${proj_dir}/sol1/sim/wrapc/tb_tx_output_hls.txt
+file copy -force ${in_bits} ${proj_dir}/sol1/sim/wrapc/tb_input_to_tx.bin
 # Step 3: RTL co-simulation (only ofdm_rx becomes RTL; rest of TB runs as C)
 cosim_design -rtl verilog -trace_level none -O -argv "--mod ${mod_arg}"
 puts "@I RX cosim complete"
