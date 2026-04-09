@@ -400,6 +400,99 @@ exit
 EOF
 }
 
+_write_tx_cosim_tcl() {
+    local mod_arg="${1:-1}"
+    local proj_dir="$SCRIPT_DIR/ofdm_tx_proj"
+    local bits_src="$SCRIPT_DIR/tb_input_to_tx.bin"
+    local build_dir="${proj_dir}/sol1/sim/wrapc"
+    cat > /tmp/ofdm_tx_cosim.tcl << EOF
+open_project ofdm_tx_proj
+set_top ofdm_tx
+add_files ofdm_tx.cpp
+add_files ofdm_tx.h
+add_files scrambler.cpp
+add_files scrambler.h
+add_files interleaver.cpp
+add_files interleaver.h
+add_files conv_enc.cpp
+add_files viterbi_dec.cpp
+add_files conv_fec.h
+add_files -tb ofdm_tx_tb.cpp
+open_solution sol1 -reset
+set_part xc7a50tcsg325-1
+create_clock -period 10
+# Step 1: C synthesis → generate RTL
+csynth_design
+# Step 2: Copy test vectors so cosim testbench can find them
+foreach dir {
+    ${proj_dir}/sol1/sim/wrapc
+    ${proj_dir}/sol1/sim/wrapc_pc
+    ${proj_dir}/sol1/sim
+    $SCRIPT_DIR
+} {
+    if {[file isdirectory \$dir] || \$dir eq "$SCRIPT_DIR"} {
+        catch {file copy -force ${bits_src} \$dir/tb_input_to_tx.bin}
+    }
+}
+# Step 3: RTL co-simulation
+# -rtl verilog   : Verilog RTL (faster to simulate than VHDL)
+# -trace_level none : no waveform dump (much faster)
+# -O             : enable simulation optimisation
+cosim_design -rtl verilog -trace_level none -O -argv "--mod ${mod_arg}"
+puts "@I TX cosim complete"
+close_project
+exit
+EOF
+}
+
+_write_rx_cosim_tcl() {
+    local mod_arg="${1:-1}"
+    local proj_dir="$SCRIPT_DIR/ofdm_rx_proj"
+    local tx_out="$SCRIPT_DIR/tb_tx_output_hls.txt"
+    local in_bits="$SCRIPT_DIR/tb_input_to_tx.bin"
+    cat > /tmp/ofdm_rx_cosim.tcl << EOF
+open_project ofdm_rx_proj
+set_top ofdm_rx
+add_files ofdm_rx.cpp
+add_files ofdm_rx.h
+add_files ofdm_tx.h
+add_files sync_detect.cpp
+add_files sync_detect.h
+add_files cfo_correct.cpp
+add_files cfo_correct.h
+add_files scrambler.cpp
+add_files scrambler.h
+add_files interleaver.cpp
+add_files interleaver.h
+add_files conv_enc.cpp
+add_files viterbi_dec.cpp
+add_files conv_fec.h
+add_files -tb ofdm_rx_tb.cpp
+open_solution sol1 -reset
+set_part xc7a50tcsg325-1
+create_clock -period 10
+# Step 1: C synthesis → generate RTL
+csynth_design
+# Step 2: Copy test vectors to all candidate cosim working dirs
+foreach dir {
+    ${proj_dir}/sol1/sim/wrapc
+    ${proj_dir}/sol1/sim/wrapc_pc
+    ${proj_dir}/sol1/sim
+    $SCRIPT_DIR
+} {
+    if {[file isdirectory \$dir] || \$dir eq "$SCRIPT_DIR"} {
+        catch {file copy -force ${tx_out}  \$dir/tb_tx_output_hls.txt}
+        catch {file copy -force ${in_bits} \$dir/tb_input_to_tx.bin}
+    }
+}
+# Step 3: RTL co-simulation (only ofdm_rx becomes RTL; rest of TB runs as C)
+cosim_design -rtl verilog -trace_level none -O -argv "--mod ${mod_arg}"
+puts "@I RX cosim complete"
+close_project
+exit
+EOF
+}
+
 # ── Main: only runs when script is executed (not sourced) ─────
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -477,6 +570,22 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             "$VITIS_HLS_BIN" $VITIS_HLS_EXEC /tmp/cfo_correct_synth.tcl 2>&1 | tee vitis_cfo_correct_synth.log
             echo "[run] Log saved to vitis_cfo_correct_synth.log"
             ;;
+        tx_cosim)
+            echo "[run] TX RTL co-simulation (mod=${2:-1}) — csynth + cosim (slow, ~10-30 min)..."
+            _write_tx_cosim_tcl "${2:-1}"
+            cd "$SCRIPT_DIR"
+            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC /tmp/ofdm_tx_cosim.tcl 2>&1 | tee vitis_tx_cosim.log
+            echo "[run] Log saved to vitis_tx_cosim.log"
+            grep -E "@I|@E|PASS|FAIL|cosim|error" vitis_tx_cosim.log | tail -20
+            ;;
+        rx_cosim)
+            echo "[run] RX RTL co-simulation (mod=${2:-1}) — csynth + cosim (slow, ~20-60 min)..."
+            _write_rx_cosim_tcl "${2:-1}"
+            cd "$SCRIPT_DIR"
+            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC /tmp/ofdm_rx_cosim.tcl 2>&1 | tee vitis_rx_cosim.log
+            echo "[run] Log saved to vitis_rx_cosim.log"
+            grep -E "@I|@E|PASS|FAIL|cosim|error" vitis_rx_cosim.log | tail -20
+            ;;
         synth)
             echo "[run] Running C synthesis..."
             _write_synth_tcl
@@ -496,17 +605,27 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             ;;
         help|*)
             echo "Usage:"
-            echo "  source setup_vitis.sh          # set env in current shell"
-            echo "  ./setup_vitis.sh check         # verify vitis_hls launches"
-            echo "  ./setup_vitis.sh csim          # TX C simulation"
-            echo "  ./setup_vitis.sh rx_csim          # RX C simulation (requires tx csim output)
-  ./setup_vitis.sh rx_noisy_csim    # RX C simulation on noisy signal (requires ofdm_channel_sim.py output)"
-            echo "  ./setup_vitis.sh rx_synth          # RX (ofdm_rx) C synthesis"
-            echo "  ./setup_vitis.sh conv_enc_synth    # conv_enc FEC encoder C synthesis"
-            echo "  ./setup_vitis.sh viterbi_synth     # viterbi_dec FEC decoder C synthesis"
-            echo "  ./setup_vitis.sh sync_detect_synth # sync_detect timing+CFO C synthesis"
-            echo "  ./setup_vitis.sh cfo_correct_synth # cfo_correct phase rotation C synthesis"
-            echo "  ./setup_vitis.sh synth             # TX C synthesis"
+            echo "  source setup_vitis.sh              # set env in current shell"
+            echo "  ./setup_vitis.sh check             # verify vitis_hls launches"
+            echo ""
+            echo "  C Simulation:"
+            echo "  ./setup_vitis.sh csim [mod]        # TX C-sim  (mod: 0=QPSK 1=16QAM, default 1)"
+            echo "  ./setup_vitis.sh rx_csim           # RX C-sim  (requires tx csim output)"
+            echo "  ./setup_vitis.sh rx_noisy_csim     # RX C-sim on noisy signal"
+            echo "  ./setup_vitis.sh rx_noisy_build    # Build RX binary only (for BER sweep)"
+            echo "  ./setup_vitis.sh fec_csim          # FEC encode+decode loopback test"
+            echo ""
+            echo "  RTL Co-simulation (csynth + cosim — slow, 10-60 min):"
+            echo "  ./setup_vitis.sh tx_cosim [mod]    # TX RTL cosim: verifies ofdm_tx RTL vs C-sim"
+            echo "  ./setup_vitis.sh rx_cosim [mod]    # RX RTL cosim: verifies ofdm_rx RTL vs C-sim"
+            echo ""
+            echo "  C Synthesis (resource + timing reports):"
+            echo "  ./setup_vitis.sh synth             # TX (ofdm_tx) synthesis"
+            echo "  ./setup_vitis.sh rx_synth          # RX (ofdm_rx) synthesis"
+            echo "  ./setup_vitis.sh conv_enc_synth    # conv_enc synthesis"
+            echo "  ./setup_vitis.sh viterbi_synth     # viterbi_dec synthesis"
+            echo "  ./setup_vitis.sh sync_detect_synth # sync_detect synthesis"
+            echo "  ./setup_vitis.sh cfo_correct_synth # cfo_correct synthesis"
             echo "  ./setup_vitis.sh all               # TX csim + synth + report"
             ;;
     esac
