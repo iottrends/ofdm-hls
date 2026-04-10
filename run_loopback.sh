@@ -35,11 +35,11 @@ echo "======================================================"
 
 # ── Step 1: Generate bits + Python TX reference ───────────────
 header "Step 1 — Generate input bits + Python TX reference"
-log "Running: python3 ofdm_reference.py --gen"
+log "Running: python3 sim/ofdm_reference.py --gen"
 log "  Produces tb_input_to_tx.bin  : random bits (200 bytes, seed=42)"
 log "  Produces tb_tx_output_ref.txt: floating-point Python TX IQ samples"
 echo ""
-python3 ofdm_reference.py --gen
+python3 sim/ofdm_reference.py --gen
 pass "Input bits and Python TX reference generated"
 
 # ── Step 2: HLS TX C-sim ──────────────────────────────────────
@@ -59,11 +59,11 @@ fi
 
 # ── Step 3: TX EVM check ──────────────────────────────────────
 header "Step 3 — TX waveform quality check  (HLS IQ vs Python reference)"
-log "Running: python3 ofdm_reference.py --compare"
+log "Running: python3 sim/ofdm_reference.py --compare"
 log "  Compares tb_tx_output_hls.txt vs tb_tx_output_ref.txt sample-by-sample"
 log "  Reports EVM% — measures fixed-point quantisation error of the TX"
 echo ""
-evm_result=$(python3 ofdm_reference.py --compare)
+evm_result=$(python3 sim/ofdm_reference.py --compare)
 echo "$evm_result" | sed 's/^/  /'
 echo ""
 if echo "$evm_result" | grep -q "PASS"; then
@@ -91,13 +91,13 @@ fi
 
 # ── Step 5: Python reference decoder on HLS TX output ─────────
 header "Step 5 — Python reference decoder BER check  (independent verification)"
-log "Running: python3 ofdm_reference.py --decode-hls"
+log "Running: python3 sim/ofdm_reference.py --decode-hls"
 log "  Reads   tb_tx_output_hls.txt  : IQ from HLS TX"
 log "  Decodes using Python numpy FFT (float, no HLS RX involved)"
 log "  Compares decoded bytes vs tb_input_to_tx.bin → BER"
 log "  Purpose: confirms HLS TX output is decodable independently of HLS RX"
 echo ""
-dec_result=$(python3 ofdm_reference.py --decode-hls)
+dec_result=$(python3 sim/ofdm_reference.py --decode-hls)
 echo "$dec_result" | sed 's/^/  /'
 echo ""
 if echo "$dec_result" | grep -q "PASS"; then

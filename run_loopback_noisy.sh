@@ -47,11 +47,11 @@ echo "======================================================"
 
 # ── Step 1: Generate bits + Python TX reference ───────────────
 header "Step 1 — Generate input bits + Python TX reference"
-log "Running: python3 ofdm_reference.py --gen"
+log "Running: python3 sim/ofdm_reference.py --gen"
 log "  Produces tb_input_to_tx.bin   : random bits (200 bytes, seed=42)"
 log "  Produces tb_tx_output_ref.txt : floating-point Python TX IQ samples"
 echo ""
-python3 ofdm_reference.py --gen
+python3 sim/ofdm_reference.py --gen
 pass "Input bits and Python TX reference generated"
 
 # ── Step 2: HLS TX C-sim ──────────────────────────────────────
@@ -71,12 +71,12 @@ fi
 
 # ── Step 3: Add AWGN noise ────────────────────────────────────
 header "Step 3 — Add AWGN noise at SNR = ${SNR} dB"
-log "Running: python3 ofdm_channel_sim.py --snr ${SNR} --write-noisy"
+log "Running: python3 sim/ofdm_channel_sim.py --snr ${SNR} --write-noisy"
 log "  Reads    tb_tx_output_hls.txt         : clean HLS TX IQ"
 log "  Adds     AWGN noise at ${SNR} dB SNR"
 log "  Produces tb_tx_output_hls_noise.txt   : noisy IQ (quantised to ap_fixed<16,1>)"
 echo ""
-noise_result=$(python3 ofdm_channel_sim.py --snr "${SNR}" --write-noisy --input tb_tx_output_hls.txt)
+noise_result=$(python3 sim/ofdm_channel_sim.py --snr "${SNR}" --write-noisy --input tb_tx_output_hls.txt)
 echo "$noise_result" | sed 's/^/  /'
 echo ""
 if echo "$noise_result" | grep -q "Wrote"; then
@@ -111,13 +111,13 @@ fi
 
 # ── Step 5: Python reference decoder on noisy signal ─────────
 header "Step 5 — Python reference decoder on noisy signal  (independent check)"
-log "Running: python3 ofdm_reference.py --decode-hls (on noisy file)"
+log "Running: python3 sim/ofdm_reference.py --decode-hls (on noisy file)"
 log "  Reads    tb_tx_output_hls_noise.txt   : noisy IQ"
 log "  Decodes  using Python numpy FFT (float, no HLS RX involved)"
 log "  Compares decoded bytes vs tb_input_to_tx.bin → BER"
 log "  Purpose: baseline — what BER does float arithmetic achieve at ${SNR} dB?"
 echo ""
-dec_result=$(python3 ofdm_reference.py --decode-hls --input tb_tx_output_hls_noise.txt)
+dec_result=$(python3 sim/ofdm_reference.py --decode-hls --input tb_tx_output_hls_noise.txt)
 echo "$dec_result" | sed 's/^/  /'
 echo ""
 py_bit_errors=$(echo "$dec_result" | grep "Bit  errors" | awk '{print $5}' | head -1)

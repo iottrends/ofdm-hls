@@ -23,11 +23,11 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Temp TCL scripts written at runtime
-/tmp/ofdm*.tcl
-/tmp/ofdm_rx*.tcl
+# Temp TCL scripts written at runtime (csim/cosim flows only — synth flows live in tcl/)
+/tmp/ofdm_csim.tcl
+/tmp/ofdm_rx_csim.tcl
+/tmp/ofdm_rx_noisy_csim.tcl
+/tmp/ofdm_rx_noisy_build.tcl
 /tmp/fec_csim.tcl
-/tmp/conv_enc_synth.tcl
-/tmp/viterbi_synth.tcl
-/tmp/sync_detect_synth.tcl
-/tmp/cfo_correct_synth.tcl
+/tmp/ofdm_tx_cosim.tcl
+/tmp/ofdm_rx_cosim.tcl

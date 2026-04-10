@@ -65,18 +65,18 @@ _write_csim_tcl() {
     local build_dir="${proj_dir}/sol1/csim/build"
     local ld_path="/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fft_v9_1:/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fpo_v7_1:/home/abhinavb/Xilinx/2025.2/Vitis/tps/lnx64/gcc-8.3.0/lib"
     cat > /tmp/ofdm_csim.tcl << EOF
-open_project ofdm_tx_proj
+open_project -reset ofdm_tx_proj
 set_top ofdm_tx
-add_files ofdm_tx.cpp
-add_files ofdm_tx.h
-add_files scrambler.cpp
-add_files scrambler.h
-add_files interleaver.cpp
-add_files interleaver.h
-add_files conv_enc.cpp
-add_files viterbi_dec.cpp
-add_files conv_fec.h
-add_files -tb ofdm_tx_tb.cpp
+add_files src/ofdm_tx.cpp
+add_files src/ofdm_tx.h
+add_files src/scrambler.cpp
+add_files src/scrambler.h
+add_files src/interleaver.cpp
+add_files src/interleaver.h
+add_files src/conv_enc.cpp
+add_files src/viterbi_dec.cpp
+add_files src/conv_fec.h
+add_files -tb tb/ofdm_tx_tb.cpp -cflags "-I./src"
 open_solution sol1 -reset
 set_part xc7a50tcsg325-1
 create_clock -period 10
@@ -109,23 +109,23 @@ _write_rx_csim_tcl() {
     local build_dir="${proj_dir}/sol1/csim/build"
     local ld_path="/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fft_v9_1:/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fpo_v7_1:/home/abhinavb/Xilinx/2025.2/Vitis/tps/lnx64/gcc-8.3.0/lib"
     cat > /tmp/ofdm_rx_csim.tcl << EOF
-open_project ofdm_rx_proj
+open_project -reset ofdm_rx_proj
 set_top ofdm_rx
-add_files ofdm_rx.cpp
-add_files ofdm_tx.h
-add_files ofdm_rx.h
-add_files sync_detect.cpp
-add_files sync_detect.h
-add_files cfo_correct.cpp
-add_files cfo_correct.h
-add_files scrambler.cpp
-add_files scrambler.h
-add_files interleaver.cpp
-add_files interleaver.h
-add_files conv_enc.cpp
-add_files viterbi_dec.cpp
-add_files conv_fec.h
-add_files -tb ofdm_rx_tb.cpp
+add_files src/ofdm_rx.cpp
+add_files src/ofdm_tx.h
+add_files src/ofdm_rx.h
+add_files src/sync_detect.cpp
+add_files src/sync_detect.h
+add_files src/cfo_correct.cpp
+add_files src/cfo_correct.h
+add_files src/scrambler.cpp
+add_files src/scrambler.h
+add_files src/interleaver.cpp
+add_files src/interleaver.h
+add_files src/conv_enc.cpp
+add_files src/viterbi_dec.cpp
+add_files src/conv_fec.h
+add_files -tb tb/ofdm_rx_tb.cpp -cflags "-I./src"
 open_solution sol1 -reset
 set_part xc7a50tcsg325-1
 create_clock -period 10
@@ -161,23 +161,23 @@ _write_rx_noisy_csim_tcl() {
     local build_dir="${proj_dir}/sol1/csim/build"
     local ld_path="/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fft_v9_1:/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fpo_v7_1:/home/abhinavb/Xilinx/2025.2/Vitis/tps/lnx64/gcc-8.3.0/lib"
     cat > /tmp/ofdm_rx_noisy_csim.tcl << EOF
-open_project ofdm_rx_proj
+open_project -reset ofdm_rx_proj
 set_top ofdm_rx
-add_files ofdm_rx.cpp
-add_files ofdm_tx.h
-add_files ofdm_rx.h
-add_files sync_detect.cpp
-add_files sync_detect.h
-add_files cfo_correct.cpp
-add_files cfo_correct.h
-add_files scrambler.cpp
-add_files scrambler.h
-add_files interleaver.cpp
-add_files interleaver.h
-add_files conv_enc.cpp
-add_files viterbi_dec.cpp
-add_files conv_fec.h
-add_files -tb ofdm_rx_tb.cpp
+add_files src/ofdm_rx.cpp
+add_files src/ofdm_tx.h
+add_files src/ofdm_rx.h
+add_files src/sync_detect.cpp
+add_files src/sync_detect.h
+add_files src/cfo_correct.cpp
+add_files src/cfo_correct.h
+add_files src/scrambler.cpp
+add_files src/scrambler.h
+add_files src/interleaver.cpp
+add_files src/interleaver.h
+add_files src/conv_enc.cpp
+add_files src/viterbi_dec.cpp
+add_files src/conv_fec.h
+add_files -tb tb/ofdm_rx_tb.cpp -cflags "-I./src"
 open_solution sol1 -reset
 set_part xc7a50tcsg325-1
 create_clock -period 10
@@ -208,23 +208,23 @@ _write_rx_noisy_build_tcl() {
     local build_dir="${proj_dir}/sol1/csim/build"
     local ld_path="/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fft_v9_1:/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fpo_v7_1:/home/abhinavb/Xilinx/2025.2/Vitis/tps/lnx64/gcc-8.3.0/lib"
     cat > /tmp/ofdm_rx_noisy_build.tcl << EOF
-open_project ofdm_rx_proj
+open_project -reset ofdm_rx_proj
 set_top ofdm_rx
-add_files ofdm_rx.cpp
-add_files ofdm_tx.h
-add_files ofdm_rx.h
-add_files sync_detect.cpp
-add_files sync_detect.h
-add_files cfo_correct.cpp
-add_files cfo_correct.h
-add_files scrambler.cpp
-add_files scrambler.h
-add_files interleaver.cpp
-add_files interleaver.h
-add_files conv_enc.cpp
-add_files viterbi_dec.cpp
-add_files conv_fec.h
-add_files -tb ofdm_rx_tb.cpp
+add_files src/ofdm_rx.cpp
+add_files src/ofdm_tx.h
+add_files src/ofdm_rx.h
+add_files src/sync_detect.cpp
+add_files src/sync_detect.h
+add_files src/cfo_correct.cpp
+add_files src/cfo_correct.h
+add_files src/scrambler.cpp
+add_files src/scrambler.h
+add_files src/interleaver.cpp
+add_files src/interleaver.h
+add_files src/conv_enc.cpp
+add_files src/viterbi_dec.cpp
+add_files src/conv_fec.h
+add_files -tb tb/ofdm_rx_tb.cpp -cflags "-I./src"
 open_solution sol1 -reset
 set_part xc7a50tcsg325-1
 create_clock -period 10
@@ -240,12 +240,12 @@ _write_fec_csim_tcl() {
     local build_dir="${proj_dir}/sol1/csim/build"
     local ld_path="/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fft_v9_1:/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fpo_v7_1:/home/abhinavb/Xilinx/2025.2/Vitis/tps/lnx64/gcc-8.3.0/lib"
     cat > /tmp/fec_csim.tcl << EOF
-open_project conv_fec_proj
+open_project -reset conv_fec_proj
 set_top conv_enc
-add_files conv_enc.cpp
-add_files viterbi_dec.cpp
-add_files conv_fec.h
-add_files -tb conv_fec_tb.cpp
+add_files src/conv_enc.cpp
+add_files src/viterbi_dec.cpp
+add_files src/conv_fec.h
+add_files -tb tb/conv_fec_tb.cpp -cflags "-I./src"
 open_solution sol1 -reset
 set_part xc7a50tcsg325-1
 create_clock -period 10
@@ -262,161 +262,25 @@ exit
 EOF
 }
 
-_write_synth_tcl() {
-    cat > /tmp/ofdm_synth.tcl << 'EOF'
-open_project ofdm_tx_proj
-set_top ofdm_tx
-add_files ofdm_tx.cpp
-add_files ofdm_tx.h
-open_solution sol1
-set_part xc7a50tcsg325-1
-create_clock -period 10
-csynth_design
-close_project
-exit
-EOF
-}
-
-_write_rx_synth_tcl() {
-    cat > /tmp/ofdm_rx_synth.tcl << 'EOF'
-open_project ofdm_rx_proj
-set_top ofdm_rx
-add_files ofdm_rx.cpp
-add_files ofdm_rx.h
-add_files ofdm_tx.h
-open_solution sol1
-set_part xc7a50tcsg325-1
-create_clock -period 10
-csynth_design
-puts "\n=== RX Synthesis Report ==="
-set rpt [open ofdm_rx_proj/sol1/syn/report/ofdm_rx_csynth.rpt r]
-puts [read $rpt]
-close $rpt
-close_project
-exit
-EOF
-}
-
-_write_conv_enc_synth_tcl() {
-    cat > /tmp/conv_enc_synth.tcl << 'EOF'
-open_project conv_enc_proj
-set_top conv_enc
-add_files conv_enc.cpp
-add_files conv_fec.h
-open_solution sol1 -reset
-set_part xc7a50tcsg325-1
-create_clock -period 10
-csynth_design
-puts "\n=== conv_enc Synthesis Report ==="
-set rpt [open conv_enc_proj/sol1/syn/report/conv_enc_csynth.rpt r]
-puts [read $rpt]
-close $rpt
-close_project
-exit
-EOF
-}
-
-_write_viterbi_synth_tcl() {
-    cat > /tmp/viterbi_synth.tcl << 'EOF'
-open_project viterbi_proj
-set_top viterbi_dec
-add_files viterbi_dec.cpp
-add_files conv_fec.h
-open_solution sol1 -reset
-set_part xc7a50tcsg325-1
-create_clock -period 10
-csynth_design
-puts "\n=== viterbi_dec Synthesis Report ==="
-set rpt [open viterbi_proj/sol1/syn/report/viterbi_dec_csynth.rpt r]
-puts [read $rpt]
-close $rpt
-close_project
-exit
-EOF
-}
-
-_write_sync_detect_synth_tcl() {
-    cat > /tmp/sync_detect_synth.tcl << 'EOF'
-open_project sync_detect_proj
-set_top sync_detect
-add_files sync_detect.cpp
-add_files sync_detect.h
-add_files ofdm_rx.h
-add_files ofdm_tx.h
-open_solution sol1 -reset
-set_part xc7a50tcsg325-1
-create_clock -period 10
-csynth_design
-puts "\n=== sync_detect Synthesis Report ==="
-set rpt [open sync_detect_proj/sol1/syn/report/sync_detect_csynth.rpt r]
-puts [read $rpt]
-close $rpt
-close_project
-exit
-EOF
-}
-
-_write_cfo_correct_synth_tcl() {
-    cat > /tmp/cfo_correct_synth.tcl << 'EOF'
-open_project cfo_correct_proj
-set_top cfo_correct
-add_files cfo_correct.cpp
-add_files cfo_correct.h
-add_files sync_detect.h
-add_files ofdm_rx.h
-add_files ofdm_tx.h
-open_solution sol1 -reset
-set_part xc7a50tcsg325-1
-create_clock -period 10
-csynth_design
-puts "\n=== cfo_correct Synthesis Report ==="
-set rpt [open cfo_correct_proj/sol1/syn/report/cfo_correct_csynth.rpt r]
-puts [read $rpt]
-close $rpt
-close_project
-exit
-EOF
-}
-
-_write_all_tcl() {
-    cat > /tmp/ofdm_all.tcl << 'EOF'
-open_project ofdm_tx_proj
-set_top ofdm_tx
-add_files ofdm_tx.cpp
-add_files ofdm_tx.h
-add_files -tb ofdm_tx_tb.cpp
-open_solution sol1 -reset
-set_part xc7a50tcsg325-1
-create_clock -period 10
-# C simulation
-csim_design
-# C synthesis
-csynth_design
-# Export report
-puts "=== Synthesis Report ==="
-puts [read [open ofdm_tx_proj/sol1/syn/report/ofdm_tx_csynth.rpt]]
-close_project
-exit
-EOF
-}
+# Synth TCL scripts live as static files in tcl/ — no generation needed.
 
 _write_tx_cosim_tcl() {
     local mod_arg="${1:-1}"
     local proj_dir="$SCRIPT_DIR/ofdm_tx_proj"
     local bits_src="$SCRIPT_DIR/tb_input_to_tx.bin"
     cat > /tmp/ofdm_tx_cosim.tcl << EOF
-open_project ofdm_tx_proj
+open_project -reset ofdm_tx_proj
 set_top ofdm_tx
-add_files ofdm_tx.cpp
-add_files ofdm_tx.h
-add_files scrambler.cpp
-add_files scrambler.h
-add_files interleaver.cpp
-add_files interleaver.h
-add_files conv_enc.cpp
-add_files viterbi_dec.cpp
-add_files conv_fec.h
-add_files -tb ofdm_tx_tb.cpp
+add_files src/ofdm_tx.cpp
+add_files src/ofdm_tx.h
+add_files src/scrambler.cpp
+add_files src/scrambler.h
+add_files src/interleaver.cpp
+add_files src/interleaver.h
+add_files src/conv_enc.cpp
+add_files src/viterbi_dec.cpp
+add_files src/conv_fec.h
+add_files -tb tb/ofdm_tx_tb.cpp -cflags "-I./src"
 open_solution sol1 -reset
 set_part xc7a50tcsg325-1
 create_clock -period 10
@@ -442,23 +306,23 @@ _write_rx_cosim_tcl() {
     local tx_out="$SCRIPT_DIR/tb_tx_output_hls.txt"
     local in_bits="$SCRIPT_DIR/tb_input_to_tx.bin"
     cat > /tmp/ofdm_rx_cosim.tcl << EOF
-open_project ofdm_rx_proj
+open_project -reset ofdm_rx_proj
 set_top ofdm_rx
-add_files ofdm_rx.cpp
-add_files ofdm_rx.h
-add_files ofdm_tx.h
-add_files sync_detect.cpp
-add_files sync_detect.h
-add_files cfo_correct.cpp
-add_files cfo_correct.h
-add_files scrambler.cpp
-add_files scrambler.h
-add_files interleaver.cpp
-add_files interleaver.h
-add_files conv_enc.cpp
-add_files viterbi_dec.cpp
-add_files conv_fec.h
-add_files -tb ofdm_rx_tb.cpp
+add_files src/ofdm_rx.cpp
+add_files src/ofdm_rx.h
+add_files src/ofdm_tx.h
+add_files src/sync_detect.cpp
+add_files src/sync_detect.h
+add_files src/cfo_correct.cpp
+add_files src/cfo_correct.h
+add_files src/scrambler.cpp
+add_files src/scrambler.h
+add_files src/interleaver.cpp
+add_files src/interleaver.h
+add_files src/conv_enc.cpp
+add_files src/viterbi_dec.cpp
+add_files src/conv_fec.h
+add_files -tb tb/ofdm_rx_tb.cpp -cflags "-I./src"
 open_solution sol1 -reset
 set_part xc7a50tcsg325-1
 create_clock -period 10
@@ -518,37 +382,32 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             ;;
         rx_synth)
             echo "[run] Running RX C synthesis..."
-            _write_rx_synth_tcl
             cd "$SCRIPT_DIR"
-            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC /tmp/ofdm_rx_synth.tcl 2>&1 | tee vitis_rx_synth.log
+            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_rx.tcl 2>&1 | tee vitis_rx_synth.log
             echo "[run] Log saved to vitis_rx_synth.log"
             ;;
         conv_enc_synth)
             echo "[run] Running conv_enc C synthesis..."
-            _write_conv_enc_synth_tcl
             cd "$SCRIPT_DIR"
-            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC /tmp/conv_enc_synth.tcl 2>&1 | tee vitis_conv_enc_synth.log
+            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_conv_enc.tcl 2>&1 | tee vitis_conv_enc_synth.log
             echo "[run] Log saved to vitis_conv_enc_synth.log"
             ;;
         viterbi_synth)
             echo "[run] Running viterbi_dec C synthesis..."
-            _write_viterbi_synth_tcl
             cd "$SCRIPT_DIR"
-            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC /tmp/viterbi_synth.tcl 2>&1 | tee vitis_viterbi_synth.log
+            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_viterbi.tcl 2>&1 | tee vitis_viterbi_synth.log
             echo "[run] Log saved to vitis_viterbi_synth.log"
             ;;
         sync_detect_synth)
             echo "[run] Running sync_detect C synthesis..."
-            _write_sync_detect_synth_tcl
             cd "$SCRIPT_DIR"
-            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC /tmp/sync_detect_synth.tcl 2>&1 | tee vitis_sync_detect_synth.log
+            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_sync_detect.tcl 2>&1 | tee vitis_sync_detect_synth.log
             echo "[run] Log saved to vitis_sync_detect_synth.log"
             ;;
         cfo_correct_synth)
             echo "[run] Running cfo_correct C synthesis..."
-            _write_cfo_correct_synth_tcl
             cd "$SCRIPT_DIR"
-            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC /tmp/cfo_correct_synth.tcl 2>&1 | tee vitis_cfo_correct_synth.log
+            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_cfo_correct.tcl 2>&1 | tee vitis_cfo_correct_synth.log
             echo "[run] Log saved to vitis_cfo_correct_synth.log"
             ;;
         tx_cosim)
@@ -569,16 +428,14 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             ;;
         synth)
             echo "[run] Running C synthesis..."
-            _write_synth_tcl
             cd "$SCRIPT_DIR"
-            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC /tmp/ofdm_synth.tcl 2>&1 | tee vitis_synth.log
+            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_tx.tcl 2>&1 | tee vitis_synth.log
             echo "[run] Log saved to vitis_synth.log"
             ;;
         all)
             echo "[run] Running csim + synthesis..."
-            _write_all_tcl
             cd "$SCRIPT_DIR"
-            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC /tmp/ofdm_all.tcl 2>&1 | tee vitis_all.log
+            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_all.tcl 2>&1 | tee vitis_all.log
             echo "[run] Log saved to vitis_all.log"
             ;;
         check)

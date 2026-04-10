@@ -20,7 +20,7 @@
 #
 # Output:
 #   ber_results.csv  — raw per-frame results
-#   (run python3 plot_ber.py to generate plots)
+#   (run python3 sim/plot_ber.py to generate plots)
 # ============================================================
 
 set -e
@@ -83,7 +83,7 @@ echo "======================================================"
 hdr "Step 1 — Generate input bits and HLS TX IQ"
 info "Generates tb_input_to_tx.bin and runs HLS TX C-sim → tb_tx_output_hls.txt"
 echo ""
-python3 ofdm_reference.py --gen --mod $MOD
+python3 sim/ofdm_reference.py --gen --mod $MOD
 ./setup_vitis.sh csim $MOD 2>&1 | grep -E "@I|@E|error" || true
 if [ ! -f tb_tx_output_hls.txt ]; then
     err "HLS TX C-sim failed — tb_tx_output_hls.txt not found"
@@ -131,7 +131,7 @@ for CHANNEL in $CHANNELS; do
                      $(echo "$CHANNEL" | cksum | awk '{print $1}') % 997 ))
 
             # Generate noisy IQ file
-            python3 ofdm_channel_sim.py \
+            python3 sim/ofdm_channel_sim.py \
                 --channel    "$CHANNEL"    \
                 --snr        "$SNR"        \
                 --seed       "$SEED"       \
@@ -198,7 +198,7 @@ echo "======================================================"
 echo "  BER SWEEP COMPLETE"
 echo "======================================================"
 echo "  Results  : $CSV_FILE"
-echo "  Plot     : python3 plot_ber.py $CSV_FILE  →  ${CSV_FILE%.csv}.png"
+echo "  Plot     : python3 sim/plot_ber.py $CSV_FILE  →  ${CSV_FILE%.csv}.png"
 echo ""
 echo "  High-SNR pass (BER=0 at ≥20 dB): $TOTAL_PASS / $TOTAL_POINTS points"
 echo "======================================================"
