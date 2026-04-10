@@ -25,7 +25,6 @@
 #include "ap_fixed.h"
 #include "ap_int.h"
 #include "hls_stream.h"
-#include "hls_fft.h"
 #include <complex>
 
 // ── System Parameters ────────────────────────────────────────
@@ -54,29 +53,18 @@ struct iq_t {
     ap_uint<1> last;  // AXI TLAST: 1 on final sample of packet
 };
 
-// ── Xilinx FFT IP Configuration ──────────────────────────────
-// Replace hls::fft<fft_cfg>() with Vivado IP if preferred.
-struct fft_cfg : hls::ip_fft::params_t {
-    // 2025.2 API: use new field names only
-    static const unsigned log2_transform_length                              = 8;     // 2^8 = 256 pts
-    static const bool     run_time_configurable_transform_length             = false;
-    static const unsigned implementation_options                             = hls::ip_fft::pipelined_streaming_io;
-    static const unsigned output_ordering                                    = hls::ip_fft::natural_order;
-    static const bool     ovflo                                              = false;
-    static const unsigned input_width                                        = 16;
-    static const unsigned output_width                                       = 16;
-};
-
 // ── Top-Level Function ───────────────────────────────────────
-// bits_in  : raw bit stream, 1 byte per call
-//            QPSK  → lower 2 bits used per subcarrier (200 bytes/symbol)
-//            16QAM → lower 4 bits used per subcarrier (200 bytes/symbol)
-// iq_out   : AXI-Stream IQ samples, TLAST on last sample of last symbol
-// mod      : 0=QPSK, 1=16QAM
-// n_syms   : number of OFDM data symbols to transmit (not counting preamble)
+// bits_in   : raw bit stream (QPSK: 50 bytes/sym, 16QAM: 100 bytes/sym)
+// iq_out    : AXI-Stream IQ samples, TLAST on last sample of last symbol
+// ifft_in   : freq-domain data to external xfft IP (ofdm_tx → xfft)
+// ifft_out  : time-domain data from external xfft IP (xfft → ofdm_tx)
+// mod       : 0=QPSK, 1=16QAM
+// n_syms    : number of OFDM data symbols (not counting preamble/header)
 void ofdm_tx(
     hls::stream<ap_uint<8>> &bits_in,
     hls::stream<iq_t>        &iq_out,
+    hls::stream<iq_t>        &ifft_in,
+    hls::stream<iq_t>        &ifft_out,
     mod_t                     mod,
     ap_uint<8>                n_syms
 );

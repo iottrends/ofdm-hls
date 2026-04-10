@@ -44,6 +44,11 @@ void viterbi_dec(
     rate_t rate,
     int    n_data_bytes)
 {
+#pragma HLS INTERFACE axis      port=coded_in
+#pragma HLS INTERFACE axis      port=data_out
+#pragma HLS INTERFACE s_axilite port=rate         bundle=ctrl
+#pragma HLS INTERFACE s_axilite port=n_data_bytes bundle=ctrl
+#pragma HLS INTERFACE s_axilite port=return       bundle=ctrl
     // Path metrics — complete partition (flip-flop registers, free read ports).
     // Within a batch of 16 consecutive sp values, all p0 indices are distinct
     // (batch 0: p0 ∈ {0,2,...,30}; batch 1: {32,...,62}) → no read conflicts.

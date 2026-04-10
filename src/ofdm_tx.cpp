@@ -2,6 +2,7 @@
 // ofdm_tx.cpp  —  OFDM Transmitter (Vitis HLS)
 // ============================================================
 #include "ofdm_tx.h"
+#include <cmath>
 
 // ============================================================
 // SECTION 1: ROM Tables
@@ -228,24 +229,71 @@ static void fill_freq_buffer(
 // Separate in/out arrays are required for DATAFLOW so HLS can
 // insert ping-pong buffers between this stage and its neighbours.
 // ============================================================
+// Stream 256 freq-domain samples to the external xfft IP and read back
+// 256 time-domain samples.  The xfft core is configured for 256-pt IFFT
+// with scale_sch=0xAA (÷256 total) via its s_axis_config port in the BD.
 static void run_ifft(
-    csample_t in[FFT_SIZE],
-    csample_t out[FFT_SIZE]
+    csample_t          in[FFT_SIZE],
+    csample_t          out[FFT_SIZE],
+    hls::stream<iq_t> &ifft_in,
+    hls::stream<iq_t> &ifft_out
 ) {
     #pragma HLS INLINE off
 
-    // 2025.2 new API: fft<config>(in, out, fwd_inv, scale_sch)
-    // fwd_inv = false → inverse IFFT
-    //
-    // pipelined_streaming_io = Radix-4: 4 stages (4^4=256), 2 bits/stage.
-    // Only lower 8 bits of scale_sch used. Encoding: 00=÷1, 01=÷2, 10=÷4, 11=÷8
-    //
-    // scale_sch = 0xAA = 10_10_10_10
-    //   → each stage ÷4  →  total ÷4^4 = ÷256 = ÷N
-    //   → matches np.fft.ifft normalization exactly.
-    hls::fft<fft_cfg>(in, out,
-                      /*fwd_inv=*/false,
-                      /*scale_sch=*/0xAA);
+#ifndef __SYNTHESIS__
+    // C-sim: radix-2 Cooley-Tukey IFFT, matches hardware xfft scale_sch=0xAA (÷N).
+    float re[FFT_SIZE], im[FFT_SIZE];
+    for (int i = 0; i < FFT_SIZE; i++) {
+        re[i] = (float)in[i].real();
+        im[i] = (float)in[i].imag();
+    }
+    // Bit-reversal permutation
+    for (int i = 1, j = 0; i < FFT_SIZE; i++) {
+        int bit = FFT_SIZE >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j ^= bit;
+        if (i < j) {
+            float t;
+            t = re[i]; re[i] = re[j]; re[j] = t;
+            t = im[i]; im[i] = im[j]; im[j] = t;
+        }
+    }
+    // Butterfly stages — inverse: twiddle = exp(+j2π/len)
+    for (int len = 2; len <= FFT_SIZE; len <<= 1) {
+        float ang = +2.0f * 3.14159265f / len;
+        float wre = cosf(ang), wim = sinf(ang);
+        for (int i = 0; i < FFT_SIZE; i += len) {
+            float cr = 1.0f, ci = 0.0f;
+            for (int k = 0; k < len / 2; k++) {
+                float ur = re[i+k],           ui = im[i+k];
+                float vr = re[i+k+len/2]*cr - im[i+k+len/2]*ci;
+                float vi = re[i+k+len/2]*ci + im[i+k+len/2]*cr;
+                re[i+k]       = ur + vr;  im[i+k]       = ui + vi;
+                re[i+k+len/2] = ur - vr;  im[i+k+len/2] = ui - vi;
+                float nr = cr*wre - ci*wim;  ci = cr*wim + ci*wre;  cr = nr;
+            }
+        }
+    }
+    // Scale by 1/N
+    for (int i = 0; i < FFT_SIZE; i++)
+        out[i] = csample_t((sample_t)(re[i] / FFT_SIZE), (sample_t)(im[i] / FFT_SIZE));
+    (void)ifft_in; (void)ifft_out;
+#else
+    IFFT_TX: for (int i = 0; i < FFT_SIZE; i++) {
+        #pragma HLS PIPELINE II=1
+        iq_t s;
+        s.i    = in[i].real();
+        s.q    = in[i].imag();
+        s.last = (i == FFT_SIZE - 1) ? ap_uint<1>(1) : ap_uint<1>(0);
+        ifft_in.write(s);
+    }
+
+    IFFT_RX: for (int i = 0; i < FFT_SIZE; i++) {
+        #pragma HLS PIPELINE II=1
+        iq_t s = ifft_out.read();
+        out[i] = csample_t(s.i, s.q);
+    }
+#endif
 }
 
 // ============================================================
@@ -301,26 +349,27 @@ static void insert_cp_and_send(
 static void process_symbol(
     hls::stream<ap_uint<8>> &bits_in,
     hls::stream<iq_t>        &iq_out,
+    hls::stream<iq_t>        &ifft_in,
+    hls::stream<iq_t>        &ifft_out,
     mod_t                     mod,
     bool                      is_last
 ) {
     #pragma HLS INLINE off
-    #pragma HLS DATAFLOW
+    // DATAFLOW removed: external stream IFFT cannot pipeline across symbols
+    // on the same port — sequential execution is correct and simpler.
 
-    // Inter-stage FIFO: between unpack and fill.
-    // Depth = NUM_DATA_SC so unpack can run ahead of fill.
     hls::stream<ap_uint<4>> sym_fifo("sym_fifo");
     #pragma HLS STREAM variable=sym_fifo depth=NUM_DATA_SC
 
-    // Inter-stage arrays: HLS inserts ping-pong buffers automatically
-    // because each array has exactly one writer and one reader.
     csample_t freq_buf[FFT_SIZE];
     csample_t time_buf[FFT_SIZE];
+    #pragma HLS BIND_STORAGE variable=freq_buf type=RAM_1P impl=BRAM
+    #pragma HLS BIND_STORAGE variable=time_buf type=RAM_1P impl=BRAM
 
-    unpack_bits(bits_in, sym_fifo, mod);         // Stage 1
-    fill_freq_buffer(sym_fifo, freq_buf, mod);   // Stage 2
-    run_ifft(freq_buf, time_buf);                // Stage 3
-    insert_cp_and_send(time_buf, iq_out, is_last); // Stage 4
+    unpack_bits(bits_in, sym_fifo, mod);
+    fill_freq_buffer(sym_fifo, freq_buf, mod);
+    run_ifft(freq_buf, time_buf, ifft_in, ifft_out);
+    insert_cp_and_send(time_buf, iq_out, is_last);
 }
 
 // ============================================================
@@ -329,14 +378,18 @@ static void process_symbol(
 // Called sequentially by send_preamble and send_header.
 // INLINE off → one RTL module; both callers share it.
 // ============================================================
-static void send_freq_symbol(csample_t freq[FFT_SIZE],
-                              hls::stream<iq_t> &out,
-                              bool is_last) {
+static void send_freq_symbol(
+    csample_t          freq[FFT_SIZE],
+    hls::stream<iq_t> &out,
+    hls::stream<iq_t> &ifft_in,
+    hls::stream<iq_t> &ifft_out,
+    bool               is_last
+) {
     #pragma HLS INLINE off
     csample_t time_buf[FFT_SIZE];
-    #pragma HLS ARRAY_PARTITION variable=time_buf cyclic factor=4
+    #pragma HLS BIND_STORAGE variable=time_buf type=RAM_1P impl=BRAM
 
-    run_ifft(freq, time_buf);
+    run_ifft(freq, time_buf, ifft_in, ifft_out);
     insert_cp_and_send(time_buf, out, is_last);
 }
 
@@ -350,11 +403,15 @@ static void send_freq_symbol(csample_t freq[FFT_SIZE],
 // Pilot bins carry BPSK +1 (same as data symbols) for
 // consistency; data bins carry the precomputed ZC LUT values.
 // ============================================================
-static void send_preamble(hls::stream<iq_t> &out) {
+static void send_preamble(
+    hls::stream<iq_t> &out,
+    hls::stream<iq_t> &ifft_in,
+    hls::stream<iq_t> &ifft_out
+) {
     #pragma HLS INLINE  // inlined into ofdm_tx so send_freq_symbol can be shared
 
     csample_t freq[FFT_SIZE];
-    #pragma HLS ARRAY_PARTITION variable=freq cyclic factor=4
+    #pragma HLS BIND_STORAGE variable=freq type=RAM_1P impl=BRAM
 
     // Zero all bins
     PRE_ZERO: for (int i = 0; i < FFT_SIZE; i++) {
@@ -375,7 +432,7 @@ static void send_preamble(hls::stream<iq_t> &out) {
     }
 
     // Preamble is never the last symbol (header follows)
-    send_freq_symbol(freq, out, false);
+    send_freq_symbol(freq, out, ifft_in, ifft_out, false);
 }
 
 // ============================================================
@@ -412,7 +469,13 @@ static ap_uint<16> crc16_hdr(ap_uint<10> data) {
 // Pilots at PILOT_IDX carry +1 (BPSK, same as preamble and data symbols).
 // Header is never the last symbol (data follows).
 // ============================================================
-static void send_header(hls::stream<iq_t> &out, mod_t mod, ap_uint<8> n_syms) {
+static void send_header(
+    hls::stream<iq_t> &out,
+    hls::stream<iq_t> &ifft_in,
+    hls::stream<iq_t> &ifft_out,
+    mod_t              mod,
+    ap_uint<8>         n_syms
+) {
     #pragma HLS INLINE  // inlined into ofdm_tx so send_freq_symbol can be shared
 
     // Build 26-bit header word
@@ -421,7 +484,7 @@ static void send_header(hls::stream<iq_t> &out, mod_t mod, ap_uint<8> n_syms) {
     ap_uint<26> hdr     = ((ap_uint<26>)crc << 10) | (ap_uint<26>)payload;
 
     csample_t freq[FFT_SIZE];
-    #pragma HLS ARRAY_PARTITION variable=freq cyclic factor=4
+    #pragma HLS BIND_STORAGE variable=freq type=RAM_1P impl=BRAM
 
     // Zero all bins
     HDR_ZERO: for (int i = 0; i < FFT_SIZE; i++) {
@@ -444,7 +507,7 @@ static void send_header(hls::stream<iq_t> &out, mod_t mod, ap_uint<8> n_syms) {
     }
 
     // Header is never the last symbol (data follows)
-    send_freq_symbol(freq, out, false);
+    send_freq_symbol(freq, out, ifft_in, ifft_out, false);
 }
 
 // ============================================================
@@ -453,30 +516,24 @@ static void send_header(hls::stream<iq_t> &out, mod_t mod, ap_uint<8> n_syms) {
 void ofdm_tx(
     hls::stream<ap_uint<8>> &bits_in,
     hls::stream<iq_t>        &iq_out,
+    hls::stream<iq_t>        &ifft_in,
+    hls::stream<iq_t>        &ifft_out,
     mod_t                     mod,
     ap_uint<8>                n_syms
 ) {
-    // AXI-Stream data ports (connect to DMA ↔ AD9364 chain)
     #pragma HLS INTERFACE axis      port=bits_in
     #pragma HLS INTERFACE axis      port=iq_out
-
-    // AXI-Lite control (CPU writes mod and n_syms before asserting start)
+    #pragma HLS INTERFACE axis      port=ifft_in
+    #pragma HLS INTERFACE axis      port=ifft_out
     #pragma HLS INTERFACE s_axilite port=mod     bundle=ctrl
     #pragma HLS INTERFACE s_axilite port=n_syms  bundle=ctrl
     #pragma HLS INTERFACE s_axilite port=return  bundle=ctrl
 
-    // ── 1. Preamble symbol ────────────────────────────────────
-    send_preamble(iq_out);
+    send_preamble(iq_out, ifft_in, ifft_out);
+    send_header(iq_out, ifft_in, ifft_out, mod, n_syms);
 
-    // ── 2. Frame header symbol ────────────────────────────────
-    send_header(iq_out, mod, n_syms);
-
-    // ── 3. Data symbols ───────────────────────────────────────
-    // process_symbol() carries the DATAFLOW pragma internally.
-    // HLS will pipeline stage execution across loop iterations,
-    // overlapping symbol N+1 packing with symbol N's IFFT.
     SYMBOL_LOOP: for (ap_uint<8> s = 0; s < n_syms; s++) {
         bool is_last = (s == (ap_uint<8>)(n_syms - 1));
-        process_symbol(bits_in, iq_out, mod, is_last);
+        process_symbol(bits_in, iq_out, ifft_in, ifft_out, mod, is_last);
     }
 }

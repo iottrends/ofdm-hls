@@ -63,7 +63,7 @@ static ap_fixed<16,4> sync_atan2(acc_t y, acc_t x)
     }
     // Sequential pipelined CORDIC — one iteration per cycle, ~200 LUT total.
     CORDIC: for (int i = 0; i < 16; i++) {
-#pragma HLS PIPELINE II=1
+#pragma HLS PIPELINE II=2
 #pragma HLS loop_tripcount min=16 max=16
         ap_fixed<20,8> xs = xi >> i;
         ap_fixed<20,8> ys = yi >> i;
@@ -83,6 +83,11 @@ void sync_detect(
     ap_uint<8>         n_syms
 )
 {
+#pragma HLS INTERFACE axis      port=iq_in
+#pragma HLS INTERFACE axis      port=iq_out
+#pragma HLS INTERFACE ap_vld    port=cfo_est
+#pragma HLS INTERFACE s_axilite port=n_syms  bundle=ctrl
+#pragma HLS INTERFACE s_axilite port=return  bundle=ctrl
     // ── Search buffer ─────────────────────────────────────────
     sample_t buf_i[SYNC_BUF_SZ];
     sample_t buf_q[SYNC_BUF_SZ];

@@ -426,6 +426,12 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             echo "[run] Log saved to vitis_rx_cosim.log"
             grep -E "@I|@E|PASS|FAIL|cosim|error" vitis_rx_cosim.log | tail -20
             ;;
+        export_ip)
+            echo "[run] Exporting all HLS IPs to ip_repo/..."
+            cd "$SCRIPT_DIR"
+            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/export_ip.tcl 2>&1 | tee vitis_export.log
+            echo "[run] Log saved to vitis_export.log"
+            ;;
         synth)
             echo "[run] Running C synthesis..."
             cd "$SCRIPT_DIR"

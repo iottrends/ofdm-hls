@@ -34,6 +34,11 @@ void conv_enc(
     rate_t rate,
     int    n_data_bytes)
 {
+#pragma HLS INTERFACE axis      port=data_in
+#pragma HLS INTERFACE axis      port=coded_out
+#pragma HLS INTERFACE s_axilite port=rate         bundle=ctrl
+#pragma HLS INTERFACE s_axilite port=n_data_bytes bundle=ctrl
+#pragma HLS INTERFACE s_axilite port=return       bundle=ctrl
     ap_uint<6> sr = 0;        // shift register, initialised to all-zeros
 
     // Output bit accumulator

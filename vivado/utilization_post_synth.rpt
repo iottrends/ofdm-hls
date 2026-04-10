@@ -1,0 +1,151 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Fri Apr 10 09:31:36 2026
+| Host         : LPT1146 running 64-bit Ubuntu 24.04.3 LTS
+| Command      : report_utilization -file /mnt/d/work/HW/ofdm_tx_hls/vivado/utilization_post_synth.rpt -hierarchical
+| Design       : ofdm_chain_wrapper
+| Device       : xc7a50tcsg325-2
+| Speed File   : -2
+| Design State : Synthesized
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Utilization Design Information
+
+Table of Contents
+-----------------
+1. Utilization by Hierarchy
+
+1. Utilization by Hierarchy
+---------------------------
+
++------------------------------------------------------------------+------------------------------------------------+------------+------------+---------+------+------+--------+--------+------------+
+|                             Instance                             |                     Module                     | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs | RAMB36 | RAMB18 | DSP Blocks |
++------------------------------------------------------------------+------------------------------------------------+------------+------------+---------+------+------+--------+--------+------------+
+| ofdm_chain_wrapper                                               |                                          (top) |       3708 |       2755 |      62 |  891 | 6786 |      0 |      4 |         20 |
+|   (ofdm_chain_wrapper)                                           |                                          (top) |          0 |          0 |       0 |    0 |    0 |      0 |      0 |          0 |
+|   ofdm_chain_i                                                   |                                     ofdm_chain |       3708 |       2755 |      62 |  891 | 6786 |      0 |      4 |         20 |
+|     sync_detect_0                                                |                     ofdm_chain_sync_detect_0_0 |         90 |         89 |       0 |    1 |  178 |      0 |      2 |          2 |
+|       inst                                                       |                                    sync_detect |         90 |         89 |       0 |    1 |  178 |      0 |      2 |          2 |
+|         regslice_both_iq_in_U                                    |                   sync_detect_regslice_both__1 |         36 |         36 |       0 |    0 |   67 |      0 |      0 |          0 |
+|         grp_sync_detect_Pipeline_CORR_fu_209                     |          sync_detect_sync_detect_Pipeline_CORR |         42 |         41 |       0 |    1 |  111 |      0 |      0 |          2 |
+|           (grp_sync_detect_Pipeline_CORR_fu_209)                 |          sync_detect_sync_detect_Pipeline_CORR |         41 |         40 |       0 |    1 |  110 |      0 |      0 |          0 |
+|     ofdm_rx_0                                                    |                         ofdm_chain_ofdm_rx_0_0 |         41 |         41 |       0 |    0 |   72 |      0 |      0 |          0 |
+|       inst                                                       |                                        ofdm_rx |         41 |         41 |       0 |    0 |   72 |      0 |      0 |          0 |
+|         regslice_both_fft_in_U                                   |                       ofdm_rx_regslice_both__2 |         38 |         38 |       0 |    0 |   69 |      0 |      0 |          0 |
+|     ofdm_rx_fft                                                  |                       ofdm_chain_ofdm_rx_fft_0 |       1767 |       1289 |      31 |  447 | 3236 |      0 |      1 |          9 |
+|       U0                                                         |                                   xfft_v9_1_15 |       1767 |       1289 |      31 |  447 | 3236 |      0 |      1 |          9 |
+|         i_synth                                                  |                               xfft_v9_1_15_viv |       1767 |       1289 |      31 |  447 | 3236 |      0 |      1 |          9 |
+|           non_native_flt_non_ssr_fft.xfft_inst                   |                              xfft_v9_1_15_core |       1662 |       1223 |      31 |  408 | 3054 |      0 |      1 |          9 |
+|             non_floating_point.arch_d.xfft_inst                  |                                 xfft_v9_1_15_d |       1662 |       1223 |      31 |  408 | 3054 |      0 |      1 |          9 |
+|               pe_gen[3].natural_order_input.PE                   |                         r22_pe__parameterized2 |        203 |        165 |       0 |   38 |  362 |      0 |      0 |          0 |
+|                 hasbf2.FW_2.BF_2                                 |                      r22_bf_sp__parameterized3 |         94 |         94 |       0 |    0 |  185 |      0 |      0 |          0 |
+|                 FW_1.BF_1                                        |                      r22_bf_sp__parameterized2 |        103 |         69 |       0 |   34 |  170 |      0 |      0 |          0 |
+|               pe_gen[0].natural_order_input.PE                   |                                         r22_pe |        536 |        362 |      31 |  143 |  934 |      0 |      1 |          3 |
+|                 hasbf2.FB_2.BF_2                                 |                         r22_bf__parameterized0 |        227 |        136 |       0 |   91 |  294 |      0 |      0 |          0 |
+|                   MEM                                            |                     r22_memory__parameterized0 |         72 |          0 |       0 |   72 |   36 |      0 |      0 |          0 |
+|                     dist_ram.srlram.ram                          |                                 r22_srl_memory |         72 |          0 |       0 |   72 |   36 |      0 |      0 |          0 |
+|                       fixed_length.shift_ram                     |       c_shift_ram_v12_0_20_viv__parameterized3 |         72 |          0 |       0 |   72 |   36 |      0 |      0 |          0 |
+|                         i_bb_inst                                |    c_shift_ram_v12_0_20_legacy__parameterized3 |         72 |          0 |       0 |   72 |   36 |      0 |      0 |          0 |
+|                 FB_1.BF_1                                        |                                         r22_bf |        131 |         92 |       0 |   39 |  215 |      0 |      1 |          0 |
+|                 has_TW_mult.MULT                                 |                                           cmpy |         32 |         32 |       0 |    0 |  244 |      0 |      0 |          3 |
+|                   i_cmpy                                         |                             cmpy_v6_0_27_synth |         32 |         32 |       0 |    0 |  244 |      0 |      0 |          3 |
+|                     three_mult_structure.use_dsp.i_dsp           |                                   cmpy_3_dsp48 |         32 |         32 |       0 |    0 |  244 |      0 |      0 |          3 |
+|                       optionally_negate_inputs                   |                                 input_negation |         32 |         32 |       0 |    0 |   70 |      0 |      0 |          0 |
+|                       mult1_preadder_d_plus_a.mult1              |                              cmpy_3_dsp48_mult |          0 |          0 |       0 |    0 |   53 |      0 |      0 |          1 |
+|                         mult                                     |                                            dsp |          0 |          0 |       0 |    0 |   53 |      0 |      0 |          1 |
+|                       mult3_preadder_d_minus_a.mult3             |              cmpy_3_dsp48_mult__parameterized1 |          0 |          0 |       0 |    0 |   53 |      0 |      0 |          1 |
+|                         mult                                     |                            dsp__parameterized1 |          0 |          0 |       0 |    0 |   53 |      0 |      0 |          1 |
+|                 has_TW_mult.TW                                   |                                     r22_tw_gen |         62 |         31 |      31 |    0 |   95 |      0 |      0 |          0 |
+|                   twiddle_generator                              |                                    twiddle_gen |         47 |         16 |      31 |    0 |   67 |      0 |      0 |          0 |
+|                     tw2.twgen2                                   |                                  twgen_distmem |         47 |         16 |      31 |    0 |   67 |      0 |      0 |          0 |
+|               pe_gen[1].natural_order_input.PE                   |                         r22_pe__parameterized0 |        472 |        350 |       0 |  122 |  881 |      0 |      0 |          3 |
+|                 hasbf2.FW_2.BF_2                                 |                                      r22_bf_sp |        149 |        112 |       0 |   37 |  260 |      0 |      0 |          0 |
+|                 FB_1.BF_1                                        |                         r22_bf__parameterized1 |        161 |         92 |       0 |   69 |  208 |      0 |      0 |          0 |
+|                 has_TW_mult.MULT                                 |                                        cmpy__2 |         32 |         32 |       0 |    0 |  244 |      0 |      0 |          3 |
+|                   i_cmpy                                         |                          cmpy_v6_0_27_synth__2 |         32 |         32 |       0 |    0 |  244 |      0 |      0 |          3 |
+|                     three_mult_structure.use_dsp.i_dsp           |                                cmpy_3_dsp48__2 |         32 |         32 |       0 |    0 |  244 |      0 |      0 |          3 |
+|                       optionally_negate_inputs                   |                              input_negation__2 |         32 |         32 |       0 |    0 |   70 |      0 |      0 |          0 |
+|                       mult1_preadder_d_plus_a.mult1              |                           cmpy_3_dsp48_mult__2 |          0 |          0 |       0 |    0 |   53 |      0 |      0 |          1 |
+|                         mult                                     |                                         dsp__2 |          0 |          0 |       0 |    0 |   53 |      0 |      0 |          1 |
+|                       mult3_preadder_d_minus_a.mult3             |           cmpy_3_dsp48_mult__parameterized1__2 |          0 |          0 |       0 |    0 |   53 |      0 |      0 |          1 |
+|                         mult                                     |                         dsp__parameterized1__2 |          0 |          0 |       0 |    0 |   53 |      0 |      0 |          1 |
+|                 has_TW_mult.TW                                   |                     r22_tw_gen__parameterized0 |         43 |         43 |       0 |    0 |   89 |      0 |      0 |          0 |
+|                   twiddle_generator                              |                    twiddle_gen__parameterized0 |         32 |         32 |       0 |    0 |   67 |      0 |      0 |          0 |
+|                     tw2.twgen2                                   |                  twgen_distmem__parameterized0 |         32 |         32 |       0 |    0 |   67 |      0 |      0 |          0 |
+|               pe_gen[2].natural_order_input.PE                   |                         r22_pe__parameterized1 |        379 |        296 |       0 |   83 |  777 |      0 |      0 |          3 |
+|                 hasbf2.FW_2.BF_2                                 |                      r22_bf_sp__parameterized1 |        149 |        112 |       0 |   37 |  260 |      0 |      0 |          0 |
+|                 FW_1.BF_1                                        |                      r22_bf_sp__parameterized0 |        104 |         69 |       0 |   35 |  169 |      0 |      0 |          0 |
+|                 has_TW_mult.MULT                                 |                                        cmpy__1 |         28 |         28 |       0 |    0 |  236 |      0 |      0 |          3 |
+|                   i_cmpy                                         |                          cmpy_v6_0_27_synth__1 |         28 |         28 |       0 |    0 |  236 |      0 |      0 |          3 |
+|                     three_mult_structure.use_dsp.i_dsp           |                                cmpy_3_dsp48__1 |         28 |         28 |       0 |    0 |  236 |      0 |      0 |          3 |
+|                       optionally_negate_inputs                   |                              input_negation__1 |         28 |         28 |       0 |    0 |   68 |      0 |      0 |          0 |
+|                       mult1_preadder_d_plus_a.mult1              |                           cmpy_3_dsp48_mult__1 |          0 |          0 |       0 |    0 |   52 |      0 |      0 |          1 |
+|                         mult                                     |                                         dsp__1 |          0 |          0 |       0 |    0 |   52 |      0 |      0 |          1 |
+|                       mult3_preadder_d_minus_a.mult3             |           cmpy_3_dsp48_mult__parameterized1__1 |          0 |          0 |       0 |    0 |   52 |      0 |      0 |          1 |
+|                         mult                                     |                         dsp__parameterized1__1 |          0 |          0 |       0 |    0 |   52 |      0 |      0 |          1 |
+|           axi_wrapper                                            |                                    axi_wrapper |        105 |         66 |       0 |   39 |  182 |      0 |      0 |          0 |
+|             gen_input_fifo_read_default.data_in_channel_fifo     |         axi_wrapper_input_fifo__parameterized0 |         60 |         28 |       0 |   32 |  140 |      0 |      0 |          0 |
+|               (gen_input_fifo_read_default.data_in_channel_fifo) |         axi_wrapper_input_fifo__parameterized0 |         20 |         20 |       0 |    0 |   66 |      0 |      0 |          0 |
+|               gen_non_real_time.data_in_fifo_pt1                 |                  glb_ifx_slave__parameterized0 |         40 |          8 |       0 |   32 |   74 |      0 |      0 |          0 |
+|     ofdm_tx_0                                                    |                         ofdm_chain_ofdm_tx_0_0 |         43 |         43 |       0 |    0 |   74 |      0 |      0 |          0 |
+|       inst                                                       |                                        ofdm_tx |         43 |         43 |       0 |    0 |   74 |      0 |      0 |          0 |
+|         regslice_both_ifft_in_U                                  |       ofdm_tx_regslice_both__parameterized0__2 |         38 |         38 |       0 |    0 |   69 |      0 |      0 |          0 |
+|     ofdm_tx_ifft                                                 |                      ofdm_chain_ofdm_tx_ifft_0 |       1764 |       1290 |      31 |  443 | 3223 |      0 |      1 |          9 |
+|       U0                                                         |                                xfft_v9_1_15__1 |       1764 |       1290 |      31 |  443 | 3223 |      0 |      1 |          9 |
+|         i_synth                                                  |                            xfft_v9_1_15_viv__1 |       1764 |       1290 |      31 |  443 | 3223 |      0 |      1 |          9 |
+|           non_native_flt_non_ssr_fft.xfft_inst                   |                           xfft_v9_1_15_core__1 |       1662 |       1223 |      31 |  408 | 3045 |      0 |      1 |          9 |
+|             non_floating_point.arch_d.xfft_inst                  |                              xfft_v9_1_15_d__1 |       1662 |       1223 |      31 |  408 | 3045 |      0 |      1 |          9 |
+|               pe_gen[3].natural_order_input.PE                   |                      r22_pe__parameterized2__1 |        203 |        165 |       0 |   38 |  362 |      0 |      0 |          0 |
+|                 hasbf2.FW_2.BF_2                                 |                   r22_bf_sp__parameterized3__1 |         94 |         94 |       0 |    0 |  185 |      0 |      0 |          0 |
+|                 FW_1.BF_1                                        |                   r22_bf_sp__parameterized2__1 |        103 |         69 |       0 |   34 |  170 |      0 |      0 |          0 |
+|               pe_gen[0].natural_order_input.PE                   |                                      r22_pe__1 |        536 |        362 |      31 |  143 |  931 |      0 |      1 |          3 |
+|                 hasbf2.FB_2.BF_2                                 |                      r22_bf__parameterized0__1 |        227 |        136 |       0 |   91 |  294 |      0 |      0 |          0 |
+|                   MEM                                            |                  r22_memory__parameterized0__1 |         72 |          0 |       0 |   72 |   36 |      0 |      0 |          0 |
+|                     dist_ram.srlram.ram                          |                              r22_srl_memory__1 |         72 |          0 |       0 |   72 |   36 |      0 |      0 |          0 |
+|                       fixed_length.shift_ram                     |    c_shift_ram_v12_0_20_viv__parameterized3__1 |         72 |          0 |       0 |   72 |   36 |      0 |      0 |          0 |
+|                         i_bb_inst                                | c_shift_ram_v12_0_20_legacy__parameterized3__1 |         72 |          0 |       0 |   72 |   36 |      0 |      0 |          0 |
+|                 FB_1.BF_1                                        |                                      r22_bf__1 |        131 |         92 |       0 |   39 |  215 |      0 |      1 |          0 |
+|                 has_TW_mult.MULT                                 |                                        cmpy__5 |         32 |         32 |       0 |    0 |  244 |      0 |      0 |          3 |
+|                   i_cmpy                                         |                          cmpy_v6_0_27_synth__5 |         32 |         32 |       0 |    0 |  244 |      0 |      0 |          3 |
+|                     three_mult_structure.use_dsp.i_dsp           |                                cmpy_3_dsp48__5 |         32 |         32 |       0 |    0 |  244 |      0 |      0 |          3 |
+|                       optionally_negate_inputs                   |                              input_negation__5 |         32 |         32 |       0 |    0 |   70 |      0 |      0 |          0 |
+|                       mult1_preadder_d_plus_a.mult1              |                           cmpy_3_dsp48_mult__5 |          0 |          0 |       0 |    0 |   53 |      0 |      0 |          1 |
+|                         mult                                     |                                         dsp__5 |          0 |          0 |       0 |    0 |   53 |      0 |      0 |          1 |
+|                       mult3_preadder_d_minus_a.mult3             |           cmpy_3_dsp48_mult__parameterized1__5 |          0 |          0 |       0 |    0 |   53 |      0 |      0 |          1 |
+|                         mult                                     |                         dsp__parameterized1__5 |          0 |          0 |       0 |    0 |   53 |      0 |      0 |          1 |
+|                 has_TW_mult.TW                                   |                                  r22_tw_gen__1 |         62 |         31 |      31 |    0 |   95 |      0 |      0 |          0 |
+|                   twiddle_generator                              |                                 twiddle_gen__1 |         47 |         16 |      31 |    0 |   67 |      0 |      0 |          0 |
+|                     tw2.twgen2                                   |                               twgen_distmem__1 |         47 |         16 |      31 |    0 |   67 |      0 |      0 |          0 |
+|               pe_gen[1].natural_order_input.PE                   |                      r22_pe__parameterized0__1 |        472 |        350 |       0 |  122 |  881 |      0 |      0 |          3 |
+|                 hasbf2.FW_2.BF_2                                 |                                   r22_bf_sp__1 |        149 |        112 |       0 |   37 |  260 |      0 |      0 |          0 |
+|                 FB_1.BF_1                                        |                      r22_bf__parameterized1__1 |        161 |         92 |       0 |   69 |  208 |      0 |      0 |          0 |
+|                 has_TW_mult.MULT                                 |                                        cmpy__4 |         32 |         32 |       0 |    0 |  244 |      0 |      0 |          3 |
+|                   i_cmpy                                         |                          cmpy_v6_0_27_synth__4 |         32 |         32 |       0 |    0 |  244 |      0 |      0 |          3 |
+|                     three_mult_structure.use_dsp.i_dsp           |                                cmpy_3_dsp48__4 |         32 |         32 |       0 |    0 |  244 |      0 |      0 |          3 |
+|                       optionally_negate_inputs                   |                              input_negation__4 |         32 |         32 |       0 |    0 |   70 |      0 |      0 |          0 |
+|                       mult1_preadder_d_plus_a.mult1              |                           cmpy_3_dsp48_mult__4 |          0 |          0 |       0 |    0 |   53 |      0 |      0 |          1 |
+|                         mult                                     |                                         dsp__4 |          0 |          0 |       0 |    0 |   53 |      0 |      0 |          1 |
+|                       mult3_preadder_d_minus_a.mult3             |           cmpy_3_dsp48_mult__parameterized1__4 |          0 |          0 |       0 |    0 |   53 |      0 |      0 |          1 |
+|                         mult                                     |                         dsp__parameterized1__4 |          0 |          0 |       0 |    0 |   53 |      0 |      0 |          1 |
+|                 has_TW_mult.TW                                   |                  r22_tw_gen__parameterized0__1 |         43 |         43 |       0 |    0 |   89 |      0 |      0 |          0 |
+|                   twiddle_generator                              |                 twiddle_gen__parameterized0__1 |         32 |         32 |       0 |    0 |   67 |      0 |      0 |          0 |
+|                     tw2.twgen2                                   |               twgen_distmem__parameterized0__1 |         32 |         32 |       0 |    0 |   67 |      0 |      0 |          0 |
+|               pe_gen[2].natural_order_input.PE                   |                      r22_pe__parameterized1__1 |        378 |        295 |       0 |   83 |  777 |      0 |      0 |          3 |
+|                 hasbf2.FW_2.BF_2                                 |                   r22_bf_sp__parameterized1__1 |        149 |        112 |       0 |   37 |  260 |      0 |      0 |          0 |
+|                 FW_1.BF_1                                        |                   r22_bf_sp__parameterized0__1 |        104 |         69 |       0 |   35 |  169 |      0 |      0 |          0 |
+|                 has_TW_mult.MULT                                 |                                        cmpy__3 |         28 |         28 |       0 |    0 |  236 |      0 |      0 |          3 |
+|                   i_cmpy                                         |                          cmpy_v6_0_27_synth__3 |         28 |         28 |       0 |    0 |  236 |      0 |      0 |          3 |
+|                     three_mult_structure.use_dsp.i_dsp           |                                cmpy_3_dsp48__3 |         28 |         28 |       0 |    0 |  236 |      0 |      0 |          3 |
+|                       optionally_negate_inputs                   |                              input_negation__3 |         28 |         28 |       0 |    0 |   68 |      0 |      0 |          0 |
+|                       mult1_preadder_d_plus_a.mult1              |                           cmpy_3_dsp48_mult__3 |          0 |          0 |       0 |    0 |   52 |      0 |      0 |          1 |
+|                         mult                                     |                                         dsp__3 |          0 |          0 |       0 |    0 |   52 |      0 |      0 |          1 |
+|                       mult3_preadder_d_minus_a.mult3             |           cmpy_3_dsp48_mult__parameterized1__3 |          0 |          0 |       0 |    0 |   52 |      0 |      0 |          1 |
+|                         mult                                     |                         dsp__parameterized1__3 |          0 |          0 |       0 |    0 |   52 |      0 |      0 |          1 |
+|           axi_wrapper                                            |                                 axi_wrapper__1 |        102 |         67 |       0 |   35 |  178 |      0 |      0 |          0 |
+|             gen_input_fifo_read_default.data_in_channel_fifo     |      axi_wrapper_input_fifo__parameterized0__1 |         60 |         28 |       0 |   32 |  140 |      0 |      0 |          0 |
+|               (gen_input_fifo_read_default.data_in_channel_fifo) |      axi_wrapper_input_fifo__parameterized0__1 |         20 |         20 |       0 |    0 |   66 |      0 |      0 |          0 |
+|               gen_non_real_time.data_in_fifo_pt1                 |               glb_ifx_slave__parameterized0__1 |         40 |          8 |       0 |   32 |   74 |      0 |      0 |          0 |
++------------------------------------------------------------------+------------------------------------------------+------------+------------+---------+------+------+--------+--------+------------+
+
+

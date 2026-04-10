@@ -16,17 +16,21 @@
 //   correction applied before demapping to handle residual CFO + phase noise.
 // ============================================================
 #pragma once
-#include "ofdm_tx.h"   // sample_t, csample_t, iq_t, mod_t, fft_cfg
+#include "ofdm_tx.h"   // sample_t, csample_t, iq_t, mod_t
 
 // Top-level RX function
 //   iq_in      : AXI-Stream IQ samples (preamble + header + data symbols)
 //   bits_out   : decoded bytes
 //                QPSK:  50 bytes/symbol  (4 syms/byte × 200 data SC)
 //                16QAM: 100 bytes/symbol (2 syms/byte × 200 data SC)
+//   fft_in     : time-domain data to external xfft IP (ofdm_rx → xfft)
+//   fft_out    : freq-domain data from external xfft IP (xfft → ofdm_rx)
 //   header_err : 1 if CRC-16 on frame header failed; bits_out empty on error.
 //                mod and n_syms are extracted from the header symbol (no AXI-Lite).
 void ofdm_rx(
     hls::stream<iq_t>       &iq_in,
     hls::stream<ap_uint<8>> &bits_out,
+    hls::stream<iq_t>       &fft_in,
+    hls::stream<iq_t>       &fft_out,
     ap_uint<1>              &header_err
 );

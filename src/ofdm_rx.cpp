@@ -272,9 +272,71 @@ static const sample_t ZC_Q_LUT[NUM_DATA_SC] = {
 //
 // With Y[k] = X[k]/256:  G ≈ 1/256,  G_eq ≈ 256 (fits ap_fixed<32,10>).
 // ============================================================
-static void run_fft(csample_t in[FFT_SIZE], csample_t out[FFT_SIZE]) {
+// Stream 256 time-domain samples to the external xfft IP and read back
+// 256 freq-domain samples.  The xfft core is configured for 256-pt forward
+// FFT with scale_sch=0xAA (÷256 total) via its s_axis_config port in the BD.
+static void run_fft(
+    csample_t          in[FFT_SIZE],
+    csample_t          out[FFT_SIZE],
+    hls::stream<iq_t> &fft_in,
+    hls::stream<iq_t> &fft_out
+) {
     #pragma HLS INLINE off
-    hls::fft<fft_cfg>(in, out, /*fwd_inv=*/true, /*scale_sch=*/0xAA);
+
+#ifndef __SYNTHESIS__
+    // C-sim: radix-2 Cooley-Tukey FFT, matches hardware xfft scale_sch=0xAA (÷N).
+    float re[FFT_SIZE], im[FFT_SIZE];
+    for (int i = 0; i < FFT_SIZE; i++) {
+        re[i] = (float)in[i].real();
+        im[i] = (float)in[i].imag();
+    }
+    // Bit-reversal permutation
+    for (int i = 1, j = 0; i < FFT_SIZE; i++) {
+        int bit = FFT_SIZE >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j ^= bit;
+        if (i < j) {
+            float t;
+            t = re[i]; re[i] = re[j]; re[j] = t;
+            t = im[i]; im[i] = im[j]; im[j] = t;
+        }
+    }
+    // Butterfly stages — forward: twiddle = exp(-j2π/len)
+    for (int len = 2; len <= FFT_SIZE; len <<= 1) {
+        float ang = -2.0f * 3.14159265f / len;
+        float wre = cosf(ang), wim = sinf(ang);
+        for (int i = 0; i < FFT_SIZE; i += len) {
+            float cr = 1.0f, ci = 0.0f;
+            for (int k = 0; k < len / 2; k++) {
+                float ur = re[i+k],           ui = im[i+k];
+                float vr = re[i+k+len/2]*cr - im[i+k+len/2]*ci;
+                float vi = re[i+k+len/2]*ci + im[i+k+len/2]*cr;
+                re[i+k]       = ur + vr;  im[i+k]       = ui + vi;
+                re[i+k+len/2] = ur - vr;  im[i+k+len/2] = ui - vi;
+                float nr = cr*wre - ci*wim;  ci = cr*wim + ci*wre;  cr = nr;
+            }
+        }
+    }
+    // Scale by 1/N to match hardware xfft
+    for (int i = 0; i < FFT_SIZE; i++)
+        out[i] = csample_t((sample_t)(re[i] / FFT_SIZE), (sample_t)(im[i] / FFT_SIZE));
+    (void)fft_in; (void)fft_out;
+#else
+    FFT_TX: for (int i = 0; i < FFT_SIZE; i++) {
+        #pragma HLS PIPELINE II=1
+        iq_t s;
+        s.i    = in[i].real();
+        s.q    = in[i].imag();
+        s.last = (i == FFT_SIZE - 1) ? ap_uint<1>(1) : ap_uint<1>(0);
+        fft_in.write(s);
+    }
+
+    FFT_RX: for (int i = 0; i < FFT_SIZE; i++) {
+        #pragma HLS PIPELINE II=1
+        iq_t s = fft_out.read();
+        out[i] = csample_t(s.i, s.q);
+    }
+#endif
 }
 
 // ============================================================
@@ -643,10 +705,14 @@ static ap_uint<16> crc16_hdr(ap_uint<10> data) {
 void ofdm_rx(
     hls::stream<iq_t>       &iq_in,
     hls::stream<ap_uint<8>> &bits_out,
+    hls::stream<iq_t>       &fft_in,
+    hls::stream<iq_t>       &fft_out,
     ap_uint<1>              &header_err
 ) {
     #pragma HLS INTERFACE axis      port=iq_in
     #pragma HLS INTERFACE axis      port=bits_out
+    #pragma HLS INTERFACE axis      port=fft_in
+    #pragma HLS INTERFACE axis      port=fft_out
     #pragma HLS INTERFACE s_axilite port=header_err bundle=ctrl
     #pragma HLS INTERFACE s_axilite port=return     bundle=ctrl
 
@@ -656,12 +722,12 @@ void ofdm_rx(
 
     // ── 1. Preamble: estimate channel, precompute G_eq ─────────
     remove_cp_and_read(iq_in, time_buf);
-    run_fft(time_buf, freq_buf);
+    run_fft(time_buf, freq_buf, fft_in, fft_out);
     estimate_channel(freq_buf, G_eq);
 
     // ── 2. Header symbol: BPSK demap 26 SCs → extract mod, n_syms ──
     remove_cp_and_read(iq_in, time_buf);
-    run_fft(time_buf, freq_buf);
+    run_fft(time_buf, freq_buf, fft_in, fft_out);
 
     ap_fixed<32,4> hdr_phase_err = compute_pilot_cpe(freq_buf, G_eq);
     ap_uint<32> hdr_phase_acc = angle_to_phase_acc(hdr_phase_err);
@@ -710,7 +776,7 @@ void ofdm_rx(
     // ── 3. Data symbols: pilot CPE track → equalize → demap → pack ──
     RX_SYMBOL_LOOP: for (ap_uint<8> s = 0; s < n_syms; s++) {
         remove_cp_and_read(iq_in, time_buf);
-        run_fft(time_buf, freq_buf);
+        run_fft(time_buf, freq_buf, fft_in, fft_out);
 
         // Estimate common phase error from 6 BPSK pilots — fixed-point, no float
         ap_fixed<32,4> phase_err = compute_pilot_cpe(freq_buf, G_eq);

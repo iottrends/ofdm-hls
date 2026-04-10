@@ -100,7 +100,8 @@ int main(int argc, char* argv[]) {
                 /*is_rx=*/ap_uint<1>(0));
 
     // ── Run OFDM TX ───────────────────────────────────────────
-    ofdm_tx(interleaved, iq_out, (mod_t)TB_MOD, (ap_uint<8>)TB_N_SYMS);
+    hls::stream<iq_t> ifft_in_s("ifft_in"), ifft_out_s("ifft_out");
+    ofdm_tx(interleaved, iq_out, ifft_in_s, ifft_out_s, (mod_t)TB_MOD, (ap_uint<8>)TB_N_SYMS);
 
     // ── Dump output ───────────────────────────────────────────
     // Format: one "I Q\n" pair per sample, floating-point.
