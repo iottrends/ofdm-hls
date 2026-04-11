@@ -344,6 +344,12 @@ def compare():
     ref_c = ref[:, 0]  + 1j * ref[:, 1]
     hls_c = hls[:, 0]  + 1j * hls[:, 1]
 
+    # C2 fix: HLS TX output has one guard symbol (288 samples) prepended before
+    # the preamble; Python reference has no guard.  Strip it before comparing.
+    sym_len = FFT_SIZE + CP_LEN  # 288
+    if len(hls_c) == len(ref_c) + sym_len:
+        hls_c = hls_c[sym_len:]
+
     if len(ref_c) != len(hls_c):
         print(f"[CMP] FAIL: length mismatch — ref={len(ref_c)} hls={len(hls_c)}")
         return
@@ -398,12 +404,14 @@ def decode_axis_16qam(v):
     elif v >= -thresh: return 0b11
     else:              return 0b10
 
-def decode(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE):
+def decode(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE, guard_syms=0):
     """
     Decode an OFDM signal file and compare with original bits.
 
-    tx_file: path to IQ signal file (format: "I Q" per line).
-             Defaults to REF_FILE (floating-point TX reference).
+    tx_file:    path to IQ signal file (format: "I Q" per line).
+                Defaults to REF_FILE (floating-point TX reference).
+    guard_syms: number of guard (zero) symbols prepended before the preamble.
+                Set to 1 when decoding HLS TX output (C2 fix adds one guard symbol).
     """
     if tx_file is None:
         tx_file = REF_FILE
@@ -415,8 +423,9 @@ def decode(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE):
     sig = np.loadtxt(tx_file, dtype=float)
     sig_c = sig[:, 0] + 1j * sig[:, 1]
 
-    sym_len = FFT_SIZE + CP_LEN  # 288
-    expected_samps = (n_syms + 2) * sym_len   # preamble + header + data
+    sym_len   = FFT_SIZE + CP_LEN  # 288
+    guard_len = guard_syms * sym_len
+    expected_samps = (n_syms + 2 + guard_syms) * sym_len  # guard + preamble + header + data
     if len(sig_c) < expected_samps:
         print(f"[DEC] FAIL: signal too short ({len(sig_c)} < {expected_samps})")
         return
@@ -424,7 +433,7 @@ def decode(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE):
     zc = zc_sequence()
 
     # ── Preamble: channel estimation ─────────────────────────
-    preamble_body = sig_c[CP_LEN : sym_len]          # skip CP
+    preamble_body = sig_c[guard_len + CP_LEN : guard_len + sym_len]   # skip guard + CP
     Y_pre = np.fft.fft(preamble_body)                # unnormalized DFT
     # G[k] = Y_pre[k] / ZC[k] = Y_pre[k] * conj(ZC[k]) (|ZC|=1)
     G = np.zeros(FFT_SIZE, dtype=complex)
@@ -439,7 +448,7 @@ def decode(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE):
     decoded_bits = []
 
     for s in range(n_syms):
-        offset  = sym_len * (s + 2)   # +2: skip preamble and header
+        offset  = guard_len + sym_len * (s + 2)   # skip guard + preamble + header
         sym_iq  = sig_c[offset + CP_LEN : offset + sym_len]
         Y = np.fft.fft(sym_iq)
 
@@ -549,4 +558,5 @@ if __name__ == "__main__":
     if args.decode:
         decode(tx_file=REF_FILE, mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate)
     if args.decode_hls:
-        decode(tx_file=args.input if args.input else HLS_FILE, mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate)
+        decode(tx_file=args.input if args.input else HLS_FILE, mod=args.mod, n_syms=args.nsyms,
+               fec_rate=args.rate, guard_syms=1)

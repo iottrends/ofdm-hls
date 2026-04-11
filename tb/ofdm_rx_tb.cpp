@@ -72,31 +72,13 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const int total_syms    = TB_N_SYMS + 2;  // +1 preamble +1 header
+    // C2 fix: ofdm_tx now sends SYNC_NL=288 guard zeros before the preamble,
+    // so tb_tx_output_hls.txt already starts with the guard.  Total samples =
+    // guard + preamble + header + data = (TB_N_SYMS + 3) symbols.
+    // No need to prepend zeros manually — doing so would double the guard and
+    // push the preamble CP to t=576=SEARCH_WIN (edge), breaking sync_detect.
+    const int total_syms    = TB_N_SYMS + 3;  // +guard +preamble +header
     const int total_samples = total_syms * (FFT_SIZE + CP_LEN);
-
-    // Prepend SYNC_NL = 288 zero (silence) samples before the frame.
-    //
-    // CP autocorrelation peaks at EVERY symbol boundary equally — the
-    // preamble and each data symbol all have an exact CP copy.  Without
-    // a pre-guard the first data symbol (t=288) can have slightly higher
-    // energy than the preamble (t=0) and sync_detect picks the wrong peak.
-    //
-    // With SYNC_NL guard zeros:
-    //   preamble CP  lands at t = SYNC_NL = 288  (inside  SEARCH_WIN=576)
-    //   data sym 0 CP lands at t = 2*SYNC_NL=576 = SEARCH_WIN (excluded)
-    //   guard region gives metric ≈ 0  →  preamble is the unique peak
-    //
-    // This also matches hardware reality: there is always dead time before
-    // a frame arrives from the ADC.
-    const int guard_samples = SYNC_NL;   // 288
-    for (int n = 0; n < guard_samples; n++) {
-        iq_t s;
-        s.i    = sample_t(0.0);
-        s.q    = sample_t(0.0);
-        s.last = 0;
-        iq_raw.write(s);
-    }
 
     int samples_loaded = 0;
     double i_val, q_val;
@@ -115,8 +97,8 @@ int main(int argc, char* argv[]) {
                   << " IQ samples, got " << samples_loaded << "\n";
         return 1;
     }
-    std::cout << "[TB] Loaded " << guard_samples << " guard zeros + "
-              << samples_loaded << " IQ samples from " << TX_OUT_FILE << "\n";
+    std::cout << "[TB] Loaded " << samples_loaded << " IQ samples from "
+              << TX_OUT_FILE << " (includes " << SYNC_NL << " guard zeros from TX)\n";
 
     // ── Step 1: Timing sync + CFO estimation ─────────────────
     sync_detect(iq_raw, iq_aligned, cfo_est, (ap_uint<8>)TB_N_SYMS);

@@ -759,13 +759,16 @@ void ofdm_rx(
 
     if (rx_crc != exp_crc) {
         header_err = 1;
-        // Drain remainder of this packet so the stream is clean for the next
-        // invocation.  sync_detect sets TLAST on the last sample of the frame,
-        // so this loop always terminates within one packet.
+        // C3 fix: drain with a hard timeout.
+        // Maximum legal frame = (MAX_DATA_SYMS + 2) * SYNC_NL = 257 * 288 = 74,016
+        // samples.  If TLAST never arrives (wrong n_syms, reset glitch, stream
+        // corruption from C1) the original loop hangs forever and deadlocks the
+        // entire AXI-Stream chain.  The counter costs 17 FF, zero extra LUT.
+        ap_uint<17> drain_cnt = 0;
         DRAIN: do {
             #pragma HLS PIPELINE II=1
             iq_t s = iq_in.read();
-            if (s.last) break;
+            if (s.last || ++drain_cnt > 74100) break;
         } while (true);
         return;
     }

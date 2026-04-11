@@ -529,6 +529,20 @@ void ofdm_tx(
     #pragma HLS INTERFACE s_axilite port=n_syms  bundle=ctrl
     #pragma HLS INTERFACE s_axilite port=return  bundle=ctrl
 
+    // C2 fix: send FFT_SIZE+CP_LEN (288) null samples before the ZC preamble.
+    // sync_detect's search window is designed for best_t = 288 samples,
+    // meaning the preamble CP starts at sample 288 of the received stream.
+    // Without this guard, the ADC stream has no guaranteed silence before the
+    // preamble — sync_detect can lock to noise and output the wrong offset.
+    GUARD: for (int i = 0; i < FFT_SIZE + CP_LEN; i++) {
+        #pragma HLS PIPELINE II=1
+        iq_t s;
+        s.i    = sample_t(0);
+        s.q    = sample_t(0);
+        s.last = ap_uint<1>(0);
+        iq_out.write(s);
+    }
+
     send_preamble(iq_out, ifft_in, ifft_out);
     send_header(iq_out, ifft_in, ifft_out, mod, n_syms);
 

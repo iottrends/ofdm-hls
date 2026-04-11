@@ -212,7 +212,12 @@ void sync_detect(
     cfo_est = cfo_t(ang * INV_TWO_PI);
 
     // ── Phase 3: Stream output aligned to best_t ─────────────
-    const int total_output = ((int)n_syms + 2) * SYNC_NL;
+    // C1 fix: always output the maximum frame length (MAX_DATA_SYMS + 2 symbols).
+    // n_syms is accepted on the AXI-Lite port but not used here — ofdm_rx extracts
+    // the real n_syms from the decoded header.  Using MAX_DATA_SYMS breaks the
+    // chicken-and-egg dependency where sync_detect needed to know n_syms before
+    // ofdm_rx had a chance to decode it.
+    const int total_output = (MAX_DATA_SYMS + 2) * SYNC_NL;
     const int buf_avail = SYNC_BUF_SZ - best_t;
     const int from_buf  = (buf_avail < total_output) ? buf_avail : total_output;
     const int from_live = total_output - from_buf;

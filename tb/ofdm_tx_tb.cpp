@@ -123,7 +123,7 @@ int main(int argc, char* argv[]) {
     }
     fout.close();
 
-    const int expected_samples = (TB_N_SYMS + 2) * (FFT_SIZE + CP_LEN);  // +preamble +header
+    const int expected_samples = (TB_N_SYMS + 3) * (FFT_SIZE + CP_LEN);  // +guard +preamble +header
     std::cout << "[TB] Wrote " << sample_count << " samples to " << OUT_FILE
               << " (expected " << expected_samples << ")\n";
 
