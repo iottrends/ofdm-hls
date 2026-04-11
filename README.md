@@ -94,40 +94,25 @@ docs/   — Documentation
 
 ---
 
-## Resource Usage (Vitis HLS 2025.2, XC7A50T, 10 ns clock)
+## Resource Usage — Post-Implementation (Vivado 2025.2, XC7A50T, 100 MHz)
 
-All numbers from `csynth_design`. FFT blocks use HLS placeholder — real Xilinx xfft v9 IP
-saves ~9,000 LUT and ~18 DSP at Vivado implementation time.
+Numbers from `vivado/utilization_post_impl_summary.rpt` — full design placed and routed,
+all 14 IPs present, no black boxes. FFT/IFFT use Xilinx xfft v9.1 IP (not hls::fft).
 
-### TX Chain
+| Resource     | Used   | Available | Utilization |
+|--------------|--------|-----------|-------------|
+| Slice LUTs   | 15,395 | 32,600    | **47%**     |
+| Slice FF     | 19,940 | 65,200    | **31%**     |
+| DSP48E1      | 94     | 120       | **78%**     |
+| BRAM Tiles   | 26     | 75        | **35%**     |
+| Bonded IOB   | 82     | 150       | **55%**     |
 
-| Block | LUT | DSP | BRAM | Fmax |
-|-------|-----|-----|------|------|
-| ofdm_tx (full TX) | 17,488 | 18 | 36 | 138 MHz |
+Per-block HLS csynth estimates summed to ~34K LUT (106% — over budget). Integrated
+Vivado implementation landed at 15,395 LUT (47%) — 55% reduction from cross-boundary
+optimization, LUT combining, and shared AXI-Lite overhead.
 
-### RX Chain
-
-| Block | LUT | DSP | BRAM | Fmax | Status |
-|-------|-----|-----|------|------|--------|
-| sync_detect | 2,895 | 10 | 2 | 110 MHz | v2 optimised |
-| cfo_correct | 2,636 | 27 | 1 | 142 MHz | not yet optimised |
-| ofdm_rx | 18,182 | 75 | 17 | 138 MHz | not yet optimised |
-| interleaver | 1,042 | 2 | 0 | 171 MHz | done |
-| viterbi_dec | 9,338 | 0 | 2 | 139 MHz | v2 optimised |
-| conv_enc | 639 | 0 | 0 | 153 MHz | done |
-| scrambler | 225 | 0 | 0 | 186 MHz | done |
-
-### Budget vs Actual
-
-| | LUT | DSP | BRAM |
-|-|-----|-----|------|
-| Raw HLS total | ~52,445 | ~132 | ~58 |
-| After xfft IP swap (Vivado) | ~43,445 | ~114 | ~40 |
-| Artix-50T budget | 32,600 | 75 | 100 |
-| Remaining gap | ~10,845 over | ~39 over | within |
-
-**Remaining optimisation targets:** `cfo_correct` (27 DSP → target 4 DSP) and
-`ofdm_rx`/`ofdm_tx` FFT replacement with real xfft IP closes most of the gap.
+DSP at 78% (94/120) is the tightest resource. ~8,600 LUT headroom remains for
+PCIe IP, AD9361 HDL, and mode-mux logic (planned next phase).
 
 ---
 
@@ -242,14 +227,15 @@ ADI HDL reference: https://github.com/analogdevicesinc/hdl
 
 ## Optimization Status
 
-| Block | v1 LUT | v2 LUT | Saving | Notes |
-|-------|--------|--------|--------|-------|
-| sync_detect | 12,972 | 2,895 | −78% | Integer cross-multiply metric; pipelined CORDIC |
-| viterbi_dec | 13,388 | 9,338 | −30% | PIPELINE+UNROLL factor=16; counter-based circular buffer; WIN_LEN=128 |
-| cfo_correct | 2,636 | — | pending | 27 DSP target → 4 DSP (fixed-point sincos LUT) |
-| ofdm_tx/rx FFT | ~9,000 inflated | — | pending | Replace HLS placeholder with xfft v9 IP in Vivado |
+| Block | Before | After | Saving | Notes |
+|-------|--------|-------|--------|-------|
+| sync_detect | 12,972 LUT | 2,895 LUT | −78% | Integer cross-multiply metric; pipelined CORDIC |
+| viterbi_dec | 13,388 LUT | 9,448 LUT | −30% | PIPELINE+UNROLL factor=16; circular buffer; WIN_LEN=128 |
+| cfo_correct | 27 DSP | 8 DSP | −70% | Fixed-point sincos LUT; CORDIC phase accumulator |
+| ofdm_tx/rx FFT | ~20,000 LUT (hls::fft inline) | ~3,600 LUT (xfft v9.1 IP ×2) | −82% | Replaced with Xilinx xfft v9.1 AXI-Stream IP in Vivado BD |
+| **Full chain integrated** | **~49,000 LUT (150% — not routable)** | **15,395 LUT (47%)** | **−69%** | Post-implementation, Vivado 2025.2 |
 
-See `docs/files/OPTIMIZATION_GUIDE.md` for detailed analysis.
+See `docs/OFDM_HLS_ANALYSIS.md` for detailed analysis and hardware bring-up checklist.
 
 ---
 
