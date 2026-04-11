@@ -29,7 +29,6 @@ static std::string tb_path(const char* fname) {
 
 // Test configuration — must match values used in ofdm_reference.py
 #define TB_N_SYMS   255
-#define TB_FEC_RATE 0   // 0 = rate 1/2, 1 = rate 2/3
 
 // Expected output file written by this testbench
 #define OUT_FILE   "tb_tx_output_hls.txt"
@@ -37,11 +36,13 @@ static std::string tb_path(const char* fname) {
 #define IN_FILE    "tb_input_to_tx.bin"
 
 int main(int argc, char* argv[]) {
-    // Runtime modulation: --mod 0 = QPSK, --mod 1 = 16QAM (default)
-    int TB_MOD = 1;
-    for (int i = 1; i < argc; i++)
-        if (std::string(argv[i]) == "--mod" && i + 1 < argc)
-            TB_MOD = std::atoi(argv[++i]);
+    // Runtime modulation and FEC rate
+    int TB_MOD      = 1;   // 0=QPSK, 1=16QAM
+    int TB_FEC_RATE = 0;   // 0=rate-1/2, 1=rate-2/3
+    for (int i = 1; i < argc; i++) {
+        if (std::string(argv[i]) == "--mod"  && i + 1 < argc) TB_MOD      = std::atoi(argv[++i]);
+        if (std::string(argv[i]) == "--rate" && i + 1 < argc) TB_FEC_RATE = std::atoi(argv[++i]);
+    }
     hls::stream<ap_uint<8>> raw_in("raw_in");
     hls::stream<ap_uint<8>> scrambled("scrambled");
     hls::stream<ap_uint<8>> coded_in("coded_in");

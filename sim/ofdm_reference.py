@@ -535,17 +535,18 @@ if __name__ == "__main__":
                         help="Decode HLS TX output and check BER")
     parser.add_argument("--input",   type=str, default=None,
                         help="Override IQ input file for --decode-hls (default: tb_tx_output_hls.txt)")
-    parser.add_argument("--mod",     type=int, default=MOD,    help="0=QPSK 1=16QAM")
-    parser.add_argument("--nsyms",   type=int, default=N_SYMS, help="Number of data symbols")
+    parser.add_argument("--mod",     type=int, default=MOD,      help="0=QPSK 1=16QAM")
+    parser.add_argument("--nsyms",   type=int, default=N_SYMS,   help="Number of data symbols")
+    parser.add_argument("--rate",    type=int, default=FEC_RATE,  help="0=rate-1/2 1=rate-2/3")
     args = parser.parse_args()
 
     if not any([args.gen, args.compare, args.decode, args.decode_hls]):
         parser.print_help()
     if args.gen:
-        generate(mod=args.mod, n_syms=args.nsyms)
+        generate(mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate)
     if args.compare:
         compare()
     if args.decode:
-        decode(tx_file=REF_FILE, mod=args.mod, n_syms=args.nsyms)
+        decode(tx_file=REF_FILE, mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate)
     if args.decode_hls:
-        decode(tx_file=args.input if args.input else HLS_FILE, mod=args.mod, n_syms=args.nsyms)
+        decode(tx_file=args.input if args.input else HLS_FILE, mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate)

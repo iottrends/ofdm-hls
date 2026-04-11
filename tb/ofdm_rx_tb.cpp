@@ -39,17 +39,18 @@ static std::string tb_path(const char* fname) {
 
 // Test configuration — must match TX testbench
 #define TB_N_SYMS    255
-#define TB_FEC_RATE  0    // 0 = rate 1/2, 1 = rate 2/3
 
 #define TX_OUT_FILE  "tb_tx_output_hls.txt"    // TX C-sim output (IQ pairs)
 #define IN_BITS_FILE "tb_input_to_tx.bin"      // original packed bits
 #define RX_OUT_FILE  "tb_rx_decoded_hls.bin"   // decoded bytes from RX
 
 int main(int argc, char* argv[]) {
-    int TB_MOD = 1;   // default 16-QAM; override with --mod 0 (QPSK)
-    for (int i = 1; i < argc; i++)
-        if (std::string(argv[i]) == "--mod" && i + 1 < argc)
-            TB_MOD = std::atoi(argv[++i]);
+    int TB_MOD      = 1;   // 0=QPSK, 1=16QAM
+    int TB_FEC_RATE = 0;   // 0=rate-1/2, 1=rate-2/3
+    for (int i = 1; i < argc; i++) {
+        if (std::string(argv[i]) == "--mod"  && i + 1 < argc) TB_MOD      = std::atoi(argv[++i]);
+        if (std::string(argv[i]) == "--rate" && i + 1 < argc) TB_FEC_RATE = std::atoi(argv[++i]);
+    }
     hls::stream<iq_t>        iq_raw("iq_raw");
     hls::stream<iq_t>        iq_aligned("iq_aligned");
     hls::stream<iq_t>        iq_corrected("iq_corrected");

@@ -10,9 +10,10 @@
 #   Step 5: Python reference decoder on noisy signal → BER (independent check)
 #
 # Usage:
-#   ./run_loopback_noisy.sh            # default SNR = 20 dB
-#   ./run_loopback_noisy.sh --snr 15   # custom SNR
-#   ./run_loopback_noisy.sh --snr 10   # marginal SNR
+#   ./run_loopback_noisy.sh                          # defaults: SNR=20 mod=1 rate=0
+#   ./run_loopback_noisy.sh --snr 15                 # custom SNR
+#   ./run_loopback_noisy.sh --snr 10 --mod 0         # QPSK at 10 dB
+#   ./run_loopback_noisy.sh --snr 15 --mod 1 --rate 1  # 16-QAM rate-2/3
 # ============================================================
 
 set -e
@@ -21,12 +22,18 @@ cd "$SCRIPT_DIR"
 
 # ── Parse arguments ───────────────────────────────────────────
 SNR=20
+MOD=1    # 0=QPSK 1=16QAM
+RATE=0   # 0=rate-1/2 1=rate-2/3
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --snr) SNR="$2"; shift 2 ;;
+        --snr)  SNR="$2";  shift 2 ;;
+        --mod)  MOD="$2";  shift 2 ;;
+        --rate) RATE="$2"; shift 2 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
 done
+MOD_NAME=$([ "$MOD" -eq 0 ] && echo "QPSK" || echo "16QAM")
+RATE_NAME=$([ "$RATE" -eq 0 ] && echo "1/2" || echo "2/3")
 
 PASS=0
 FAIL=0
@@ -41,17 +48,17 @@ fail()      { echo "  [FAIL]  $*"; FAIL=$((FAIL+1)); }
 echo ""
 echo "======================================================"
 echo "  OFDM TX→Noise→RX Loopback Test"
-echo "  Target : Artix-50T  |  256 SC  |  16-QAM  |  255 symbols"
+echo "  Target : Artix-50T  |  256 SC  |  ${MOD_NAME}  |  rate-${RATE_NAME}  |  255 symbols"
 echo "  Channel: AWGN at SNR = ${SNR} dB"
 echo "======================================================"
 
 # ── Step 1: Generate bits + Python TX reference ───────────────
 header "Step 1 — Generate input bits + Python TX reference"
-log "Running: python3 sim/ofdm_reference.py --gen"
-log "  Produces tb_input_to_tx.bin   : random bits (200 bytes, seed=42)"
+log "Running: python3 sim/ofdm_reference.py --gen --mod $MOD --rate $RATE"
+log "  Produces tb_input_to_tx.bin   : random bits (seed=42)"
 log "  Produces tb_tx_output_ref.txt : floating-point Python TX IQ samples"
 echo ""
-python3 sim/ofdm_reference.py --gen
+python3 sim/ofdm_reference.py --gen --mod "$MOD" --rate "$RATE"
 pass "Input bits and Python TX reference generated"
 
 # ── Step 2: HLS TX C-sim ──────────────────────────────────────
@@ -60,7 +67,7 @@ log "Running: ./setup_vitis.sh csim"
 log "  Reads    tb_input_to_tx.bin"
 log "  Produces tb_tx_output_hls.txt : clean IQ samples from HLS IFFT"
 echo ""
-./setup_vitis.sh csim 2>&1 | tee /tmp/noisy_tx_csim.log | grep -E "@I|@E|error" || true
+./setup_vitis.sh csim "$MOD" "$RATE" 2>&1 | tee /tmp/noisy_tx_csim.log | grep -E "@I|@E|error" || true
 echo ""
 if grep -q "Output copied to" /tmp/noisy_tx_csim.log; then
     pass "HLS TX C-sim completed — tb_tx_output_hls.txt written"
@@ -76,7 +83,7 @@ log "  Reads    tb_tx_output_hls.txt         : clean HLS TX IQ"
 log "  Adds     AWGN noise at ${SNR} dB SNR"
 log "  Produces tb_tx_output_hls_noise.txt   : noisy IQ (quantised to ap_fixed<16,1>)"
 echo ""
-noise_result=$(python3 sim/ofdm_channel_sim.py --snr "${SNR}" --write-noisy --input tb_tx_output_hls.txt)
+noise_result=$(python3 sim/ofdm_channel_sim.py --snr "${SNR}" --mod "$MOD" --write-noisy --input tb_tx_output_hls.txt)
 echo "$noise_result" | sed 's/^/  /'
 echo ""
 if echo "$noise_result" | grep -q "Wrote"; then
@@ -94,7 +101,7 @@ log "  Reads    tb_tx_output_hls_noise.txt   : noisy IQ"
 log "  Produces tb_rx_decoded_hls.bin        : bytes decoded by HLS RX chain"
 log "  Compares decoded bytes vs tb_input_to_tx.bin → BER"
 echo ""
-./setup_vitis.sh rx_noisy_csim 2>&1 | tee /tmp/noisy_rx_csim.log | grep -E "\[TB\]" || true
+./setup_vitis.sh rx_noisy_csim "$MOD" "$RATE" 2>&1 | tee /tmp/noisy_rx_csim.log | grep -E "\[TB\]" || true
 echo ""
 bit_errors=$(grep "\[TB\] Bit  errors" /tmp/noisy_rx_csim.log | awk '{print $5}' | head -1)
 total_bits=$(grep "\[TB\] Bit  errors" /tmp/noisy_rx_csim.log | awk '{print $7}' | head -1)
@@ -117,7 +124,7 @@ log "  Decodes  using Python numpy FFT (float, no HLS RX involved)"
 log "  Compares decoded bytes vs tb_input_to_tx.bin → BER"
 log "  Purpose: baseline — what BER does float arithmetic achieve at ${SNR} dB?"
 echo ""
-dec_result=$(python3 sim/ofdm_reference.py --decode-hls --input tb_tx_output_hls_noise.txt)
+dec_result=$(python3 sim/ofdm_reference.py --decode-hls --input tb_tx_output_hls_noise.txt --mod "$MOD" --rate "$RATE")
 echo "$dec_result" | sed 's/^/  /'
 echo ""
 py_bit_errors=$(echo "$dec_result" | grep "Bit  errors" | awk '{print $5}' | head -1)
@@ -135,7 +142,7 @@ fi
 # ── Summary ───────────────────────────────────────────────────
 echo ""
 echo "======================================================"
-echo "  NOISY LOOPBACK TEST SUMMARY  (SNR = ${SNR} dB)"
+echo "  NOISY LOOPBACK TEST SUMMARY  (SNR=${SNR} dB  mod=${MOD_NAME}  rate=${RATE_NAME})"
 echo "======================================================"
 echo "  Steps passed : $PASS / $((PASS+FAIL))"
 echo "  Steps failed : $FAIL / $((PASS+FAIL))"

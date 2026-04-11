@@ -58,7 +58,8 @@ _check_env() {
 
 # ── TCL scripts for each flow ─────────────────────────────────
 _write_csim_tcl() {
-    local mod_arg="${1:-1}"   # 0=QPSK, 1=16QAM
+    local mod_arg="${1:-1}"    # 0=QPSK, 1=16QAM
+    local rate_arg="${2:-0}"   # 0=rate-1/2, 1=rate-2/3
     local proj_dir="$SCRIPT_DIR/ofdm_tx_proj"
     local bits_src="$SCRIPT_DIR/tb_input_to_tx.bin"
     local hls_out="$SCRIPT_DIR/tb_tx_output_hls.txt"
@@ -90,7 +91,7 @@ csim_design -setup
 file copy -force ${bits_src} ${build_dir}/tb_input_to_tx.bin
 # Run simulation directly
 set ::env(LD_LIBRARY_PATH) "${ld_path}:\$::env(LD_LIBRARY_PATH)"
-set ret [catch {exec sh -c "cd ${build_dir} && ./csim.exe --mod ${mod_arg}"} out]
+set ret [catch {exec sh -c "cd ${build_dir} && ./csim.exe --mod ${mod_arg} --rate ${rate_arg}"} out]
 puts \$out
 if {\$ret != 0} { puts "@E csim.exe failed"; return -code error }
 # Copy output back to project root
@@ -102,6 +103,8 @@ EOF
 }
 
 _write_rx_csim_tcl() {
+    local mod_arg="${1:-1}"    # 0=QPSK, 1=16QAM
+    local rate_arg="${2:-0}"   # 0=rate-1/2, 1=rate-2/3
     local proj_dir="$SCRIPT_DIR/ofdm_rx_proj"
     local tx_out="$SCRIPT_DIR/tb_tx_output_hls.txt"
     local in_bits="$SCRIPT_DIR/tb_input_to_tx.bin"
@@ -140,7 +143,7 @@ file copy -force ${tx_out}   ${build_dir}/tb_tx_output_hls.txt
 file copy -force ${in_bits}  ${build_dir}/tb_input_to_tx.bin
 # Run simulation directly
 set ::env(LD_LIBRARY_PATH) "${ld_path}:\$::env(LD_LIBRARY_PATH)"
-set ret [catch {exec sh -c "cd ${build_dir} && ./csim.exe"} out]
+set ret [catch {exec sh -c "cd ${build_dir} && ./csim.exe --mod ${mod_arg} --rate ${rate_arg}"} out]
 puts \$out
 if {\$ret != 0} { puts "@E csim.exe failed"; return -code error }
 # Copy output back to project root
@@ -154,6 +157,8 @@ EOF
 }
 
 _write_rx_noisy_csim_tcl() {
+    local mod_arg="${1:-1}"    # 0=QPSK, 1=16QAM
+    local rate_arg="${2:-0}"   # 0=rate-1/2, 1=rate-2/3
     local proj_dir="$SCRIPT_DIR/ofdm_rx_proj"
     local tx_out="$SCRIPT_DIR/tb_tx_output_hls_noise.txt"   # noisy signal from ofdm_channel_sim.py
     local in_bits="$SCRIPT_DIR/tb_input_to_tx.bin"
@@ -188,7 +193,7 @@ csim_design -setup
 file copy -force ${tx_out}   ${build_dir}/tb_tx_output_hls.txt
 file copy -force ${in_bits}  ${build_dir}/tb_input_to_tx.bin
 set ::env(LD_LIBRARY_PATH) "${ld_path}:\$::env(LD_LIBRARY_PATH)"
-set ret [catch {exec sh -c "cd ${build_dir} && ./csim.exe"} out]
+set ret [catch {exec sh -c "cd ${build_dir} && ./csim.exe --mod ${mod_arg} --rate ${rate_arg}"} out]
 puts \$out
 if {\$ret != 0} { puts "@E csim.exe failed"; return -code error }
 if {[file exists ${build_dir}/tb_rx_decoded_hls.bin]} {
@@ -346,22 +351,22 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 
     case "${1:-help}" in
         csim)
-            echo "[run] Running TX C simulation (mod=${2:-1})..."
-            _write_csim_tcl "${2:-1}"
+            echo "[run] Running TX C simulation (mod=${2:-1} rate=${3:-0})..."
+            _write_csim_tcl "${2:-1}" "${3:-0}"
             cd "$SCRIPT_DIR"
             "$VITIS_HLS_BIN" $VITIS_HLS_EXEC /tmp/ofdm_csim.tcl 2>&1 | tee vitis_csim.log
             echo "[run] Log saved to vitis_csim.log"
             ;;
         rx_csim)
-            echo "[run] Running RX C simulation..."
-            _write_rx_csim_tcl
+            echo "[run] Running RX C simulation (mod=${2:-1} rate=${3:-0})..."
+            _write_rx_csim_tcl "${2:-1}" "${3:-0}"
             cd "$SCRIPT_DIR"
             "$VITIS_HLS_BIN" $VITIS_HLS_EXEC /tmp/ofdm_rx_csim.tcl 2>&1 | tee vitis_rx_csim.log
             echo "[run] Log saved to vitis_rx_csim.log"
             ;;
         rx_noisy_csim)
-            echo "[run] Running RX C simulation on noisy signal (tb_tx_output_hls_noise.txt)..."
-            _write_rx_noisy_csim_tcl
+            echo "[run] Running RX C simulation on noisy signal (mod=${2:-1} rate=${3:-0})..."
+            _write_rx_noisy_csim_tcl "${2:-1}" "${3:-0}"
             cd "$SCRIPT_DIR"
             "$VITIS_HLS_BIN" $VITIS_HLS_EXEC /tmp/ofdm_rx_noisy_csim.tcl 2>&1 | tee vitis_rx_noisy_csim.log
             echo "[run] Log saved to vitis_rx_noisy_csim.log"
