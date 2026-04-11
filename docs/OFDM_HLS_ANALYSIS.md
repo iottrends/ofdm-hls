@@ -659,36 +659,98 @@ zero LUT in the pipeline.
 
 ---
 
-#### C4. CFO Handoff Has No Hardware Path — FIFO Will Overflow
+#### C4. CFO Handoff Has No Hardware Path + Missing ADC Input Buffer
 
-`sync_detect` outputs `cfo_est` as an AXI-Lite register (`ap_vld`). `cfo_correct` reads
-`cfo_est` from its own AXI-Lite register. These are **not wired together** in the Vivado
-block design — there is no direct hardware path. The software must:
+**Revised understanding (supersedes the original 131K inter-block FIFO description):**
 
-1. Wait for sync_detect `ap_done` interrupt
-2. AXI-Lite read `cfo_est` (PCIe → FPGA → AXI bus: ~1–2 µs round-trip)
-3. AXI-Lite write the value to cfo_correct
-4. Assert cfo_correct `ap_start`
+There are three distinct issues that must all be addressed together.
 
-During steps 2–4, sync_detect's output is flowing into the AXI-Stream FIFO feeding
-cfo_correct. The default Vivado auto-inserted FIFO depth is 512 words. At 100 MHz, 512
-words = 5 µs of data. The software round-trip takes ~2 µs minimum but can spike to 20+ µs
-under interrupt latency. The FIFO overflows silently — no error flag, no backpressure.
-Samples are dropped. Every frame is corrupted.
+---
 
-**Fix (hardware path — correct approach):** In `create_project.tcl`, add a register-slice
-cell that captures `cfo_est` from sync_detect's output pin and drives cfo_correct's input
-pin directly in hardware on `ap_done`. No software involvement per frame.
+**C4a. cfo_est is routed through software — no hardware wire exists**
 
-**Fix (software path — quick workaround):** Insert an explicit AXI-Stream FIFO IP between
-sync_detect and cfo_correct with `depth = 131072` (≥ 74,016 words). In the TCL:
+`sync_detect` exposes `cfo_est` as an AXI-Lite register. `cfo_correct` reads its own
+separate AXI-Lite register. Nothing connects them in hardware. Per frame, software must:
+
+1. Wait for `sync_detect ap_done` interrupt
+2. AXI-Lite read `cfo_est` over PCIe (~2–5 µs typical, 50+ µs under OS jitter)
+3. AXI-Lite write the value to `cfo_correct`
+4. Assert `cfo_correct ap_start`
+
+During steps 2–4, `sync_detect` is already streaming the 74,304-sample frame into the
+inter-block FIFO at 100 MHz. The default auto-inserted FIFO is 512 words = 5 µs.
+Under OS scheduling jitter (50 µs spike), 5,000 samples are dropped silently.
+No error flag. No backpressure. Every frame corrupts.
+
+**Fix (TCL — correct approach):**
+Wire `cfo_est` directly in the block design. `sync_detect.cfo_est` (with `ap_vld`)
+connects to `cfo_correct.cfo_est` through a register slice. `cfo_correct` sees the
+value one clock after `sync_detect` finishes — no software round-trip, no FIFO depth
+requirement between those two blocks.
 
 ```tcl
-create_bd_cell -type ip -vlnv xilinx.com:ip:axis_data_fifo:2.0 sc_cfo_fifo
-set_property -dict [list CONFIG.FIFO_DEPTH {131072}] [get_bd_cells sc_cfo_fifo]
+# Direct cfo_est wire: sync_detect → cfo_correct (1-clock propagation)
+connect_bd_net \
+    [get_bd_pins sync_detect_0/cfo_est] \
+    [get_bd_pins cfo_correct_0/cfo_est]
 ```
 
-This uses ~2 BRAM_36 (within budget) and gives the software 1.3 ms to complete the handoff.
+With this wire in place, the inter-block FIFOs between `sync_detect → cfo_correct → ofdm_rx
+→ rx_interleaver → viterbi_dec → rx_scrambler` can all stay at the default small depth —
+they are pipeline buffers, not frame buffers.
+
+---
+
+**C4b. No input buffer before sync_detect — live ADC stream overflows**
+
+While the RX chain is processing frame N (74,304 samples × 288 clocks/symbol), the AD9361
+HDL is already streaming frame N+1. There is no buffer to absorb it. Frame N+1 is dropped.
+
+At 100 MHz, one complete frame arrives in 74,304 / 100e6 = 0.74 ms. The full RX chain
+(sync_detect + cfo_correct + ofdm_rx + Viterbi) takes roughly that same time to process
+it. Back-to-back frames with no gap require double-buffering.
+
+**Fix (TCL):**
+Insert a 131,072-deep AXI-Stream FIFO before `sync_detect`. This holds 2× the maximum
+frame size, giving the chain up to ~1.3 ms to start consuming each frame.
+
+```tcl
+# Input FIFO: absorbs live ADC stream while chain processes previous frame
+# 131,072 × 32 bits = 4 BRAM_36 (2× max frame = 2 × 74,304 = 148,608 → round up)
+create_bd_cell -type ip -vlnv xilinx.com:ip:axis_data_fifo:2.0 adc_input_fifo
+set_property -dict [list CONFIG.FIFO_DEPTH {131072}] [get_bd_cells adc_input_fifo]
+# Wire: AD9361_HDL iq_out → adc_input_fifo → sync_detect iq_in
+```
+
+BRAM cost: 4 BRAM_36. Current usage ~22/75 → 26/75 after this. Fits fine.
+
+---
+
+**C4c. No output buffer after rx_scrambler — DMA window is zero**
+
+`rx_scrambler` outputs decoded bytes directly. If the host DMA is not ready the instant
+the last byte arrives, bytes are dropped. There is no margin.
+
+**Fix (TCL):**
+Insert a 32,768-depth AXI-Stream FIFO after `rx_scrambler`. Maximum decoded payload per
+frame is 25,500 bytes (16-QAM rate-2/3); 32 KB covers it completely.
+
+```tcl
+# Output FIFO: holds decoded bytes until host DMA reads them
+# 32,768 bytes = 1 BRAM_36
+create_bd_cell -type ip -vlnv xilinx.com:ip:axis_data_fifo:2.0 rx_output_fifo
+set_property -dict [list CONFIG.FIFO_DEPTH {32768}] [get_bd_cells rx_output_fifo]
+# Wire: rx_scrambler data_out → rx_output_fifo → LiteX DMA engine
+```
+
+BRAM cost: 1 BRAM_36.
+
+---
+
+**Total BRAM cost for C4a+C4b+C4c: 5 BRAM_36 added (4 input + 1 output).**
+Revised total: ~27/75 BRAM_36 (36%). PCIe is entirely on the output side — it reads
+completed decoded bytes after the chain raises an interrupt. It has no involvement in
+the inter-block stream.
 
 ---
 
@@ -919,18 +981,20 @@ DJI OcuSync 1) and approaches commercial UAV datalink products (DJI OcuSync 3 us
 
 ### 9.5 Priority Fix List
 
-Items 1–6 must be completed before any hardware power-on. Items 7–11 before range testing.
+Items 1–8 must be completed before any hardware power-on. Items 9–13 before range testing.
 
 | # | ID | Issue | Effort | Impact |
 |---|----|----|---|---|
 | 1 | C1 | Fix n_syms feedback — hard-code n_syms=255 in sync_detect | 1 hr HLS | Critical: prevents stream misalignment |
 | 2 | C2 | Add 288-sample guard symbol to ofdm_tx send sequence | 30 min HLS | Critical: cold-start sync reliability |
 | 3 | C3 | Add 74,100-sample timeout counter to drain loop | 30 min HLS | Critical: prevents permanent deadlock |
-| 4 | C4 | Add 131,072-depth FIFO between sync_detect and cfo_correct | 1 hr TCL | Critical: prevents frame data loss |
-| 5 | C5 | Add CRC-32 over data payload in ofdm_tx / ofdm_rx | 2 hr HLS | High: silent corruption detection |
-| 6 | C6 | Flush xfft pipelines in LiteX init (256 zero samples each) | 1 hr Python | Critical: first-frame channel estimate |
-| 7 | S1 | Enable AD9364 IQ calibration in SPI init sequence | 2 hr firmware | High: +1–2 dB EVM |
-| 8 | S5 | Add soft PAPR clipping at 4σ in ofdm_tx after IFFT | 2 hr HLS | High: +3 dB ERP, +40% range |
-| 9 | S4 | Load raised-cosine coefficients into AD9364 TX FIR | 2 hr firmware | High: spectral compliance |
-| 10 | S3 | Per-symbol pilot channel update in ofdm_rx data loop | 2 days HLS | High: +2 dB at UAV speed |
-| 11 | S2 | Soft-decision LLR Viterbi decoder | 1 week HLS | High: +2–3 dB coding gain |
+| 4 | C4a | Wire cfo_est directly: sync_detect → cfo_correct (BD TCL) | 30 min TCL | Critical: eliminates software round-trip |
+| 5 | C4b | Add 131,072-depth input FIFO before sync_detect (4 BRAM_36) | 30 min TCL | Critical: double-buffers live ADC stream |
+| 6 | C4c | Add 32,768-depth output FIFO after rx_scrambler (1 BRAM_36) | 15 min TCL | Critical: gives DMA a read window |
+| 7 | C5 | Add CRC-32 over data payload in ofdm_tx / ofdm_rx | 2 hr HLS | High: silent corruption detection |
+| 8 | C6 | Flush xfft pipelines in LiteX init (256 zero samples each) | 1 hr Python | Critical: first-frame channel estimate |
+| 9 | S1 | Enable AD9364 IQ calibration in SPI init sequence | 2 hr firmware | High: +1–2 dB EVM |
+| 10 | S5 | Add soft PAPR clipping at 4σ in ofdm_tx after IFFT | 2 hr HLS | High: +3 dB ERP, +40% range |
+| 11 | S4 | Load raised-cosine coefficients into AD9364 TX FIR | 2 hr firmware | High: spectral compliance |
+| 12 | S3 | Per-symbol pilot channel update in ofdm_rx data loop | 2 days HLS | High: +2 dB at UAV speed |
+| 13 | S2 | Soft-decision LLR Viterbi decoder | 1 week HLS | High: +2–3 dB coding gain |

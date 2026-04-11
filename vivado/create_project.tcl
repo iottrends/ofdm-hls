@@ -111,7 +111,15 @@ connect_bd_intf_net \
     [get_bd_intf_pins ofdm_tx_0/bits_in]
 
 # ── RX AXI-Stream chain ────────────────────────────────────
-# rf_rx_in → sync_detect → cfo_correct → ofdm_rx → rx_interleaver → viterbi_dec → rx_scrambler → host_rx_out
+# rf_rx_in → adc_input_fifo → sync_detect → cfo_correct → ofdm_rx → rx_interleaver → viterbi_dec → rx_scrambler → rx_output_fifo → host_rx_out
+
+# C4: wire cfo_est directly in hardware — sync_detect ap_vld → cfo_correct ap_none.
+# No software round-trip required; value propagates in 1 clock cycle after
+# sync_detect asserts ap_done.
+connect_bd_net \
+    [get_bd_pins sync_detect_0/cfo_est] \
+    [get_bd_pins cfo_correct_0/cfo_est]
+
 connect_bd_intf_net \
     [get_bd_intf_pins sync_detect_0/iq_out] \
     [get_bd_intf_pins cfo_correct_0/iq_in]
@@ -164,11 +172,26 @@ connect_bd_net \
     [get_bd_pins cfg_tvalid/dout] \
     [get_bd_pins ofdm_rx_fft/s_axis_config_tvalid]
 
+# ── FIFOs ──────────────────────────────────────────────────
+# adc_input_fifo — depth 4096 → 4 BRAM_36, covers 205 µs at 20 MSPS
+create_bd_cell -type ip -vlnv xilinx.com:ip:axis_data_fifo:2.0 adc_input_fifo
+set_property -dict [list CONFIG.FIFO_DEPTH {4096}] [get_bd_cells adc_input_fifo]
+connect_bd_net [get_bd_ports clk]   [get_bd_pins adc_input_fifo/s_axis_aclk]
+connect_bd_net [get_bd_ports rst_n] [get_bd_pins adc_input_fifo/s_axis_aresetn]
+connect_bd_intf_net [get_bd_intf_pins adc_input_fifo/M_AXIS] [get_bd_intf_pins sync_detect_0/iq_in]
+
+# rx_output_fifo — depth 32768 → 8 BRAM_36, holds one full decoded frame
+create_bd_cell -type ip -vlnv xilinx.com:ip:axis_data_fifo:2.0 rx_output_fifo
+set_property -dict [list CONFIG.FIFO_DEPTH {32768}] [get_bd_cells rx_output_fifo]
+connect_bd_net [get_bd_ports clk]   [get_bd_pins rx_output_fifo/s_axis_aclk]
+connect_bd_net [get_bd_ports rst_n] [get_bd_pins rx_output_fifo/s_axis_aresetn]
+connect_bd_intf_net [get_bd_intf_pins rx_scrambler/data_out] [get_bd_intf_pins rx_output_fifo/S_AXIS]
+
 # ── External ports ─────────────────────────────────────────
 make_bd_intf_pins_external [get_bd_intf_pins tx_scrambler/data_in]  -name host_tx_in
 make_bd_intf_pins_external [get_bd_intf_pins ofdm_tx_0/iq_out]      -name rf_tx_out
-make_bd_intf_pins_external [get_bd_intf_pins sync_detect_0/iq_in]   -name rf_rx_in
-make_bd_intf_pins_external [get_bd_intf_pins rx_scrambler/data_out] -name host_rx_out
+make_bd_intf_pins_external [get_bd_intf_pins adc_input_fifo/S_AXIS] -name rf_rx_in
+make_bd_intf_pins_external [get_bd_intf_pins rx_output_fifo/M_AXIS] -name host_rx_out
 
 # ── Validate and wrap ──────────────────────────────────────
 validate_bd_design

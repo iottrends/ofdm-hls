@@ -24,6 +24,5 @@
 void cfo_correct(
     hls::stream<iq_t>& iq_in,
     hls::stream<iq_t>& iq_out,
-    cfo_t              cfo_est,   // from sync_detect (subcarrier units)
-    ap_uint<8>         n_syms     // data symbols (preamble not counted)
+    cfo_t              cfo_est    // from sync_detect (direct wire, ap_none)
 );

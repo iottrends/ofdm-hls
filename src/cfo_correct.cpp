@@ -121,17 +121,18 @@ static void sincos_lut(ap_uint<32> phase_acc, sample_t &sin_out, sample_t &cos_o
 void cfo_correct(
     hls::stream<iq_t>& iq_in,
     hls::stream<iq_t>& iq_out,
-    cfo_t              cfo_est,
-    ap_uint<8>         n_syms
+    cfo_t              cfo_est
 )
 {
 #pragma HLS INTERFACE axis      port=iq_in
 #pragma HLS INTERFACE axis      port=iq_out
-#pragma HLS INTERFACE s_axilite port=cfo_est bundle=ctrl
-#pragma HLS INTERFACE s_axilite port=n_syms  bundle=ctrl
+#pragma HLS INTERFACE ap_none   port=cfo_est   // C4a: direct wire from sync_detect, no AXI-Lite
 #pragma HLS INTERFACE s_axilite port=return  bundle=ctrl
 
-    const int total_samples = ((int)n_syms + 2) * SYNC_NL;
+    // C4a: hardcode to MAX_DATA_SYMS — n_syms removed from interface.
+    // n_syms is decoded from the header by ofdm_rx which runs *after* cfo_correct,
+    // so cfo_correct cannot know the real n_syms at start time.
+    const int total_samples = (MAX_DATA_SYMS + 2) * SYNC_NL;
 
     // ── CFO deadband — fixed-point comparison, 0 DSP ──────────
     const cfo_t CFO_THRESH = cfo_t(0.01f);

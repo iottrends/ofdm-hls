@@ -111,7 +111,7 @@ int main(int argc, char* argv[]) {
     // ── Step 2: CFO correction ────────────────────────────────
     // In simulation CFO = 0, so this is a pass-through.
     // In hardware, this undoes the carrier offset before the FFT.
-    cfo_correct(iq_aligned, iq_corrected, cfo_est, (ap_uint<8>)TB_N_SYMS);
+    cfo_correct(iq_aligned, iq_corrected, cfo_est);
 
     // ── Step 3: OFDM demodulate → coded bytes ────────────────
     // mod and n_syms are now decoded from the in-band header symbol.
