@@ -14,14 +14,14 @@ module ofdm_tx_ofdm_tx_Pipeline_PRE_DATA (
         ap_done,
         ap_idle,
         ap_ready,
-        freq_M_real_1_address0,
-        freq_M_real_1_ce0,
-        freq_M_real_1_we0,
-        freq_M_real_1_d0,
-        freq_M_imag_1_address0,
-        freq_M_imag_1_ce0,
-        freq_M_imag_1_we0,
-        freq_M_imag_1_d0,
+        freq_M_real_address0,
+        freq_M_real_ce0,
+        freq_M_real_we0,
+        freq_M_real_d0,
+        freq_M_imag_address0,
+        freq_M_imag_ce0,
+        freq_M_imag_we0,
+        freq_M_imag_d0,
         DATA_SC_IDX_address0,
         DATA_SC_IDX_ce0,
         DATA_SC_IDX_q0
@@ -35,14 +35,14 @@ input   ap_start;
 output   ap_done;
 output   ap_idle;
 output   ap_ready;
-output  [7:0] freq_M_real_1_address0;
-output   freq_M_real_1_ce0;
-output   freq_M_real_1_we0;
-output  [15:0] freq_M_real_1_d0;
-output  [7:0] freq_M_imag_1_address0;
-output   freq_M_imag_1_ce0;
-output   freq_M_imag_1_we0;
-output  [15:0] freq_M_imag_1_d0;
+output  [7:0] freq_M_real_address0;
+output   freq_M_real_ce0;
+output   freq_M_real_we0;
+output  [15:0] freq_M_real_d0;
+output  [7:0] freq_M_imag_address0;
+output   freq_M_imag_ce0;
+output   freq_M_imag_we0;
+output  [15:0] freq_M_imag_d0;
 output  [7:0] DATA_SC_IDX_address0;
 output   DATA_SC_IDX_ce0;
 input  [7:0] DATA_SC_IDX_q0;
@@ -55,7 +55,7 @@ wire    ap_enable_reg_pp0_iter0;
 reg    ap_enable_reg_pp0_iter1;
 reg    ap_idle_pp0;
 wire    ap_block_pp0_stage0_subdone;
-wire   [0:0] icmp_ln388_fu_125_p2;
+wire   [0:0] icmp_ln429_fu_125_p2;
 reg    ap_condition_exit_pp0_iter0_stage0;
 wire    ap_loop_exit_ready;
 reg    ap_ready_int;
@@ -64,20 +64,20 @@ wire   [15:0] ZC_I_LUT_q0;
 wire   [7:0] ZC_Q_LUT_address0;
 wire   [15:0] ZC_Q_LUT_q0;
 wire    ap_block_pp0_stage0_11001;
-wire   [63:0] zext_ln388_fu_137_p1;
+wire   [63:0] zext_ln429_fu_137_p1;
 wire    ap_block_pp0_stage0;
-wire   [63:0] zext_ln390_fu_149_p1;
+wire   [63:0] zext_ln431_fu_149_p1;
 reg   [7:0] d_fu_46;
-wire   [7:0] add_ln388_fu_131_p2;
+wire   [7:0] add_ln429_fu_131_p2;
 wire    ap_loop_init;
 reg   [7:0] ap_sig_allocacmp_d_1;
 reg    ZC_I_LUT_ce0_local;
 reg    ZC_Q_LUT_ce0_local;
 reg    DATA_SC_IDX_ce0_local;
-reg    freq_M_real_1_we0_local;
-reg    freq_M_real_1_ce0_local;
-reg    freq_M_imag_1_we0_local;
-reg    freq_M_imag_1_ce0_local;
+reg    freq_M_real_we0_local;
+reg    freq_M_real_ce0_local;
+reg    freq_M_imag_we0_local;
+reg    freq_M_imag_ce0_local;
 reg    ap_done_reg;
 wire    ap_continue_int;
 reg    ap_done_int;
@@ -169,8 +169,8 @@ end
 
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        if (((icmp_ln388_fu_125_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
-            d_fu_46 <= add_ln388_fu_131_p2;
+        if (((icmp_ln429_fu_125_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
+            d_fu_46 <= add_ln429_fu_131_p2;
         end else if ((ap_loop_init == 1'b1)) begin
             d_fu_46 <= 8'd0;
         end
@@ -202,7 +202,7 @@ always @ (*) begin
 end
 
 always @ (*) begin
-    if (((icmp_ln388_fu_125_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+    if (((icmp_ln429_fu_125_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b1;
     end else begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b0;
@@ -251,33 +251,33 @@ end
 
 always @ (*) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (ap_enable_reg_pp0_iter1 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        freq_M_imag_1_ce0_local = 1'b1;
+        freq_M_imag_ce0_local = 1'b1;
     end else begin
-        freq_M_imag_1_ce0_local = 1'b0;
+        freq_M_imag_ce0_local = 1'b0;
     end
 end
 
 always @ (*) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (ap_enable_reg_pp0_iter1 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        freq_M_imag_1_we0_local = 1'b1;
+        freq_M_imag_we0_local = 1'b1;
     end else begin
-        freq_M_imag_1_we0_local = 1'b0;
+        freq_M_imag_we0_local = 1'b0;
     end
 end
 
 always @ (*) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (ap_enable_reg_pp0_iter1 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        freq_M_real_1_ce0_local = 1'b1;
+        freq_M_real_ce0_local = 1'b1;
     end else begin
-        freq_M_real_1_ce0_local = 1'b0;
+        freq_M_real_ce0_local = 1'b0;
     end
 end
 
 always @ (*) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (ap_enable_reg_pp0_iter1 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        freq_M_real_1_we0_local = 1'b1;
+        freq_M_real_we0_local = 1'b1;
     end else begin
-        freq_M_real_1_we0_local = 1'b0;
+        freq_M_real_we0_local = 1'b0;
     end
 end
 
@@ -292,15 +292,15 @@ always @ (*) begin
     endcase
 end
 
-assign DATA_SC_IDX_address0 = zext_ln388_fu_137_p1;
+assign DATA_SC_IDX_address0 = zext_ln429_fu_137_p1;
 
 assign DATA_SC_IDX_ce0 = DATA_SC_IDX_ce0_local;
 
-assign ZC_I_LUT_address0 = zext_ln388_fu_137_p1;
+assign ZC_I_LUT_address0 = zext_ln429_fu_137_p1;
 
-assign ZC_Q_LUT_address0 = zext_ln388_fu_137_p1;
+assign ZC_Q_LUT_address0 = zext_ln429_fu_137_p1;
 
-assign add_ln388_fu_131_p2 = (ap_sig_allocacmp_d_1 + 8'd1);
+assign add_ln429_fu_131_p2 = (ap_sig_allocacmp_d_1 + 8'd1);
 
 assign ap_CS_fsm_pp0_stage0 = ap_CS_fsm[32'd0];
 
@@ -320,26 +320,26 @@ assign ap_loop_exit_ready = ap_condition_exit_pp0_iter0_stage0;
 
 assign ap_ready = ap_ready_sig;
 
-assign freq_M_imag_1_address0 = zext_ln390_fu_149_p1;
+assign freq_M_imag_address0 = zext_ln431_fu_149_p1;
 
-assign freq_M_imag_1_ce0 = freq_M_imag_1_ce0_local;
+assign freq_M_imag_ce0 = freq_M_imag_ce0_local;
 
-assign freq_M_imag_1_d0 = ZC_Q_LUT_q0;
+assign freq_M_imag_d0 = ZC_Q_LUT_q0;
 
-assign freq_M_imag_1_we0 = freq_M_imag_1_we0_local;
+assign freq_M_imag_we0 = freq_M_imag_we0_local;
 
-assign freq_M_real_1_address0 = zext_ln390_fu_149_p1;
+assign freq_M_real_address0 = zext_ln431_fu_149_p1;
 
-assign freq_M_real_1_ce0 = freq_M_real_1_ce0_local;
+assign freq_M_real_ce0 = freq_M_real_ce0_local;
 
-assign freq_M_real_1_d0 = ZC_I_LUT_q0;
+assign freq_M_real_d0 = ZC_I_LUT_q0;
 
-assign freq_M_real_1_we0 = freq_M_real_1_we0_local;
+assign freq_M_real_we0 = freq_M_real_we0_local;
 
-assign icmp_ln388_fu_125_p2 = ((ap_sig_allocacmp_d_1 == 8'd200) ? 1'b1 : 1'b0);
+assign icmp_ln429_fu_125_p2 = ((ap_sig_allocacmp_d_1 == 8'd200) ? 1'b1 : 1'b0);
 
-assign zext_ln388_fu_137_p1 = ap_sig_allocacmp_d_1;
+assign zext_ln429_fu_137_p1 = ap_sig_allocacmp_d_1;
 
-assign zext_ln390_fu_149_p1 = DATA_SC_IDX_q0;
+assign zext_ln431_fu_149_p1 = DATA_SC_IDX_q0;
 
 endmodule //ofdm_tx_ofdm_tx_Pipeline_PRE_DATA

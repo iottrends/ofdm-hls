@@ -217,8 +217,8 @@ ofdm_rx_equalize_demap_pack_Pipeline_QPSK_PACK grp_equalize_demap_pack_Pipeline_
     .G_eq_M_imag_address0(grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_G_eq_M_imag_address0),
     .G_eq_M_imag_ce0(grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_G_eq_M_imag_ce0),
     .G_eq_M_imag_q0(G_eq_M_imag_q0),
-    .sext_ln474(cpe_cos),
-    .sext_ln601(cpe_sin),
+    .sext_ln514(cpe_cos),
+    .sext_ln641(cpe_sin),
     .bits_out_TDATA(grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_bits_out_TDATA),
     .bits_out_TVALID(grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_bits_out_TVALID)
 );
@@ -243,8 +243,8 @@ ofdm_rx_equalize_demap_pack_Pipeline_QAM16_PACK grp_equalize_demap_pack_Pipeline
     .G_eq_M_imag_address0(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_G_eq_M_imag_address0),
     .G_eq_M_imag_ce0(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_G_eq_M_imag_ce0),
     .G_eq_M_imag_q0(G_eq_M_imag_q0),
-    .sext_ln474(cpe_cos),
-    .sext_ln601(cpe_sin),
+    .sext_ln514(cpe_cos),
+    .sext_ln641(cpe_sin),
     .bits_out_TDATA(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_bits_out_TDATA),
     .bits_out_TVALID(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_bits_out_TVALID),
     .grp_fu_112_p_din0(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_112_p_din0),

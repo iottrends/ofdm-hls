@@ -415,6 +415,18 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_cfo_correct.tcl 2>&1 | tee vitis_cfo_correct_synth.log
             echo "[run] Log saved to vitis_cfo_correct_synth.log"
             ;;
+        scrambler_synth)
+            echo "[run] Running scrambler C synthesis..."
+            cd "$SCRIPT_DIR"
+            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_scrambler.tcl 2>&1 | tee vitis_scrambler_synth.log
+            echo "[run] Log saved to vitis_scrambler_synth.log"
+            ;;
+        interleaver_synth)
+            echo "[run] Running interleaver C synthesis..."
+            cd "$SCRIPT_DIR"
+            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_interleaver.tcl 2>&1 | tee vitis_interleaver_synth.log
+            echo "[run] Log saved to vitis_interleaver_synth.log"
+            ;;
         tx_cosim)
             echo "[run] TX RTL co-simulation (mod=${2:-1}) — csynth + cosim (slow, ~10-30 min)..."
             _write_tx_cosim_tcl "${2:-1}"
@@ -475,6 +487,8 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             echo "  ./setup_vitis.sh viterbi_synth     # viterbi_dec synthesis"
             echo "  ./setup_vitis.sh sync_detect_synth # sync_detect synthesis"
             echo "  ./setup_vitis.sh cfo_correct_synth # cfo_correct synthesis"
+            echo "  ./setup_vitis.sh scrambler_synth   # scrambler synthesis"
+            echo "  ./setup_vitis.sh interleaver_synth # interleaver synthesis"
             echo "  ./setup_vitis.sh all               # TX csim + synth + report"
             ;;
     esac

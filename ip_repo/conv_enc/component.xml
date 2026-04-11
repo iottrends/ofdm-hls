@@ -1417,8 +1417,8 @@
       </xilinx:taxonomies>
       <xilinx:displayName>Hallycon OFDM conv_enc</xilinx:displayName>
       <xilinx:definitionSource>HLS</xilinx:definitionSource>
-      <xilinx:coreRevision>2114559220</xilinx:coreRevision>
-      <xilinx:coreCreationDateTime>2026-04-10T07:41:03Z</xilinx:coreCreationDateTime>
+      <xilinx:coreRevision>2114560635</xilinx:coreRevision>
+      <xilinx:coreCreationDateTime>2026-04-11T07:15:24Z</xilinx:coreCreationDateTime>
       <xilinx:sdxKernelAttributes>
         <xilinx:sdx_kernel>true</xilinx:sdx_kernel>
         <xilinx:sdx_kernel_type>hls</xilinx:sdx_kernel_type>

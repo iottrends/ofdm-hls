@@ -7,16 +7,16 @@
 `timescale 1 ns / 1 ps 
 
 (* DowngradeIPIdentifiedWarnings="yes" *)
-module ofdm_rx_remove_cp_and_read_Pipeline_SKIP_CP (
+module ofdm_tx_ofdm_tx_Pipeline_GUARD (
         ap_clk,
         ap_rst,
         ap_start,
         ap_done,
         ap_idle,
         ap_ready,
-        iq_in_TVALID,
-        iq_in_TDATA,
-        iq_in_TREADY
+        iq_out_TREADY,
+        iq_out_TDATA,
+        iq_out_TVALID
 );
 
 parameter    ap_ST_fsm_pp0_stage0 = 1'd1;
@@ -27,12 +27,12 @@ input   ap_start;
 output   ap_done;
 output   ap_idle;
 output   ap_ready;
-input   iq_in_TVALID;
-input  [47:0] iq_in_TDATA;
-output   iq_in_TREADY;
+input   iq_out_TREADY;
+output  [47:0] iq_out_TDATA;
+output   iq_out_TVALID;
 
 reg ap_idle;
-reg iq_in_TREADY;
+reg iq_out_TVALID;
 
 (* fsm_encoding = "none" *) reg   [0:0] ap_CS_fsm;
 wire    ap_CS_fsm_pp0_stage0;
@@ -40,18 +40,19 @@ wire    ap_enable_reg_pp0_iter0;
 reg    ap_enable_reg_pp0_iter1;
 reg    ap_idle_pp0;
 reg    ap_block_pp0_stage0_subdone;
-wire   [0:0] icmp_ln357_fu_52_p2;
+wire   [0:0] icmp_ln537_fu_56_p2;
 reg    ap_condition_exit_pp0_iter0_stage0;
 wire    ap_loop_exit_ready;
 reg    ap_ready_int;
-reg    iq_in_TDATA_blk_n;
+reg    iq_out_TDATA_blk_n;
 wire    ap_block_pp0_stage0_grp1;
-reg   [5:0] i_fu_34;
-wire   [5:0] i_3_fu_58_p2;
+reg   [8:0] i_fu_36;
+wire   [8:0] i_8_fu_62_p2;
 wire    ap_loop_init;
 reg    ap_block_pp0_stage0_11001;
-reg   [5:0] ap_sig_allocacmp_i_2;
+reg   [8:0] ap_sig_allocacmp_i_7;
 wire    ap_block_pp0_stage0;
+reg    ap_block_pp0_stage0_01001_grp1;
 reg    ap_block_pp0_stage0_11001_grp1;
 reg    ap_done_reg;
 wire    ap_continue_int;
@@ -67,11 +68,11 @@ wire    ap_ce_reg;
 initial begin
 #0 ap_CS_fsm = 1'd1;
 #0 ap_enable_reg_pp0_iter1 = 1'b0;
-#0 i_fu_34 = 6'd0;
+#0 i_fu_36 = 9'd0;
 #0 ap_done_reg = 1'b0;
 end
 
-ofdm_rx_flow_control_loop_pipe_sequential_init flow_control_loop_pipe_sequential_init_U(
+ofdm_tx_flow_control_loop_pipe_sequential_init flow_control_loop_pipe_sequential_init_U(
     .ap_clk(ap_clk),
     .ap_rst(ap_rst),
     .ap_start(ap_start),
@@ -120,16 +121,16 @@ end
 
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        if (((icmp_ln357_fu_52_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
-            i_fu_34 <= i_3_fu_58_p2;
+        if (((icmp_ln537_fu_56_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
+            i_fu_36 <= i_8_fu_62_p2;
         end else if ((ap_loop_init == 1'b1)) begin
-            i_fu_34 <= 6'd0;
+            i_fu_36 <= 9'd0;
         end
     end
 end
 
 always @ (*) begin
-    if (((icmp_ln357_fu_52_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+    if (((icmp_ln537_fu_56_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b1;
     end else begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b0;
@@ -170,25 +171,25 @@ end
 
 always @ (*) begin
     if (((ap_loop_init == 1'b1) & (1'b0 == ap_block_pp0_stage0) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        ap_sig_allocacmp_i_2 = 6'd0;
+        ap_sig_allocacmp_i_7 = 9'd0;
     end else begin
-        ap_sig_allocacmp_i_2 = i_fu_34;
+        ap_sig_allocacmp_i_7 = i_fu_36;
     end
 end
 
 always @ (*) begin
     if (((1'b0 == ap_block_pp0_stage0_grp1) & (ap_enable_reg_pp0_iter1 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        iq_in_TDATA_blk_n = iq_in_TVALID;
+        iq_out_TDATA_blk_n = iq_out_TREADY;
     end else begin
-        iq_in_TDATA_blk_n = 1'b1;
+        iq_out_TDATA_blk_n = 1'b1;
     end
 end
 
 always @ (*) begin
     if (((1'b0 == ap_block_pp0_stage0_11001_grp1) & (ap_enable_reg_pp0_iter1 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        iq_in_TREADY = 1'b1;
+        iq_out_TVALID = 1'b1;
     end else begin
-        iq_in_TREADY = 1'b0;
+        iq_out_TVALID = 1'b0;
     end
 end
 
@@ -208,17 +209,21 @@ assign ap_CS_fsm_pp0_stage0 = ap_CS_fsm[32'd0];
 assign ap_block_pp0_stage0 = ~(1'b1 == 1'b1);
 
 always @ (*) begin
-    ap_block_pp0_stage0_11001 = ((iq_in_TVALID == 1'b0) & (ap_enable_reg_pp0_iter1 == 1'b1));
+    ap_block_pp0_stage0_01001_grp1 = ((iq_out_TREADY == 1'b0) & (ap_enable_reg_pp0_iter1 == 1'b1));
 end
 
 always @ (*) begin
-    ap_block_pp0_stage0_11001_grp1 = ((iq_in_TVALID == 1'b0) & (ap_enable_reg_pp0_iter1 == 1'b1));
+    ap_block_pp0_stage0_11001 = ((iq_out_TREADY == 1'b0) & (ap_enable_reg_pp0_iter1 == 1'b1));
+end
+
+always @ (*) begin
+    ap_block_pp0_stage0_11001_grp1 = ((iq_out_TREADY == 1'b0) & (ap_enable_reg_pp0_iter1 == 1'b1));
 end
 
 assign ap_block_pp0_stage0_grp1 = ~(1'b1 == 1'b1);
 
 always @ (*) begin
-    ap_block_pp0_stage0_subdone = ((iq_in_TVALID == 1'b0) & (ap_enable_reg_pp0_iter1 == 1'b1));
+    ap_block_pp0_stage0_subdone = ((iq_out_TREADY == 1'b0) & (ap_enable_reg_pp0_iter1 == 1'b1));
 end
 
 assign ap_done = ap_done_sig;
@@ -231,8 +236,10 @@ assign ap_loop_exit_ready = ap_condition_exit_pp0_iter0_stage0;
 
 assign ap_ready = ap_ready_sig;
 
-assign i_3_fu_58_p2 = (ap_sig_allocacmp_i_2 + 6'd1);
+assign i_8_fu_62_p2 = (ap_sig_allocacmp_i_7 + 9'd1);
 
-assign icmp_ln357_fu_52_p2 = ((ap_sig_allocacmp_i_2 == 6'd32) ? 1'b1 : 1'b0);
+assign icmp_ln537_fu_56_p2 = ((ap_sig_allocacmp_i_7 == 9'd288) ? 1'b1 : 1'b0);
 
-endmodule //ofdm_rx_remove_cp_and_read_Pipeline_SKIP_CP
+assign iq_out_TDATA = 48'd0;
+
+endmodule //ofdm_tx_ofdm_tx_Pipeline_GUARD

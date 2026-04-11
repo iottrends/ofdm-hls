@@ -32,7 +32,10 @@ architecture behav of ofdm_rx_ofdm_rx_Pipeline_DRAIN is
     constant ap_const_boolean_1 : BOOLEAN := true;
     constant ap_const_boolean_0 : BOOLEAN := false;
     constant ap_const_lv1_1 : STD_LOGIC_VECTOR (0 downto 0) := "1";
+    constant ap_const_lv17_1 : STD_LOGIC_VECTOR (16 downto 0) := "00000000000000001";
+    constant ap_const_lv1_0 : STD_LOGIC_VECTOR (0 downto 0) := "0";
     constant ap_const_lv48_20 : STD_LOGIC_VECTOR (47 downto 0) := "000000000000000000000000000000000000000000100000";
+    constant ap_const_lv17_12174 : STD_LOGIC_VECTOR (16 downto 0) := "10010000101110100";
 
 attribute shreg_extract : string;
     signal ap_CS_fsm : STD_LOGIC_VECTOR (0 downto 0) := "1";
@@ -41,11 +44,16 @@ attribute shreg_extract : string;
     signal ap_CS_fsm_state1 : STD_LOGIC;
     attribute fsm_encoding of ap_CS_fsm_state1 : signal is "none";
     signal ap_block_state1_pp0_stage0_iter0 : BOOLEAN;
-    signal s_last_fu_34_p3 : STD_LOGIC_VECTOR (0 downto 0);
+    signal icmp_ln771_fu_58_p2 : STD_LOGIC_VECTOR (0 downto 0);
+    signal s_last_fu_50_p3 : STD_LOGIC_VECTOR (0 downto 0);
     signal ap_condition_exit_pp0_iter0_stage0 : STD_LOGIC;
     signal ap_loop_exit_ready : STD_LOGIC;
     signal ap_ready_int : STD_LOGIC;
     signal iq_in_TDATA_blk_n : STD_LOGIC;
+    signal drain_cnt_fu_32 : STD_LOGIC_VECTOR (16 downto 0) := "00000000000000000";
+    signal add_ln772_fu_64_p2 : STD_LOGIC_VECTOR (16 downto 0);
+    signal ap_loop_init : STD_LOGIC;
+    signal ap_sig_allocacmp_drain_cnt_1 : STD_LOGIC_VECTOR (16 downto 0);
     signal ap_done_reg : STD_LOGIC := '0';
     signal ap_continue_int : STD_LOGIC;
     signal ap_done_int : STD_LOGIC;
@@ -54,7 +62,6 @@ attribute shreg_extract : string;
     signal ap_start_int : STD_LOGIC;
     signal ap_ready_sig : STD_LOGIC;
     signal ap_done_sig : STD_LOGIC;
-    signal ap_loop_init : STD_LOGIC;
     signal ap_ce_reg : STD_LOGIC;
 
     component ofdm_rx_flow_control_loop_pipe_sequential_init IS
@@ -123,6 +130,19 @@ begin
     end process;
 
 
+    drain_cnt_fu_32_assign_proc : process (ap_clk)
+    begin
+        if (ap_clk'event and ap_clk = '1') then
+            if (((ap_const_boolean_0 = ap_block_state1_pp0_stage0_iter0) and (ap_const_logic_1 = ap_CS_fsm_state1))) then
+                if (((s_last_fu_50_p3 = ap_const_lv1_0) and (icmp_ln771_fu_58_p2 = ap_const_lv1_0))) then 
+                    drain_cnt_fu_32 <= add_ln772_fu_64_p2;
+                elsif ((ap_loop_init = ap_const_logic_1)) then 
+                    drain_cnt_fu_32 <= ap_const_lv17_1;
+                end if;
+            end if; 
+        end if;
+    end process;
+
     ap_NS_fsm_assign_proc : process (ap_CS_fsm, ap_CS_fsm_state1, ap_block_state1_pp0_stage0_iter0)
     begin
         case ap_CS_fsm is
@@ -132,6 +152,7 @@ begin
                 ap_NS_fsm <= "X";
         end case;
     end process;
+    add_ln772_fu_64_p2 <= std_logic_vector(unsigned(ap_sig_allocacmp_drain_cnt_1) + unsigned(ap_const_lv17_1));
     ap_CS_fsm_state1 <= ap_CS_fsm(0);
 
     ap_ST_fsm_state1_blk_assign_proc : process(ap_block_state1_pp0_stage0_iter0)
@@ -150,9 +171,9 @@ begin
     end process;
 
 
-    ap_condition_exit_pp0_iter0_stage0_assign_proc : process(ap_CS_fsm_state1, ap_block_state1_pp0_stage0_iter0, s_last_fu_34_p3)
+    ap_condition_exit_pp0_iter0_stage0_assign_proc : process(ap_CS_fsm_state1, ap_block_state1_pp0_stage0_iter0, icmp_ln771_fu_58_p2, s_last_fu_50_p3)
     begin
-        if (((s_last_fu_34_p3 = ap_const_lv1_1) and (ap_const_boolean_0 = ap_block_state1_pp0_stage0_iter0) and (ap_const_logic_1 = ap_CS_fsm_state1))) then 
+        if (((ap_const_boolean_0 = ap_block_state1_pp0_stage0_iter0) and (ap_const_logic_1 = ap_CS_fsm_state1) and ((s_last_fu_50_p3 = ap_const_lv1_1) or (icmp_ln771_fu_58_p2 = ap_const_lv1_1)))) then 
             ap_condition_exit_pp0_iter0_stage0 <= ap_const_logic_1;
         else 
             ap_condition_exit_pp0_iter0_stage0 <= ap_const_logic_0;
@@ -193,6 +214,17 @@ begin
     end process;
 
 
+    ap_sig_allocacmp_drain_cnt_1_assign_proc : process(ap_CS_fsm_state1, drain_cnt_fu_32, ap_loop_init)
+    begin
+        if (((ap_loop_init = ap_const_logic_1) and (ap_const_logic_1 = ap_CS_fsm_state1))) then 
+            ap_sig_allocacmp_drain_cnt_1 <= ap_const_lv17_1;
+        else 
+            ap_sig_allocacmp_drain_cnt_1 <= drain_cnt_fu_32;
+        end if; 
+    end process;
+
+    icmp_ln771_fu_58_p2 <= "1" when (unsigned(ap_sig_allocacmp_drain_cnt_1) > unsigned(ap_const_lv17_12174)) else "0";
+
     iq_in_TDATA_blk_n_assign_proc : process(ap_CS_fsm_state1, iq_in_TVALID, ap_start_int)
     begin
         if (((ap_start_int = ap_const_logic_1) and (ap_const_logic_1 = ap_CS_fsm_state1))) then 
@@ -212,5 +244,5 @@ begin
         end if; 
     end process;
 
-    s_last_fu_34_p3 <= iq_in_TDATA(32 downto 32);
+    s_last_fu_50_p3 <= iq_in_TDATA(32 downto 32);
 end behav;

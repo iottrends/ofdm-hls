@@ -505,51 +505,61 @@ rf_rx_in
 
 ---
 
-## 8. Outstanding Issues
+## 8. Status & Outstanding Issues
 
-### 8a. Vivado standalone synthesis trims design to ~7 LUT
+### 8a. ✅ RESOLVED — Vivado post-implementation utilization (2026-04-11)
 
-**Root cause:** All HLS blocks use `ap_ctrl_hs` handshake. In the standalone block design
-there is no AXI-Lite master to assert `ap_start`, so all state machines stay idle. Vivado
-correctly determines all outputs are constant and prunes the logic. The post-implementation
-report (`vivado/utilization_post_impl_summary.rpt`) therefore shows 7 LUT / 8 FF, not ~34K.
+OOC (Out-of-Context) synthesis via `launch_runs synth_1 -jobs 1` correctly synthesizes
+each IP block independently into a DCP, then stitches at top level. The trimming-to-7-LUT
+problem is resolved. Full design is placed and routed.
 
-`set_false_path -from [all_inputs] -to [all_outputs]` in the XDC prevents timing-driven
-trimming of unplaced ports but does not prevent ap_ctrl_hs idle-state pruning.
+**Actual post-implementation numbers (vivado/utilization_post_impl_summary.rpt):**
 
-**Real fix required:** LiteX integration via `docs/files/ofdm_subsystem.py`. LiteX
-generates the AXI-Lite interconnect + CSR register map that drives `ap_start` for all
-HLS blocks. Only then will Vivado see a fully driven design and report accurate utilization.
+| Resource     | Used   | Available | Util%   |
+|--------------|--------|-----------|---------|
+| Slice LUTs   | 15,395 | 32,600    | **47%** |
+| Slice FF     | 19,940 | 65,200    | **31%** |
+| DSP48E1      | 94     | 120       | **78%** |
+| BRAM Tile    | 26     | 75        | **35%** |
+| BRAM_18K eq  | 52     | 150       | **35%** |
+| Bonded IOB   | 82     | 150       | **55%** |
 
-### 8b. synth_ip [get_ips *] error (non-fatal)
+All 14 IPs instantiated and routed. No black boxes. Per-block HLS estimate was ~34K LUT;
+integrated synthesis landed at 15,395 LUT (55% reduction from cross-boundary optimization).
 
+**create_project.tcl memory settings (4 GB host):**
+```tcl
+set_param general.maxThreads 2   # caps internal threads
+launch_runs synth_1 -jobs 1      # sequential OOC (was -jobs 8 → OOM)
+launch_runs impl_1  -jobs 1
 ```
-ERROR: [Vivado 12-3424] IPI cores may not be directly generated.
-```
+Note: `set_param synth.elaboration.rodinMoreOptions "rt::set_parameter conserveMemory 1"`
+was tried and removed — `conserveMemory` is not a valid parameter in Vivado 2025.2.
 
-`get_ips *` returns BD sub-IP instances (xfft, xlconstant) which cannot be synthesized
-with `synth_ip`. The line in `create_project.tcl` should be removed — `synth_design`
-handles everything. Currently non-fatal (Vivado continues) but generates noise.
+### 8b. ✅ RESOLVED — synth_ip [get_ips *] error
 
-### 8c. LUT budget — may be fine after integrated synthesis
+Line removed from create_project.tcl. OOC synthesis via `launch_runs` handles all IP DCPs
+automatically. No manual `synth_ip` call needed.
 
-The ~34,425 LUT estimate is ~4% over the 32,600 available on XC7A50T. This is from
-summed per-block standalone estimates. Integrated synthesis typically reduces 10–20%
-through cross-boundary optimization and LUT combining. Realistic expectation: ~28K–30K.
+### 8c. ✅ RESOLVED — LUT budget
 
-If the integrated design is still over budget:
-1. **viterbi_dec_0 (9,448 LUT)** — replace with Xilinx SD-FEC core, or reduce K from 7→5
-2. **ofdm_rx_0 geq_t narrowing** — `ap_fixed<32,10>` → `ap_fixed<18,10>` saves ~4 DSP
-3. **ofdm_rx_0 angle_to_phase_acc** — simplification saves ~6–8 DSP
+Per-block estimate of ~34,425 LUT (106%) was overly pessimistic. Actual integrated result:
+15,395 LUT (47%). No reduction targets needed. DSP at 78% is the tightest resource.
 
 ### 8d. Remaining hardware integration steps
 
 | Item | Status |
 |------|--------|
-| All 10 HLS IPs synthesized + exported | Done |
-| Vivado block design + xfft connections | Done |
-| LiteX integration (ofdm_subsystem.py) | **TODO — required for real bitstream** |
-| AD9364 LVDS bring-up on hardware | TODO |
+| All 10 HLS IPs synthesized + exported | ✅ Done |
+| Vivado block design + xfft connections | ✅ Done |
+| Vivado OOC build — placed & routed | ✅ Done (2026-04-11) |
+| Soft-decision Viterbi (S2) | TODO — next HLS task |
+| Per-symbol pilot CFO tracking (S3) | TODO — ofdm_rx.cpp |
+| PAPR clipping in ofdm_tx (S5) | TODO — ofdm_tx.cpp |
+| PCIe + DMA + AD9361 HDL + mode mux | TODO — Vivado BD + LiteX |
+| LiteX CSR integration (ofdm_subsystem.py) | TODO |
+| xfft pipeline flush on boot (C6) | TODO — LiteX firmware |
+| AD9364 IQ calibration SPI (S1) | TODO — LiteX BSP |
 | Over-the-air loopback test (drone ↔ ground) | TODO |
 
 ---

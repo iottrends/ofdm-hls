@@ -49,12 +49,12 @@ reg    ap_enable_reg_pp0_iter0;
 reg    ap_enable_reg_pp0_iter1;
 reg    ap_idle_pp0;
 reg    ap_block_pp0_stage0_subdone;
-wire   [0:0] icmp_ln174_fu_71_p2;
+wire   [0:0] icmp_ln175_fu_71_p2;
 reg    ap_condition_exit_pp0_iter0_stage0;
 wire    ap_loop_exit_ready;
 reg    ap_ready_int;
 wire    ap_CS_fsm_pp0_stage1;
-reg   [0:0] icmp_ln174_reg_108;
+reg   [0:0] icmp_ln175_reg_108;
 reg    ap_block_state2_pp0_stage1_iter0_grp1;
 reg    ap_enable_reg_pp0_iter0_reg;
 reg    ap_block_pp0_stage1_subdone;
@@ -63,8 +63,8 @@ wire    ap_block_pp0_stage1_grp1;
 reg    sym_fifo_blk_n;
 wire    ap_block_pp0_stage0_grp2;
 reg    ap_block_pp0_stage0_11001;
-wire   [3:0] trunc_ln178_fu_97_p1;
-reg   [3:0] trunc_ln178_reg_112;
+wire   [3:0] trunc_ln179_fu_97_p1;
+reg   [3:0] trunc_ln179_reg_112;
 reg    ap_block_pp0_stage1_11001_grp1;
 reg   [6:0] i_fu_46;
 wire   [6:0] i_4_fu_77_p2;
@@ -154,7 +154,7 @@ end
 
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        if (((icmp_ln174_fu_71_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
+        if (((icmp_ln175_fu_71_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
             i_fu_46 <= i_4_fu_77_p2;
         end else if ((ap_loop_init == 1'b1)) begin
             i_fu_46 <= 7'd0;
@@ -164,18 +164,18 @@ end
 
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        icmp_ln174_reg_108 <= icmp_ln174_fu_71_p2;
+        icmp_ln175_reg_108 <= icmp_ln175_fu_71_p2;
     end
 end
 
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage1_11001_grp1) & (1'b1 == ap_CS_fsm_pp0_stage1))) begin
-        trunc_ln178_reg_112 <= trunc_ln178_fu_97_p1;
+        trunc_ln179_reg_112 <= trunc_ln179_fu_97_p1;
     end
 end
 
 always @ (*) begin
-    if (((icmp_ln174_fu_71_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+    if (((icmp_ln175_fu_71_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b1;
     end else begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b0;
@@ -231,7 +231,7 @@ always @ (*) begin
 end
 
 always @ (*) begin
-    if (((ap_enable_reg_pp0_iter0_reg == 1'b1) & (icmp_ln174_reg_108 == 1'd0) & (1'b0 == ap_block_pp0_stage1_grp1) & (1'b1 == ap_CS_fsm_pp0_stage1))) begin
+    if (((ap_enable_reg_pp0_iter0_reg == 1'b1) & (icmp_ln175_reg_108 == 1'd0) & (1'b0 == ap_block_pp0_stage1_grp1) & (1'b1 == ap_CS_fsm_pp0_stage1))) begin
         bits_in_TDATA_blk_n = bits_in_TVALID;
     end else begin
         bits_in_TDATA_blk_n = 1'b1;
@@ -239,7 +239,7 @@ always @ (*) begin
 end
 
 always @ (*) begin
-    if (((ap_enable_reg_pp0_iter0_reg == 1'b1) & (icmp_ln174_reg_108 == 1'd0) & (1'b0 == ap_block_pp0_stage1_11001_grp1) & (1'b1 == ap_CS_fsm_pp0_stage1))) begin
+    if (((ap_enable_reg_pp0_iter0_reg == 1'b1) & (icmp_ln175_reg_108 == 1'd0) & (1'b0 == ap_block_pp0_stage1_11001_grp1) & (1'b1 == ap_CS_fsm_pp0_stage1))) begin
         bits_in_TREADY = 1'b1;
     end else begin
         bits_in_TREADY = 1'b0;
@@ -247,7 +247,7 @@ always @ (*) begin
 end
 
 always @ (*) begin
-    if ((((1'b0 == ap_block_pp0_stage0_grp2) & (ap_enable_reg_pp0_iter1 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0)) | ((ap_enable_reg_pp0_iter0_reg == 1'b1) & (icmp_ln174_reg_108 == 1'd0) & (1'b0 == ap_block_pp0_stage1_grp1) & (1'b1 == ap_CS_fsm_pp0_stage1)))) begin
+    if ((((1'b0 == ap_block_pp0_stage0_grp2) & (ap_enable_reg_pp0_iter1 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0)) | ((ap_enable_reg_pp0_iter0_reg == 1'b1) & (icmp_ln175_reg_108 == 1'd0) & (1'b0 == ap_block_pp0_stage1_grp1) & (1'b1 == ap_CS_fsm_pp0_stage1)))) begin
         sym_fifo_blk_n = sym_fifo_full_n;
     end else begin
         sym_fifo_blk_n = 1'b1;
@@ -256,8 +256,8 @@ end
 
 always @ (*) begin
     if (((1'b0 == ap_block_pp0_stage0_01001_grp2) & (ap_enable_reg_pp0_iter1 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        sym_fifo_din = trunc_ln178_reg_112;
-    end else if (((ap_enable_reg_pp0_iter0_reg == 1'b1) & (icmp_ln174_reg_108 == 1'd0) & (1'b0 == ap_block_pp0_stage1_01001_grp1) & (1'b1 == ap_CS_fsm_pp0_stage1))) begin
+        sym_fifo_din = trunc_ln179_reg_112;
+    end else if (((ap_enable_reg_pp0_iter0_reg == 1'b1) & (icmp_ln175_reg_108 == 1'd0) & (1'b0 == ap_block_pp0_stage1_01001_grp1) & (1'b1 == ap_CS_fsm_pp0_stage1))) begin
         sym_fifo_din = {{bits_in_TDATA[7:4]}};
     end else begin
         sym_fifo_din = 'bx;
@@ -265,7 +265,7 @@ always @ (*) begin
 end
 
 always @ (*) begin
-    if ((((ap_enable_reg_pp0_iter0_reg == 1'b1) & (icmp_ln174_reg_108 == 1'd0) & (1'b0 == ap_block_pp0_stage1_11001_grp1) & (1'b1 == ap_CS_fsm_pp0_stage1)) | ((1'b0 == ap_block_pp0_stage0_11001_grp2) & (ap_enable_reg_pp0_iter1 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0)))) begin
+    if ((((ap_enable_reg_pp0_iter0_reg == 1'b1) & (icmp_ln175_reg_108 == 1'd0) & (1'b0 == ap_block_pp0_stage1_11001_grp1) & (1'b1 == ap_CS_fsm_pp0_stage1)) | ((1'b0 == ap_block_pp0_stage0_11001_grp2) & (ap_enable_reg_pp0_iter1 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0)))) begin
         sym_fifo_write = 1'b1;
     end else begin
         sym_fifo_write = 1'b0;
@@ -335,7 +335,7 @@ always @ (*) begin
 end
 
 always @ (*) begin
-    ap_block_state2_pp0_stage1_iter0_grp1 = (((icmp_ln174_reg_108 == 1'd0) & (bits_in_TVALID == 1'b0)) | ((icmp_ln174_reg_108 == 1'd0) & (sym_fifo_full_n == 1'b0)));
+    ap_block_state2_pp0_stage1_iter0_grp1 = (((icmp_ln175_reg_108 == 1'd0) & (bits_in_TVALID == 1'b0)) | ((icmp_ln175_reg_108 == 1'd0) & (sym_fifo_full_n == 1'b0)));
 end
 
 assign ap_done = ap_done_sig;
@@ -348,8 +348,8 @@ assign ap_ready = ap_ready_sig;
 
 assign i_4_fu_77_p2 = (ap_sig_allocacmp_i_3 + 7'd1);
 
-assign icmp_ln174_fu_71_p2 = ((ap_sig_allocacmp_i_3 == 7'd100) ? 1'b1 : 1'b0);
+assign icmp_ln175_fu_71_p2 = ((ap_sig_allocacmp_i_3 == 7'd100) ? 1'b1 : 1'b0);
 
-assign trunc_ln178_fu_97_p1 = bits_in_TDATA[3:0];
+assign trunc_ln179_fu_97_p1 = bits_in_TDATA[3:0];
 
 endmodule //ofdm_tx_unpack_bits_Pipeline_UNPACK_16QAM

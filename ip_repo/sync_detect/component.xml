@@ -680,7 +680,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>32a9d3ec</spirit:value>
+            <spirit:value>10bac328</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -696,7 +696,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>cb968e23</spirit:value>
+            <spirit:value>dc205bab</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -712,7 +712,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>997bada9</spirit:value>
+            <spirit:value>4649a71d</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -728,7 +728,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>a1aa32e4</spirit:value>
+            <spirit:value>06d05efa</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -798,19 +798,6 @@
       </spirit:view>
     </spirit:views>
     <spirit:ports>
-      <spirit:port>
-        <spirit:name>cfo_est_ap_vld</spirit:name>
-        <spirit:wire>
-          <spirit:direction>out</spirit:direction>
-          <spirit:wireTypeDefs>
-            <spirit:wireTypeDef>
-              <spirit:typeName>STD_LOGIC</spirit:typeName>
-              <spirit:viewNameRef>xilinx_verilogsynthesis</spirit:viewNameRef>
-              <spirit:viewNameRef>xilinx_verilogbehavioralsimulation</spirit:viewNameRef>
-            </spirit:wireTypeDef>
-          </spirit:wireTypeDefs>
-        </spirit:wire>
-      </spirit:port>
       <spirit:port>
         <spirit:name>s_axi_ctrl_ARADDR</spirit:name>
         <spirit:wire>
@@ -1527,7 +1514,7 @@
       <spirit:file>
         <spirit:name>hdl/vhdl/sync_detect.vhd</spirit:name>
         <spirit:fileType>vhdlSource</spirit:fileType>
-        <spirit:userFileType>CHECKSUM_7e4d3279</spirit:userFileType>
+        <spirit:userFileType>CHECKSUM_b1616d29</spirit:userFileType>
       </spirit:file>
     </spirit:fileSet>
     <spirit:fileSet>
@@ -1745,8 +1732,8 @@
       </xilinx:taxonomies>
       <xilinx:displayName>Hallycon OFDM sync_detect</xilinx:displayName>
       <xilinx:definitionSource>HLS</xilinx:definitionSource>
-      <xilinx:coreRevision>2114559222</xilinx:coreRevision>
-      <xilinx:coreCreationDateTime>2026-04-10T07:42:31Z</xilinx:coreCreationDateTime>
+      <xilinx:coreRevision>2114560634</xilinx:coreRevision>
+      <xilinx:coreCreationDateTime>2026-04-11T07:14:18Z</xilinx:coreCreationDateTime>
       <xilinx:sdxKernelAttributes>
         <xilinx:sdx_kernel>true</xilinx:sdx_kernel>
         <xilinx:sdx_kernel_type>hls</xilinx:sdx_kernel_type>
@@ -1756,8 +1743,8 @@
       <xilinx:xilinxVersion>2025.2</xilinx:xilinxVersion>
       <xilinx:checksum xilinx:scope="busInterfaces" xilinx:value="0413e0af"/>
       <xilinx:checksum xilinx:scope="memoryMaps" xilinx:value="46c67b29"/>
-      <xilinx:checksum xilinx:scope="fileGroups" xilinx:value="b198c700"/>
-      <xilinx:checksum xilinx:scope="ports" xilinx:value="cc27efa2"/>
+      <xilinx:checksum xilinx:scope="fileGroups" xilinx:value="9732584f"/>
+      <xilinx:checksum xilinx:scope="ports" xilinx:value="543026c7"/>
       <xilinx:checksum xilinx:scope="hdlParameters" xilinx:value="e76f1e5a"/>
       <xilinx:checksum xilinx:scope="parameters" xilinx:value="bcdfb87c"/>
     </xilinx:packagingInfo>

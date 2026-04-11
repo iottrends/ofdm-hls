@@ -786,7 +786,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>12808d2a</spirit:value>
+            <spirit:value>fbd9dc74</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -802,7 +802,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>847a61ca</spirit:value>
+            <spirit:value>051324e2</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -818,7 +818,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>5f391d45</spirit:value>
+            <spirit:value>68626b93</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -834,7 +834,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>663fda8f</spirit:value>
+            <spirit:value>252dc0d0</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -1973,7 +1973,7 @@
       <spirit:file>
         <spirit:name>hdl/vhdl/ofdm_rx.vhd</spirit:name>
         <spirit:fileType>vhdlSource</spirit:fileType>
-        <spirit:userFileType>CHECKSUM_5ca486f5</spirit:userFileType>
+        <spirit:userFileType>CHECKSUM_eda4d6e0</spirit:userFileType>
       </spirit:file>
     </spirit:fileSet>
     <spirit:fileSet>
@@ -2279,10 +2279,10 @@
       <xilinx:taxonomies>
         <xilinx:taxonomy>/VITIS_HLS_IP</xilinx:taxonomy>
       </xilinx:taxonomies>
-      <xilinx:displayName>Ofdm_rx</xilinx:displayName>
+      <xilinx:displayName>Hallycon OFDM ofdm_rx</xilinx:displayName>
       <xilinx:definitionSource>HLS</xilinx:definitionSource>
-      <xilinx:coreRevision>2114559295</xilinx:coreRevision>
-      <xilinx:coreCreationDateTime>2026-04-10T08:56:01Z</xilinx:coreCreationDateTime>
+      <xilinx:coreRevision>2114560633</xilinx:coreRevision>
+      <xilinx:coreCreationDateTime>2026-04-11T07:13:58Z</xilinx:coreCreationDateTime>
       <xilinx:sdxKernelAttributes>
         <xilinx:sdx_kernel>true</xilinx:sdx_kernel>
         <xilinx:sdx_kernel_type>hls</xilinx:sdx_kernel_type>
@@ -2292,7 +2292,7 @@
       <xilinx:xilinxVersion>2025.2</xilinx:xilinxVersion>
       <xilinx:checksum xilinx:scope="busInterfaces" xilinx:value="d03185af"/>
       <xilinx:checksum xilinx:scope="memoryMaps" xilinx:value="5987a96c"/>
-      <xilinx:checksum xilinx:scope="fileGroups" xilinx:value="f3975f44"/>
+      <xilinx:checksum xilinx:scope="fileGroups" xilinx:value="9a370088"/>
       <xilinx:checksum xilinx:scope="ports" xilinx:value="4f08c2c2"/>
       <xilinx:checksum xilinx:scope="hdlParameters" xilinx:value="e76f1e5a"/>
       <xilinx:checksum xilinx:scope="parameters" xilinx:value="9cc5af6a"/>

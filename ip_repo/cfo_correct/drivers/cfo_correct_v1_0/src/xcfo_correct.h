@@ -99,10 +99,6 @@ u32 XCfo_correct_IsReady(XCfo_correct *InstancePtr);
 void XCfo_correct_EnableAutoRestart(XCfo_correct *InstancePtr);
 void XCfo_correct_DisableAutoRestart(XCfo_correct *InstancePtr);
 
-void XCfo_correct_Set_cfo_est(XCfo_correct *InstancePtr, u32 Data);
-u32 XCfo_correct_Get_cfo_est(XCfo_correct *InstancePtr);
-void XCfo_correct_Set_n_syms(XCfo_correct *InstancePtr, u32 Data);
-u32 XCfo_correct_Get_n_syms(XCfo_correct *InstancePtr);
 
 void XCfo_correct_InterruptGlobalEnable(XCfo_correct *InstancePtr);
 void XCfo_correct_InterruptGlobalDisable(XCfo_correct *InstancePtr);

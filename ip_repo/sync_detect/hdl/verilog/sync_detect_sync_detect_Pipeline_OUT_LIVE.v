@@ -19,7 +19,7 @@ module sync_detect_sync_detect_Pipeline_OUT_LIVE (
         from_live,
         iq_in_TDATA,
         iq_in_TREADY,
-        add_ln235,
+        add_ln240,
         iq_out_TDATA,
         iq_out_TVALID
 );
@@ -37,7 +37,7 @@ input   iq_out_TREADY;
 input  [31:0] from_live;
 input  [47:0] iq_in_TDATA;
 output   iq_in_TREADY;
-input  [31:0] add_ln235;
+input  [31:0] add_ln240;
 output  [47:0] iq_out_TDATA;
 output   iq_out_TVALID;
 
@@ -52,7 +52,7 @@ reg    ap_enable_reg_pp0_iter1;
 reg    ap_idle_pp0;
 reg    ap_block_state2_pp0_stage0_iter1_grp1;
 reg    ap_block_pp0_stage0_subdone;
-wire   [0:0] icmp_ln231_fu_91_p2;
+wire   [0:0] icmp_ln236_fu_91_p2;
 reg    ap_condition_exit_pp0_iter0_stage0;
 wire    ap_loop_exit_ready;
 reg    ap_ready_int;
@@ -69,7 +69,7 @@ reg   [30:0] ap_sig_allocacmp_n_1;
 wire    ap_block_pp0_stage0;
 reg    ap_block_pp0_stage0_11001_grp1;
 reg    ap_block_pp0_stage0_01001_grp1;
-wire   [31:0] zext_ln231_fu_87_p1;
+wire   [31:0] zext_ln236_fu_87_p1;
 reg    ap_done_reg;
 wire    ap_continue_int;
 reg    ap_done_int;
@@ -137,7 +137,7 @@ end
 
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        if (((icmp_ln231_fu_91_p2 == 1'd1) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
+        if (((icmp_ln236_fu_91_p2 == 1'd1) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
             n_fu_50 <= n_2_fu_97_p2;
         end else if ((ap_loop_init == 1'b1)) begin
             n_fu_50 <= 31'd0;
@@ -152,7 +152,7 @@ always @ (posedge ap_clk) begin
 end
 
 always @ (*) begin
-    if (((icmp_ln231_fu_91_p2 == 1'd0) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+    if (((icmp_ln236_fu_91_p2 == 1'd0) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b1;
     end else begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b0;
@@ -278,14 +278,14 @@ assign ap_loop_exit_ready = ap_condition_exit_pp0_iter0_stage0;
 
 assign ap_ready = ap_ready_sig;
 
-assign icmp_ln231_fu_91_p2 = (($signed(zext_ln231_fu_87_p1) < $signed(from_live)) ? 1'b1 : 1'b0);
+assign icmp_ln236_fu_91_p2 = (($signed(zext_ln236_fu_87_p1) < $signed(from_live)) ? 1'b1 : 1'b0);
 
 assign iq_out_TDATA = {iq_in_TDATA[48 - 1:33], |(s_last_reg_134), iq_in_TDATA[31:0]};
 
 assign n_2_fu_97_p2 = (ap_sig_allocacmp_n_1 + 31'd1);
 
-assign s_last_fu_103_p2 = ((zext_ln231_fu_87_p1 == add_ln235) ? 1'b1 : 1'b0);
+assign s_last_fu_103_p2 = ((zext_ln236_fu_87_p1 == add_ln240) ? 1'b1 : 1'b0);
 
-assign zext_ln231_fu_87_p1 = ap_sig_allocacmp_n_1;
+assign zext_ln236_fu_87_p1 = ap_sig_allocacmp_n_1;
 
 endmodule //sync_detect_sync_detect_Pipeline_OUT_LIVE

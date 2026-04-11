@@ -23,8 +23,8 @@ module sync_detect_sync_detect_Pipeline_OUT_BUF (
         buf_q_address0,
         buf_q_ce0,
         buf_q_q0,
-        add_ln226,
-        icmp_ln226,
+        add_ln231,
+        icmp_ln231,
         iq_out_TDATA,
         iq_out_TVALID
 );
@@ -46,8 +46,8 @@ input  [15:0] buf_i_q0;
 output  [9:0] buf_q_address0;
 output   buf_q_ce0;
 input  [15:0] buf_q_q0;
-input  [31:0] add_ln226;
-input  [0:0] icmp_ln226;
+input  [31:0] add_ln231;
+input  [0:0] icmp_ln231;
 output  [47:0] iq_out_TDATA;
 output   iq_out_TVALID;
 
@@ -61,7 +61,7 @@ reg    ap_enable_reg_pp0_iter1;
 reg    ap_idle_pp0;
 reg    ap_block_state2_pp0_stage0_iter1;
 reg    ap_block_pp0_stage0_subdone;
-wire   [0:0] icmp_ln220_fu_139_p2;
+wire   [0:0] icmp_ln225_fu_139_p2;
 reg    ap_condition_exit_pp0_iter0_stage0;
 wire    ap_loop_exit_ready;
 reg    ap_ready_int;
@@ -70,18 +70,18 @@ wire    ap_block_pp0_stage0;
 reg    ap_block_pp0_stage0_11001;
 wire   [0:0] s_last_fu_173_p2;
 reg   [0:0] s_last_reg_218;
-wire   [63:0] zext_ln224_fu_161_p1;
+wire   [63:0] zext_ln229_fu_161_p1;
 reg   [16:0] n_1_fu_66;
-wire   [16:0] add_ln220_fu_145_p2;
+wire   [16:0] add_ln225_fu_145_p2;
 wire    ap_loop_init;
 reg   [16:0] ap_sig_allocacmp_n;
 reg    ap_block_pp0_stage0_01001;
 reg    buf_i_ce0_local;
 reg    buf_q_ce0_local;
-wire   [31:0] zext_ln220_fu_135_p1;
-wire   [9:0] trunc_ln220_fu_151_p1;
-wire   [9:0] add_ln224_fu_155_p2;
-wire   [0:0] icmp_ln226_1_fu_167_p2;
+wire   [31:0] zext_ln225_fu_135_p1;
+wire   [9:0] trunc_ln225_fu_151_p1;
+wire   [9:0] add_ln229_fu_155_p2;
+wire   [0:0] icmp_ln231_1_fu_167_p2;
 wire   [32:0] or_ln_fu_184_p4;
 reg    ap_done_reg;
 wire    ap_continue_int;
@@ -150,8 +150,8 @@ end
 
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        if (((icmp_ln220_fu_139_p2 == 1'd1) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
-            n_1_fu_66 <= add_ln220_fu_145_p2;
+        if (((icmp_ln225_fu_139_p2 == 1'd1) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
+            n_1_fu_66 <= add_ln225_fu_145_p2;
         end else if ((ap_loop_init == 1'b1)) begin
             n_1_fu_66 <= 17'd0;
         end
@@ -165,7 +165,7 @@ always @ (posedge ap_clk) begin
 end
 
 always @ (*) begin
-    if (((icmp_ln220_fu_139_p2 == 1'd0) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+    if (((icmp_ln225_fu_139_p2 == 1'd0) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b1;
     end else begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b0;
@@ -255,9 +255,9 @@ always @ (*) begin
     endcase
 end
 
-assign add_ln220_fu_145_p2 = (ap_sig_allocacmp_n + 17'd1);
+assign add_ln225_fu_145_p2 = (ap_sig_allocacmp_n + 17'd1);
 
-assign add_ln224_fu_155_p2 = (trunc_ln220_fu_151_p1 + empty);
+assign add_ln229_fu_155_p2 = (trunc_ln225_fu_151_p1 + empty);
 
 assign ap_CS_fsm_pp0_stage0 = ap_CS_fsm[32'd0];
 
@@ -289,28 +289,28 @@ assign ap_loop_exit_ready = ap_condition_exit_pp0_iter0_stage0;
 
 assign ap_ready = ap_ready_sig;
 
-assign buf_i_address0 = zext_ln224_fu_161_p1;
+assign buf_i_address0 = zext_ln229_fu_161_p1;
 
 assign buf_i_ce0 = buf_i_ce0_local;
 
-assign buf_q_address0 = zext_ln224_fu_161_p1;
+assign buf_q_address0 = zext_ln229_fu_161_p1;
 
 assign buf_q_ce0 = buf_q_ce0_local;
 
-assign icmp_ln220_fu_139_p2 = (($signed(zext_ln220_fu_135_p1) < $signed(from_buf)) ? 1'b1 : 1'b0);
+assign icmp_ln225_fu_139_p2 = (($signed(zext_ln225_fu_135_p1) < $signed(from_buf)) ? 1'b1 : 1'b0);
 
-assign icmp_ln226_1_fu_167_p2 = ((zext_ln220_fu_135_p1 == add_ln226) ? 1'b1 : 1'b0);
+assign icmp_ln231_1_fu_167_p2 = ((zext_ln225_fu_135_p1 == add_ln231) ? 1'b1 : 1'b0);
 
 assign iq_out_TDATA = or_ln_fu_184_p4;
 
 assign or_ln_fu_184_p4 = {{{s_last_reg_218}, {buf_q_q0}}, {buf_i_q0}};
 
-assign s_last_fu_173_p2 = (icmp_ln226_1_fu_167_p2 & icmp_ln226);
+assign s_last_fu_173_p2 = (icmp_ln231_1_fu_167_p2 & icmp_ln231);
 
-assign trunc_ln220_fu_151_p1 = ap_sig_allocacmp_n[9:0];
+assign trunc_ln225_fu_151_p1 = ap_sig_allocacmp_n[9:0];
 
-assign zext_ln220_fu_135_p1 = ap_sig_allocacmp_n;
+assign zext_ln225_fu_135_p1 = ap_sig_allocacmp_n;
 
-assign zext_ln224_fu_161_p1 = add_ln224_fu_155_p2;
+assign zext_ln229_fu_161_p1 = add_ln229_fu_155_p2;
 
 endmodule //sync_detect_sync_detect_Pipeline_OUT_BUF

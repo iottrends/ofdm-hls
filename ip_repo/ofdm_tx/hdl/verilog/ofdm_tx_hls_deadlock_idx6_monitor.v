@@ -1,11 +1,11 @@
 `timescale 1 ns / 1 ps
 
-module ofdm_tx_hls_deadlock_idx6_monitor ( // for module ofdm_tx_ofdm_tx_inst.grp_process_symbol_fu_437.unpack_bits_U0
+module ofdm_tx_hls_deadlock_idx6_monitor ( // for module ofdm_tx_ofdm_tx_inst.grp_send_freq_symbol_fu_432.grp_insert_cp_and_send_fu_62
     input wire clock,
     input wire reset,
-    input wire [5:0] axis_block_sigs,
-    input wire [27:0] inst_idle_sigs,
-    input wire [15:0] inst_block_sigs,
+    input wire [10:0] axis_block_sigs,
+    input wire [18:0] inst_idle_sigs,
+    input wire [0:0] inst_block_sigs,
     output wire block
 );
 
@@ -20,11 +20,10 @@ wire cur_axis_has_block;
 wire seq_is_axis_block;
 
 assign block = monitor_find_block;
-assign idx7_block = axis_block_sigs[2];
-assign idx8_block = axis_block_sigs[3];
-assign sub_parallel_block = 1'b0 | ((idx7_block & (axis_block_sigs[2])) & ((idx8_block | inst_idle_sigs[24]))) | ((idx8_block & (axis_block_sigs[3])) & ((idx7_block | inst_idle_sigs[23])));
-assign all_sub_parallel_has_block = sub_parallel_block;
-assign all_sub_single_has_block = 1'b0;
+assign idx7_block = axis_block_sigs[3];
+assign idx8_block = axis_block_sigs[4];
+assign all_sub_parallel_has_block = 1'b0;
+assign all_sub_single_has_block = 1'b0 | (idx7_block & (axis_block_sigs[3])) | (idx8_block & (axis_block_sigs[4]));
 assign cur_axis_has_block = 1'b0;
 assign seq_is_axis_block = all_sub_parallel_has_block | all_sub_single_has_block | cur_axis_has_block;
 

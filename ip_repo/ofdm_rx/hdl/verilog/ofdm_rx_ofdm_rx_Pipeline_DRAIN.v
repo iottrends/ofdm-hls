@@ -37,11 +37,16 @@ reg iq_in_TREADY;
 (* fsm_encoding = "none" *) reg   [0:0] ap_CS_fsm;
 wire    ap_CS_fsm_state1;
 reg    ap_block_state1_pp0_stage0_iter0;
-wire   [0:0] s_last_fu_34_p3;
+wire   [0:0] icmp_ln771_fu_58_p2;
+wire   [0:0] s_last_fu_50_p3;
 reg    ap_condition_exit_pp0_iter0_stage0;
 wire    ap_loop_exit_ready;
 reg    ap_ready_int;
 reg    iq_in_TDATA_blk_n;
+reg   [16:0] drain_cnt_fu_32;
+wire   [16:0] add_ln772_fu_64_p2;
+wire    ap_loop_init;
+reg   [16:0] ap_sig_allocacmp_drain_cnt_1;
 reg    ap_done_reg;
 wire    ap_continue_int;
 reg    ap_done_int;
@@ -50,12 +55,12 @@ reg    ap_ST_fsm_state1_blk;
 wire    ap_start_int;
 wire    ap_ready_sig;
 wire    ap_done_sig;
-wire    ap_loop_init;
 wire    ap_ce_reg;
 
 // power-on initialization
 initial begin
 #0 ap_CS_fsm = 1'd1;
+#0 drain_cnt_fu_32 = 17'd0;
 #0 ap_done_reg = 1'b0;
 end
 
@@ -94,6 +99,16 @@ always @ (posedge ap_clk) begin
     end
 end
 
+always @ (posedge ap_clk) begin
+    if (((1'b0 == ap_block_state1_pp0_stage0_iter0) & (1'b1 == ap_CS_fsm_state1))) begin
+        if (((s_last_fu_50_p3 == 1'd0) & (icmp_ln771_fu_58_p2 == 1'd0))) begin
+            drain_cnt_fu_32 <= add_ln772_fu_64_p2;
+        end else if ((ap_loop_init == 1'b1)) begin
+            drain_cnt_fu_32 <= 17'd1;
+        end
+    end
+end
+
 always @ (*) begin
     if ((1'b1 == ap_block_state1_pp0_stage0_iter0)) begin
         ap_ST_fsm_state1_blk = 1'b1;
@@ -103,7 +118,7 @@ always @ (*) begin
 end
 
 always @ (*) begin
-    if (((s_last_fu_34_p3 == 1'd1) & (1'b0 == ap_block_state1_pp0_stage0_iter0) & (1'b1 == ap_CS_fsm_state1))) begin
+    if (((1'b0 == ap_block_state1_pp0_stage0_iter0) & (1'b1 == ap_CS_fsm_state1) & ((s_last_fu_50_p3 == 1'd1) | (icmp_ln771_fu_58_p2 == 1'd1)))) begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b1;
     end else begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b0;
@@ -135,6 +150,14 @@ always @ (*) begin
 end
 
 always @ (*) begin
+    if (((ap_loop_init == 1'b1) & (1'b1 == ap_CS_fsm_state1))) begin
+        ap_sig_allocacmp_drain_cnt_1 = 17'd1;
+    end else begin
+        ap_sig_allocacmp_drain_cnt_1 = drain_cnt_fu_32;
+    end
+end
+
+always @ (*) begin
     if (((ap_start_int == 1'b1) & (1'b1 == ap_CS_fsm_state1))) begin
         iq_in_TDATA_blk_n = iq_in_TVALID;
     end else begin
@@ -161,6 +184,8 @@ always @ (*) begin
     endcase
 end
 
+assign add_ln772_fu_64_p2 = (ap_sig_allocacmp_drain_cnt_1 + 17'd1);
+
 assign ap_CS_fsm_state1 = ap_CS_fsm[32'd0];
 
 always @ (*) begin
@@ -173,6 +198,8 @@ assign ap_loop_exit_ready = ap_condition_exit_pp0_iter0_stage0;
 
 assign ap_ready = ap_ready_sig;
 
-assign s_last_fu_34_p3 = iq_in_TDATA[48'd32];
+assign icmp_ln771_fu_58_p2 = ((ap_sig_allocacmp_drain_cnt_1 > 17'd74100) ? 1'b1 : 1'b0);
+
+assign s_last_fu_50_p3 = iq_in_TDATA[48'd32];
 
 endmodule //ofdm_rx_ofdm_rx_Pipeline_DRAIN

@@ -10,13 +10,13 @@ wire [1:0] inst_idle_sigs;
 wire [0:0] inst_block_sigs;
 wire kernel_block;
 
-assign axis_block_sigs[0] = ~grp_cfo_correct_Pipeline_CORRECT_fu_78.iq_out_TDATA_blk_n;
-assign axis_block_sigs[1] = ~grp_cfo_correct_Pipeline_CORRECT_fu_78.iq_in_TDATA_blk_n;
+assign axis_block_sigs[0] = ~grp_cfo_correct_Pipeline_CORRECT_fu_54.iq_out_TDATA_blk_n;
+assign axis_block_sigs[1] = ~grp_cfo_correct_Pipeline_CORRECT_fu_54.iq_in_TDATA_blk_n;
 
 assign inst_block_sigs[0] = 1'b0;
 
 assign inst_idle_sigs[0] = 1'b0;
-assign inst_idle_sigs[1] = grp_cfo_correct_Pipeline_CORRECT_fu_78.ap_idle;
+assign inst_idle_sigs[1] = grp_cfo_correct_Pipeline_CORRECT_fu_54.ap_idle;
 
 cfo_correct_hls_deadlock_idx0_monitor cfo_correct_hls_deadlock_idx0_monitor_U (
     .clock(kernel_monitor_clock),

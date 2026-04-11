@@ -1,7 +1,7 @@
 Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
 ---------------------------------------------------------------------------------------------------------------------------------------------
 | Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
-| Date         : Fri Apr 10 09:31:36 2026
+| Date         : Sat Apr 11 08:21:22 2026
 | Host         : LPT1146 running 64-bit Ubuntu 24.04.3 LTS
 | Command      : report_utilization -file /mnt/d/work/HW/ofdm_tx_hls/vivado/utilization_post_synth_summary.rpt
 | Design       : ofdm_chain_wrapper
@@ -28,21 +28,21 @@ Table of Contents
 1. Slice Logic
 --------------
 
-+----------------------------+------+-------+------------+-----------+-------+
-|          Site Type         | Used | Fixed | Prohibited | Available | Util% |
-+----------------------------+------+-------+------------+-----------+-------+
-| Slice LUTs*                | 3708 |     0 |          0 |     32600 | 11.37 |
-|   LUT as Logic             | 2755 |     0 |          0 |     32600 |  8.45 |
-|   LUT as Memory            |  953 |     0 |          0 |      9600 |  9.93 |
-|     LUT as Distributed RAM |   62 |     0 |            |           |       |
-|     LUT as Shift Register  |  891 |     0 |            |           |       |
-| Slice Registers            | 6786 |     0 |          0 |     65200 | 10.41 |
-|   Register as Flip Flop    | 6786 |     0 |          0 |     65200 | 10.41 |
-|   Register as Latch        |    0 |     0 |          0 |     65200 |  0.00 |
-| F7 Muxes                   |    0 |     0 |          0 |     16300 |  0.00 |
-| F8 Muxes                   |    0 |     0 |          0 |      8150 |  0.00 |
-| Unique Control Sets        |   54 |       |          0 |      8150 |  0.66 |
-+----------------------------+------+-------+------------+-----------+-------+
++----------------------------+-------+-------+------------+-----------+-------+
+|          Site Type         |  Used | Fixed | Prohibited | Available | Util% |
++----------------------------+-------+-------+------------+-----------+-------+
+| Slice LUTs*                | 16590 |     0 |          0 |     32600 | 50.89 |
+|   LUT as Logic             | 15413 |     0 |          0 |     32600 | 47.28 |
+|   LUT as Memory            |  1177 |     0 |          0 |      9600 | 12.26 |
+|     LUT as Distributed RAM |    94 |     0 |            |           |       |
+|     LUT as Shift Register  |  1083 |     0 |            |           |       |
+| Slice Registers            | 20831 |     0 |          0 |     65200 | 31.95 |
+|   Register as Flip Flop    | 20831 |     0 |          0 |     65200 | 31.95 |
+|   Register as Latch        |     0 |     0 |          0 |     65200 |  0.00 |
+| F7 Muxes                   |   177 |     0 |          0 |     16300 |  1.09 |
+| F8 Muxes                   |    12 |     0 |          0 |      8150 |  0.15 |
+| Unique Control Sets        |   387 |       |          0 |      8150 |  4.75 |
++----------------------------+-------+-------+------------+-----------+-------+
 * Warning! The Final LUT count, after physical optimizations and full implementation, is typically lower. Run opt_design after synthesis, if not already completed, for a more realistic count.
 Warning! LUT value is adjusted to account for LUT combining.
 Warning! For any ECO changes, please run place_design if there are unplaced instances
@@ -63,8 +63,8 @@ Warning! For any ECO changes, please run place_design if there are unplaced inst
 | 0     |          Yes |           - |            - |
 | 0     |          Yes |           - |          Set |
 | 0     |          Yes |           - |        Reset |
-| 8     |          Yes |         Set |            - |
-| 6778  |          Yes |       Reset |            - |
+| 1096  |          Yes |         Set |            - |
+| 19735 |          Yes |       Reset |            - |
 +-------+--------------+-------------+--------------+
 
 
@@ -74,10 +74,11 @@ Warning! For any ECO changes, please run place_design if there are unplaced inst
 +-------------------+------+-------+------------+-----------+-------+
 |     Site Type     | Used | Fixed | Prohibited | Available | Util% |
 +-------------------+------+-------+------------+-----------+-------+
-| Block RAM Tile    |    2 |     0 |          0 |        75 |  2.67 |
-|   RAMB36/FIFO*    |    0 |     0 |          0 |        75 |  0.00 |
-|   RAMB18          |    4 |     0 |          0 |       150 |  2.67 |
-|     RAMB18E1 only |    4 |       |            |           |       |
+| Block RAM Tile    |   26 |     0 |          0 |        75 | 34.67 |
+|   RAMB36/FIFO*    |   10 |     0 |          0 |        75 | 13.33 |
+|     RAMB36E1 only |   10 |       |            |           |       |
+|   RAMB18          |   32 |     0 |          0 |       150 | 21.33 |
+|     RAMB18E1 only |   32 |       |            |           |       |
 +-------------------+------+-------+------------+-----------+-------+
 * Note: Each Block RAM Tile only has one FIFO logic available and therefore can accommodate only one FIFO36E1 or one FIFO18E1. However, if a FIFO18E1 occupies a Block RAM Tile, that tile can still accommodate a RAMB18E1
 
@@ -88,8 +89,8 @@ Warning! For any ECO changes, please run place_design if there are unplaced inst
 +----------------+------+-------+------------+-----------+-------+
 |    Site Type   | Used | Fixed | Prohibited | Available | Util% |
 +----------------+------+-------+------------+-----------+-------+
-| DSPs           |   20 |     0 |          0 |       120 | 16.67 |
-|   DSP48E1 only |   20 |       |            |           |       |
+| DSPs           |   94 |     0 |          0 |       120 | 78.33 |
+|   DSP48E1 only |   94 |       |            |           |       |
 +----------------+------+-------+------------+-----------+-------+
 
 
@@ -99,7 +100,9 @@ Warning! For any ECO changes, please run place_design if there are unplaced inst
 +-----------------------------+------+-------+------------+-----------+-------+
 |          Site Type          | Used | Fixed | Prohibited | Available | Util% |
 +-----------------------------+------+-------+------------+-----------+-------+
-| Bonded IOB                  |   97 |     0 |          0 |       150 | 64.67 |
+| Bonded IOB                  |   82 |     2 |          0 |       150 | 54.67 |
+|   IOB Master Pads           |    1 |       |            |           |       |
+|   IOB Slave Pads            |    1 |       |            |           |       |
 | Bonded IPADs                |    0 |     0 |          0 |        14 |  0.00 |
 | Bonded OPADs                |    0 |     0 |          0 |         8 |  0.00 |
 | PHY_CONTROL                 |    0 |     0 |          0 |         5 |  0.00 |
@@ -124,7 +127,7 @@ Warning! For any ECO changes, please run place_design if there are unplaced inst
 +------------+------+-------+------------+-----------+-------+
 |  Site Type | Used | Fixed | Prohibited | Available | Util% |
 +------------+------+-------+------------+-----------+-------+
-| BUFGCTRL   |    1 |     0 |          0 |        32 |  3.13 |
+| BUFGCTRL   |    0 |     0 |          0 |        32 |  0.00 |
 | BUFIO      |    0 |     0 |          0 |        20 |  0.00 |
 | MMCME2_ADV |    0 |     0 |          0 |         5 |  0.00 |
 | PLLE2_ADV  |    0 |     0 |          0 |         5 |  0.00 |
@@ -155,27 +158,29 @@ Warning! For any ECO changes, please run place_design if there are unplaced inst
 7. Primitives
 -------------
 
-+----------+------+---------------------+
-| Ref Name | Used | Functional Category |
-+----------+------+---------------------+
-| FDRE     | 6778 |        Flop & Latch |
-| LUT3     | 1537 |                 LUT |
-| SRL16E   | 1147 |  Distributed Memory |
-| LUT2     | 1067 |                 LUT |
-| LUT4     |  517 |                 LUT |
-| CARRY4   |  474 |          CarryLogic |
-| LUT6     |  359 |                 LUT |
-| SRLC32E  |  252 |  Distributed Memory |
-| RAMS64E  |   62 |  Distributed Memory |
-| OBUF     |   60 |                  IO |
-| LUT5     |   49 |                 LUT |
-| IBUF     |   37 |                  IO |
-| LUT1     |   35 |                 LUT |
-| DSP48E1  |   20 |    Block Arithmetic |
-| FDSE     |    8 |        Flop & Latch |
-| RAMB18E1 |    4 |        Block Memory |
-| BUFG     |    1 |               Clock |
-+----------+------+---------------------+
++----------+-------+---------------------+
+| Ref Name |  Used | Functional Category |
++----------+-------+---------------------+
+| FDRE     | 19735 |        Flop & Latch |
+| LUT3     |  6087 |                 LUT |
+| LUT2     |  3640 |                 LUT |
+| LUT4     |  3592 |                 LUT |
+| LUT6     |  3446 |                 LUT |
+| CARRY4   |  1971 |          CarryLogic |
+| SRL16E   |  1337 |  Distributed Memory |
+| LUT5     |  1163 |                 LUT |
+| FDSE     |  1096 |        Flop & Latch |
+| LUT1     |   863 |                 LUT |
+| SRLC32E  |   292 |  Distributed Memory |
+| MUXF7    |   177 |               MuxFx |
+| RAMS64E  |    94 |  Distributed Memory |
+| DSP48E1  |    94 |    Block Arithmetic |
+| OBUF     |    60 |                  IO |
+| RAMB18E1 |    32 |        Block Memory |
+| IBUF     |    22 |                  IO |
+| MUXF8    |    12 |               MuxFx |
+| RAMB36E1 |    10 |        Block Memory |
++----------+-------+---------------------+
 
 
 8. Black Boxes
@@ -189,8 +194,23 @@ Warning! For any ECO changes, please run place_design if there are unplaced inst
 9. Instantiated Netlists
 ------------------------
 
-+----------+------+
-| Ref Name | Used |
-+----------+------+
++-----------------------------+------+
+|           Ref Name          | Used |
++-----------------------------+------+
+| ofdm_chain_viterbi_dec_0_0  |    1 |
+| ofdm_chain_tx_scrambler_0   |    1 |
+| ofdm_chain_tx_interleaver_0 |    1 |
+| ofdm_chain_tx_conv_enc_0    |    1 |
+| ofdm_chain_sync_detect_0_0  |    1 |
+| ofdm_chain_rx_scrambler_0   |    1 |
+| ofdm_chain_rx_output_fifo_0 |    1 |
+| ofdm_chain_rx_interleaver_0 |    1 |
+| ofdm_chain_ofdm_tx_ifft_0   |    1 |
+| ofdm_chain_ofdm_tx_0_0      |    1 |
+| ofdm_chain_ofdm_rx_fft_0    |    1 |
+| ofdm_chain_ofdm_rx_0_0      |    1 |
+| ofdm_chain_cfo_correct_0_0  |    1 |
+| ofdm_chain_adc_input_fifo_0 |    1 |
++-----------------------------+------+
 
 

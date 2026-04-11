@@ -66,8 +66,8 @@ attribute shreg_extract : string;
     signal ap_CS_fsm_state3 : STD_LOGIC;
     attribute fsm_encoding of ap_CS_fsm_state3 : signal is "none";
     signal sub_ln60_fu_72_p2 : STD_LOGIC_VECTOR (23 downto 0);
-    signal tmp_7_fu_94_p3 : STD_LOGIC_VECTOR (0 downto 0);
-    signal tmp_6_fu_64_p3 : STD_LOGIC_VECTOR (0 downto 0);
+    signal tmp_5_fu_94_p3 : STD_LOGIC_VECTOR (0 downto 0);
+    signal tmp_4_fu_64_p3 : STD_LOGIC_VECTOR (0 downto 0);
     signal acc_fu_102_p3 : STD_LOGIC_VECTOR (14 downto 0);
     signal sub_ln60_1_fu_88_p2 : STD_LOGIC_VECTOR (23 downto 0);
     signal tmp_fu_119_p4 : STD_LOGIC_VECTOR (19 downto 0);
@@ -184,10 +184,10 @@ begin
         end case;
     end process;
     acc_1_ph_fu_110_p3 <= 
-        acc_fu_102_p3 when (tmp_6_fu_64_p3(0) = '1') else 
+        acc_fu_102_p3 when (tmp_4_fu_64_p3(0) = '1') else 
         ap_const_lv15_0;
     acc_fu_102_p3 <= 
-        ap_const_lv15_4DBC when (tmp_7_fu_94_p3(0) = '1') else 
+        ap_const_lv15_4DBC when (tmp_5_fu_94_p3(0) = '1') else 
         ap_const_lv15_3243;
     ap_CS_fsm_state1 <= ap_CS_fsm(0);
     ap_CS_fsm_state2 <= ap_CS_fsm(1);
@@ -248,15 +248,15 @@ begin
     sub_ln60_1_fu_88_p2 <= std_logic_vector(unsigned(ap_const_lv24_0) - unsigned(y));
     sub_ln60_fu_72_p2 <= std_logic_vector(unsigned(ap_const_lv24_0) - unsigned(x));
     tmp_1_fu_129_p4 <= y(23 downto 4);
-    tmp_6_fu_64_p3 <= x(23 downto 23);
-    tmp_7_fu_94_p3 <= y(23 downto 23);
+    tmp_4_fu_64_p3 <= x(23 downto 23);
+    tmp_5_fu_94_p3 <= y(23 downto 23);
     tmp_fu_119_p4 <= sub_ln60_1_fu_88_p2(23 downto 4);
     xi_1_fu_78_p4 <= sub_ln60_fu_72_p2(23 downto 4);
     xi_4_fu_148_p3 <= 
-        xi_1_fu_78_p4 when (tmp_6_fu_64_p3(0) = '1') else 
+        xi_1_fu_78_p4 when (tmp_4_fu_64_p3(0) = '1') else 
         xi_fu_54_p4;
     xi_fu_54_p4 <= x(23 downto 4);
     yi_fu_139_p3 <= 
-        tmp_fu_119_p4 when (tmp_6_fu_64_p3(0) = '1') else 
+        tmp_fu_119_p4 when (tmp_4_fu_64_p3(0) = '1') else 
         tmp_1_fu_129_p4;
 end behav;

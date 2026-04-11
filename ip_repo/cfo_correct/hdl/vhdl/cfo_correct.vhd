@@ -10,7 +10,7 @@ use IEEE.numeric_std.all;
 
 entity cfo_correct is
 generic (
-    C_S_AXI_CTRL_ADDR_WIDTH : INTEGER := 5;
+    C_S_AXI_CTRL_ADDR_WIDTH : INTEGER := 4;
     C_S_AXI_CTRL_DATA_WIDTH : INTEGER := 32 );
 port (
     ap_clk : IN STD_LOGIC;
@@ -21,6 +21,7 @@ port (
     iq_out_TDATA : OUT STD_LOGIC_VECTOR (47 downto 0);
     iq_out_TVALID : OUT STD_LOGIC;
     iq_out_TREADY : IN STD_LOGIC;
+    cfo_est : IN STD_LOGIC_VECTOR (15 downto 0);
     s_axi_ctrl_AWVALID : IN STD_LOGIC;
     s_axi_ctrl_AWREADY : OUT STD_LOGIC;
     s_axi_ctrl_AWADDR : IN STD_LOGIC_VECTOR (C_S_AXI_CTRL_ADDR_WIDTH-1 downto 0);
@@ -47,7 +48,7 @@ architecture behav of cfo_correct is
     attribute DowngradeIPIdentifiedWarnings of behav : architecture is "yes";
     attribute CORE_GENERATION_INFO : STRING;
     attribute CORE_GENERATION_INFO of behav : architecture is
-    "cfo_correct_cfo_correct,hls_ip_2025_2,{HLS_INPUT_TYPE=cxx,HLS_INPUT_FLOAT=0,HLS_INPUT_FIXED=0,HLS_INPUT_PART=xc7a50t-csg325-1,HLS_INPUT_CLOCK=10.000000,HLS_INPUT_ARCH=others,HLS_SYN_CLOCK=6.934000,HLS_SYN_LAT=37162,HLS_SYN_TPT=none,HLS_SYN_MEM=1,HLS_SYN_DSP=0,HLS_SYN_FF=552,HLS_SYN_LUT=551,HLS_VERSION=2025_2}";
+    "cfo_correct_cfo_correct,hls_ip_2025_2,{HLS_INPUT_TYPE=cxx,HLS_INPUT_FLOAT=0,HLS_INPUT_FIXED=0,HLS_INPUT_PART=xc7a50t-csg325-1,HLS_INPUT_CLOCK=10.000000,HLS_INPUT_ARCH=others,HLS_SYN_CLOCK=6.934000,HLS_SYN_LAT=74026,HLS_SYN_TPT=none,HLS_SYN_MEM=1,HLS_SYN_DSP=0,HLS_SYN_FF=504,HLS_SYN_LUT=469,HLS_VERSION=2025_2}";
     constant ap_const_logic_1 : STD_LOGIC := '1';
     constant ap_const_logic_0 : STD_LOGIC := '0';
     constant ap_ST_fsm_state1 : STD_LOGIC_VECTOR (3 downto 0) := "0001";
@@ -59,9 +60,6 @@ architecture behav of cfo_correct is
     constant ap_const_lv32_1 : STD_LOGIC_VECTOR (31 downto 0) := "00000000000000000000000000000001";
     constant C_S_AXI_DATA_WIDTH : INTEGER := 32;
     constant ap_const_lv32_2 : STD_LOGIC_VECTOR (31 downto 0) := "00000000000000000000000000000010";
-    constant ap_const_lv8_0 : STD_LOGIC_VECTOR (7 downto 0) := "00000000";
-    constant ap_const_lv5_0 : STD_LOGIC_VECTOR (4 downto 0) := "00000";
-    constant ap_const_lv17_240 : STD_LOGIC_VECTOR (16 downto 0) := "00000001001000000";
     constant ap_const_lv16_A3 : STD_LOGIC_VECTOR (15 downto 0) := "0000000010100011";
     constant ap_const_lv16_146 : STD_LOGIC_VECTOR (15 downto 0) := "0000000101000110";
     constant ap_const_lv16_0 : STD_LOGIC_VECTOR (15 downto 0) := "0000000000000000";
@@ -78,35 +76,26 @@ architecture behav of cfo_correct is
     signal ap_CS_fsm_state1 : STD_LOGIC;
     attribute fsm_encoding of ap_CS_fsm_state1 : signal is "none";
     signal ap_ready : STD_LOGIC;
-    signal cfo_est : STD_LOGIC_VECTOR (15 downto 0);
-    signal n_syms : STD_LOGIC_VECTOR (7 downto 0);
-    signal total_samples_fu_120_p2 : STD_LOGIC_VECTOR (16 downto 0);
-    signal total_samples_reg_154 : STD_LOGIC_VECTOR (16 downto 0);
-    signal select_ln138_fu_138_p3 : STD_LOGIC_VECTOR (15 downto 0);
-    signal select_ln138_reg_159 : STD_LOGIC_VECTOR (15 downto 0);
-    signal delta_fixed_fu_146_p3 : STD_LOGIC_VECTOR (25 downto 0);
-    signal delta_fixed_reg_164 : STD_LOGIC_VECTOR (25 downto 0);
+    signal select_ln139_fu_77_p3 : STD_LOGIC_VECTOR (15 downto 0);
+    signal select_ln139_reg_93 : STD_LOGIC_VECTOR (15 downto 0);
+    signal delta_fixed_fu_85_p3 : STD_LOGIC_VECTOR (25 downto 0);
+    signal delta_fixed_reg_98 : STD_LOGIC_VECTOR (25 downto 0);
     signal ap_CS_fsm_state2 : STD_LOGIC;
     attribute fsm_encoding of ap_CS_fsm_state2 : signal is "none";
-    signal grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start : STD_LOGIC;
-    signal grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_done : STD_LOGIC;
-    signal grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_idle : STD_LOGIC;
-    signal grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_ready : STD_LOGIC;
-    signal grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TREADY : STD_LOGIC;
-    signal grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TDATA : STD_LOGIC_VECTOR (47 downto 0);
-    signal grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TVALID : STD_LOGIC;
-    signal grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_in_TREADY : STD_LOGIC;
-    signal grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start_reg : STD_LOGIC := '0';
+    signal grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start : STD_LOGIC;
+    signal grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_done : STD_LOGIC;
+    signal grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_idle : STD_LOGIC;
+    signal grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_ready : STD_LOGIC;
+    signal grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TREADY : STD_LOGIC;
+    signal grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TDATA : STD_LOGIC_VECTOR (47 downto 0);
+    signal grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TVALID : STD_LOGIC;
+    signal grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_in_TREADY : STD_LOGIC;
+    signal grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start_reg : STD_LOGIC := '0';
     signal iq_out_TDATA_reg : STD_LOGIC_VECTOR (47 downto 0);
     signal ap_CS_fsm_state3 : STD_LOGIC;
     attribute fsm_encoding of ap_CS_fsm_state3 : signal is "none";
-    signal tmp_fu_90_p3 : STD_LOGIC_VECTOR (15 downto 0);
-    signal tmp_1_fu_102_p3 : STD_LOGIC_VECTOR (12 downto 0);
-    signal zext_ln134_fu_98_p1 : STD_LOGIC_VECTOR (16 downto 0);
-    signal zext_ln134_1_fu_110_p1 : STD_LOGIC_VECTOR (16 downto 0);
-    signal add_ln134_fu_114_p2 : STD_LOGIC_VECTOR (16 downto 0);
-    signal add_ln138_fu_126_p2 : STD_LOGIC_VECTOR (15 downto 0);
-    signal icmp_ln138_fu_132_p2 : STD_LOGIC_VECTOR (0 downto 0);
+    signal add_ln139_fu_65_p2 : STD_LOGIC_VECTOR (15 downto 0);
+    signal icmp_ln139_fu_71_p2 : STD_LOGIC_VECTOR (0 downto 0);
     signal ap_CS_fsm_state4 : STD_LOGIC;
     attribute fsm_encoding of ap_CS_fsm_state4 : signal is "none";
     signal regslice_both_iq_out_U_apdone_blk : STD_LOGIC;
@@ -137,10 +126,9 @@ architecture behav of cfo_correct is
         iq_out_TREADY : IN STD_LOGIC;
         iq_out_TDATA : OUT STD_LOGIC_VECTOR (47 downto 0);
         iq_out_TVALID : OUT STD_LOGIC;
-        total_samples : IN STD_LOGIC_VECTOR (16 downto 0);
         iq_in_TDATA : IN STD_LOGIC_VECTOR (47 downto 0);
         iq_in_TREADY : OUT STD_LOGIC;
-        sext_ln147 : IN STD_LOGIC_VECTOR (25 downto 0) );
+        sext_ln148 : IN STD_LOGIC_VECTOR (25 downto 0) );
     end component;
 
 
@@ -169,8 +157,6 @@ architecture behav of cfo_correct is
         ACLK : IN STD_LOGIC;
         ARESET : IN STD_LOGIC;
         ACLK_EN : IN STD_LOGIC;
-        cfo_est : OUT STD_LOGIC_VECTOR (15 downto 0);
-        n_syms : OUT STD_LOGIC_VECTOR (7 downto 0);
         ap_start : OUT STD_LOGIC;
         interrupt : OUT STD_LOGIC;
         ap_ready : IN STD_LOGIC;
@@ -197,22 +183,21 @@ architecture behav of cfo_correct is
 
 
 begin
-    grp_cfo_correct_Pipeline_CORRECT_fu_78 : component cfo_correct_cfo_correct_Pipeline_CORRECT
+    grp_cfo_correct_Pipeline_CORRECT_fu_54 : component cfo_correct_cfo_correct_Pipeline_CORRECT
     port map (
         ap_clk => ap_clk,
         ap_rst => ap_rst_n_inv,
-        ap_start => grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start,
-        ap_done => grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_done,
-        ap_idle => grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_idle,
-        ap_ready => grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_ready,
+        ap_start => grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start,
+        ap_done => grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_done,
+        ap_idle => grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_idle,
+        ap_ready => grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_ready,
         iq_in_TVALID => iq_in_TVALID_int_regslice,
-        iq_out_TREADY => grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TREADY,
-        iq_out_TDATA => grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TDATA,
-        iq_out_TVALID => grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TVALID,
-        total_samples => total_samples_reg_154,
+        iq_out_TREADY => grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TREADY,
+        iq_out_TDATA => grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TDATA,
+        iq_out_TVALID => grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TVALID,
         iq_in_TDATA => iq_in_TDATA_int_regslice,
-        iq_in_TREADY => grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_in_TREADY,
-        sext_ln147 => delta_fixed_reg_164);
+        iq_in_TREADY => grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_in_TREADY,
+        sext_ln148 => delta_fixed_reg_98);
 
     ctrl_s_axi_U : component cfo_correct_ctrl_s_axi
     generic map (
@@ -239,8 +224,6 @@ begin
         ACLK => ap_clk,
         ARESET => ap_rst_n_inv,
         ACLK_EN => ap_const_logic_1,
-        cfo_est => cfo_est,
-        n_syms => n_syms,
         ap_start => ap_start,
         interrupt => interrupt,
         ap_ready => ap_ready,
@@ -268,7 +251,7 @@ begin
         ap_clk => ap_clk,
         ap_rst => ap_rst_n_inv,
         data_in => iq_out_TDATA_int_regslice,
-        vld_in => grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TVALID,
+        vld_in => grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TVALID,
         ack_in => iq_out_TREADY_int_regslice,
         data_out => iq_out_TDATA,
         vld_out => regslice_both_iq_out_U_vld_out,
@@ -291,16 +274,16 @@ begin
     end process;
 
 
-    grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start_reg_assign_proc : process(ap_clk)
+    grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start_reg_assign_proc : process(ap_clk)
     begin
         if (ap_clk'event and ap_clk =  '1') then
             if (ap_rst_n_inv = '1') then
-                grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start_reg <= ap_const_logic_0;
+                grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start_reg <= ap_const_logic_0;
             else
                 if ((ap_const_logic_1 = ap_CS_fsm_state2)) then 
-                    grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start_reg <= ap_const_logic_1;
-                elsif ((grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_ready = ap_const_logic_1)) then 
-                    grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start_reg <= ap_const_logic_0;
+                    grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start_reg <= ap_const_logic_1;
+                elsif ((grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_ready = ap_const_logic_1)) then 
+                    grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start_reg <= ap_const_logic_0;
                 end if; 
             end if;
         end if;
@@ -310,15 +293,15 @@ begin
     begin
         if (ap_clk'event and ap_clk = '1') then
             if ((ap_const_logic_1 = ap_CS_fsm_state2)) then
-                    delta_fixed_reg_164(25 downto 10) <= delta_fixed_fu_146_p3(25 downto 10);
+                    delta_fixed_reg_98(25 downto 10) <= delta_fixed_fu_85_p3(25 downto 10);
             end if;
         end if;
     end process;
     process (ap_clk)
     begin
         if (ap_clk'event and ap_clk = '1') then
-            if (((grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TVALID = ap_const_logic_1) and (ap_const_logic_1 = ap_CS_fsm_state3))) then
-                iq_out_TDATA_reg <= grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TDATA;
+            if (((grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TVALID = ap_const_logic_1) and (ap_const_logic_1 = ap_CS_fsm_state3))) then
+                iq_out_TDATA_reg <= grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TDATA;
             end if;
         end if;
     end process;
@@ -326,15 +309,13 @@ begin
     begin
         if (ap_clk'event and ap_clk = '1') then
             if ((ap_const_logic_1 = ap_CS_fsm_state1)) then
-                select_ln138_reg_159 <= select_ln138_fu_138_p3;
-                    total_samples_reg_154(16 downto 5) <= total_samples_fu_120_p2(16 downto 5);
+                select_ln139_reg_93 <= select_ln139_fu_77_p3;
             end if;
         end if;
     end process;
-    total_samples_reg_154(4 downto 0) <= "00000";
-    delta_fixed_reg_164(9 downto 0) <= "0000000000";
+    delta_fixed_reg_98(9 downto 0) <= "0000000000";
 
-    ap_NS_fsm_assign_proc : process (ap_start, ap_CS_fsm, ap_CS_fsm_state1, grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_done, ap_CS_fsm_state3, ap_CS_fsm_state4, regslice_both_iq_out_U_apdone_blk)
+    ap_NS_fsm_assign_proc : process (ap_start, ap_CS_fsm, ap_CS_fsm_state1, grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_done, ap_CS_fsm_state3, ap_CS_fsm_state4, regslice_both_iq_out_U_apdone_blk)
     begin
         case ap_CS_fsm is
             when ap_ST_fsm_state1 => 
@@ -346,7 +327,7 @@ begin
             when ap_ST_fsm_state2 => 
                 ap_NS_fsm <= ap_ST_fsm_state3;
             when ap_ST_fsm_state3 => 
-                if (((grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_done = ap_const_logic_1) and (ap_const_logic_1 = ap_CS_fsm_state3))) then
+                if (((grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_done = ap_const_logic_1) and (ap_const_logic_1 = ap_CS_fsm_state3))) then
                     ap_NS_fsm <= ap_ST_fsm_state4;
                 else
                     ap_NS_fsm <= ap_ST_fsm_state3;
@@ -361,8 +342,7 @@ begin
                 ap_NS_fsm <= "XXXX";
         end case;
     end process;
-    add_ln134_fu_114_p2 <= std_logic_vector(unsigned(zext_ln134_fu_98_p1) + unsigned(zext_ln134_1_fu_110_p1));
-    add_ln138_fu_126_p2 <= std_logic_vector(unsigned(cfo_est) + unsigned(ap_const_lv16_A3));
+    add_ln139_fu_65_p2 <= std_logic_vector(unsigned(cfo_est) + unsigned(ap_const_lv16_A3));
     ap_CS_fsm_state1 <= ap_CS_fsm(0);
     ap_CS_fsm_state2 <= ap_CS_fsm(1);
     ap_CS_fsm_state3 <= ap_CS_fsm(2);
@@ -379,9 +359,9 @@ begin
 
     ap_ST_fsm_state2_blk <= ap_const_logic_0;
 
-    ap_ST_fsm_state3_blk_assign_proc : process(grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_done)
+    ap_ST_fsm_state3_blk_assign_proc : process(grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_done)
     begin
-        if ((grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_done = ap_const_logic_0)) then 
+        if ((grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_done = ap_const_logic_0)) then 
             ap_ST_fsm_state3_blk <= ap_const_logic_1;
         else 
             ap_ST_fsm_state3_blk <= ap_const_logic_0;
@@ -434,38 +414,33 @@ begin
                 ap_rst_n_inv <= not(ap_rst_n);
     end process;
 
-    delta_fixed_fu_146_p3 <= (select_ln138_reg_159 & ap_const_lv10_0);
-    grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start <= grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start_reg;
-    grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TREADY <= (iq_out_TREADY_int_regslice and ap_CS_fsm_state3);
-    icmp_ln138_fu_132_p2 <= "1" when (unsigned(add_ln138_fu_126_p2) > unsigned(ap_const_lv16_146)) else "0";
+    delta_fixed_fu_85_p3 <= (select_ln139_reg_93 & ap_const_lv10_0);
+    grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start <= grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start_reg;
+    grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TREADY <= (iq_out_TREADY_int_regslice and ap_CS_fsm_state3);
+    icmp_ln139_fu_71_p2 <= "1" when (unsigned(add_ln139_fu_65_p2) > unsigned(ap_const_lv16_146)) else "0";
     iq_in_TREADY <= regslice_both_iq_in_U_ack_in;
 
-    iq_in_TREADY_int_regslice_assign_proc : process(grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_in_TREADY, ap_CS_fsm_state3)
+    iq_in_TREADY_int_regslice_assign_proc : process(grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_in_TREADY, ap_CS_fsm_state3)
     begin
         if ((ap_const_logic_1 = ap_CS_fsm_state3)) then 
-            iq_in_TREADY_int_regslice <= grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_in_TREADY;
+            iq_in_TREADY_int_regslice <= grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_in_TREADY;
         else 
             iq_in_TREADY_int_regslice <= ap_const_logic_0;
         end if; 
     end process;
 
 
-    iq_out_TDATA_int_regslice_assign_proc : process(grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TDATA, grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TVALID, iq_out_TDATA_reg, ap_CS_fsm_state3)
+    iq_out_TDATA_int_regslice_assign_proc : process(grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TDATA, grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TVALID, iq_out_TDATA_reg, ap_CS_fsm_state3)
     begin
-        if (((grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TVALID = ap_const_logic_1) and (ap_const_logic_1 = ap_CS_fsm_state3))) then 
-            iq_out_TDATA_int_regslice <= grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TDATA;
+        if (((grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TVALID = ap_const_logic_1) and (ap_const_logic_1 = ap_CS_fsm_state3))) then 
+            iq_out_TDATA_int_regslice <= grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TDATA;
         else 
             iq_out_TDATA_int_regslice <= iq_out_TDATA_reg;
         end if; 
     end process;
 
     iq_out_TVALID <= regslice_both_iq_out_U_vld_out;
-    select_ln138_fu_138_p3 <= 
-        cfo_est when (icmp_ln138_fu_132_p2(0) = '1') else 
+    select_ln139_fu_77_p3 <= 
+        cfo_est when (icmp_ln139_fu_71_p2(0) = '1') else 
         ap_const_lv16_0;
-    tmp_1_fu_102_p3 <= (n_syms & ap_const_lv5_0);
-    tmp_fu_90_p3 <= (n_syms & ap_const_lv8_0);
-    total_samples_fu_120_p2 <= std_logic_vector(unsigned(add_ln134_fu_114_p2) + unsigned(ap_const_lv17_240));
-    zext_ln134_1_fu_110_p1 <= std_logic_vector(IEEE.numeric_std.resize(unsigned(tmp_1_fu_102_p3),17));
-    zext_ln134_fu_98_p1 <= std_logic_vector(IEEE.numeric_std.resize(unsigned(tmp_fu_90_p3),17));
 end behav;

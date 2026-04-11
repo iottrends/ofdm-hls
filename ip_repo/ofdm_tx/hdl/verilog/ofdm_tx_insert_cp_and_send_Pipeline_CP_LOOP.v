@@ -53,18 +53,18 @@ reg    ap_enable_reg_pp0_iter1;
 reg    ap_idle_pp0;
 reg    ap_block_state2_pp0_stage0_iter1;
 reg    ap_block_pp0_stage0_subdone;
-wire   [0:0] icmp_ln274_fu_97_p2;
+wire   [0:0] icmp_ln315_fu_97_p2;
 reg    ap_condition_exit_pp0_iter0_stage0;
 wire    ap_loop_exit_ready;
 reg    ap_ready_int;
 reg    iq_out_TDATA_blk_n;
 wire    ap_block_pp0_stage0;
 reg    ap_block_pp0_stage0_11001;
-wire   [63:0] zext_ln274_fu_103_p1;
+wire   [63:0] zext_ln315_fu_103_p1;
 reg   [8:0] i_fu_52;
-wire   [8:0] add_ln274_fu_109_p2;
+wire   [8:0] add_ln315_fu_109_p2;
 wire    ap_loop_init;
-reg   [8:0] ap_sig_allocacmp_i_7;
+reg   [8:0] ap_sig_allocacmp_i_9;
 reg    ap_block_pp0_stage0_01001;
 reg    sym_M_real_ce0_local;
 reg    sym_M_imag_ce0_local;
@@ -136,8 +136,8 @@ end
 
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        if (((icmp_ln274_fu_97_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
-            i_fu_52 <= add_ln274_fu_109_p2;
+        if (((icmp_ln315_fu_97_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
+            i_fu_52 <= add_ln315_fu_109_p2;
         end else if ((ap_loop_init == 1'b1)) begin
             i_fu_52 <= 9'd224;
         end
@@ -145,7 +145,7 @@ always @ (posedge ap_clk) begin
 end
 
 always @ (*) begin
-    if (((icmp_ln274_fu_97_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+    if (((icmp_ln315_fu_97_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b1;
     end else begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b0;
@@ -186,9 +186,9 @@ end
 
 always @ (*) begin
     if (((ap_loop_init == 1'b1) & (1'b0 == ap_block_pp0_stage0) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        ap_sig_allocacmp_i_7 = 9'd224;
+        ap_sig_allocacmp_i_9 = 9'd224;
     end else begin
-        ap_sig_allocacmp_i_7 = i_fu_52;
+        ap_sig_allocacmp_i_9 = i_fu_52;
     end
 end
 
@@ -235,7 +235,7 @@ always @ (*) begin
     endcase
 end
 
-assign add_ln274_fu_109_p2 = (ap_sig_allocacmp_i_7 + 9'd1);
+assign add_ln315_fu_109_p2 = (ap_sig_allocacmp_i_9 + 9'd1);
 
 assign ap_CS_fsm_pp0_stage0 = ap_CS_fsm[32'd0];
 
@@ -267,20 +267,20 @@ assign ap_loop_exit_ready = ap_condition_exit_pp0_iter0_stage0;
 
 assign ap_ready = ap_ready_sig;
 
-assign icmp_ln274_fu_97_p2 = ((ap_sig_allocacmp_i_7 == 9'd256) ? 1'b1 : 1'b0);
+assign icmp_ln315_fu_97_p2 = ((ap_sig_allocacmp_i_9 == 9'd256) ? 1'b1 : 1'b0);
 
 assign iq_out_TDATA = tmp_fu_120_p3;
 
-assign sym_M_imag_address0 = zext_ln274_fu_103_p1;
+assign sym_M_imag_address0 = zext_ln315_fu_103_p1;
 
 assign sym_M_imag_ce0 = sym_M_imag_ce0_local;
 
-assign sym_M_real_address0 = zext_ln274_fu_103_p1;
+assign sym_M_real_address0 = zext_ln315_fu_103_p1;
 
 assign sym_M_real_ce0 = sym_M_real_ce0_local;
 
 assign tmp_fu_120_p3 = {{sym_M_imag_q0}, {sym_M_real_q0}};
 
-assign zext_ln274_fu_103_p1 = ap_sig_allocacmp_i_7;
+assign zext_ln315_fu_103_p1 = ap_sig_allocacmp_i_9;
 
 endmodule //ofdm_tx_insert_cp_and_send_Pipeline_CP_LOOP

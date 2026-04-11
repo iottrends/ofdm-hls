@@ -76,40 +76,6 @@ void XCfo_correct_DisableAutoRestart(XCfo_correct *InstancePtr) {
     XCfo_correct_WriteReg(InstancePtr->Ctrl_BaseAddress, XCFO_CORRECT_CTRL_ADDR_AP_CTRL, 0);
 }
 
-void XCfo_correct_Set_cfo_est(XCfo_correct *InstancePtr, u32 Data) {
-    Xil_AssertVoid(InstancePtr != NULL);
-    Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
-
-    XCfo_correct_WriteReg(InstancePtr->Ctrl_BaseAddress, XCFO_CORRECT_CTRL_ADDR_CFO_EST_DATA, Data);
-}
-
-u32 XCfo_correct_Get_cfo_est(XCfo_correct *InstancePtr) {
-    u32 Data;
-
-    Xil_AssertNonvoid(InstancePtr != NULL);
-    Xil_AssertNonvoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
-
-    Data = XCfo_correct_ReadReg(InstancePtr->Ctrl_BaseAddress, XCFO_CORRECT_CTRL_ADDR_CFO_EST_DATA);
-    return Data;
-}
-
-void XCfo_correct_Set_n_syms(XCfo_correct *InstancePtr, u32 Data) {
-    Xil_AssertVoid(InstancePtr != NULL);
-    Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
-
-    XCfo_correct_WriteReg(InstancePtr->Ctrl_BaseAddress, XCFO_CORRECT_CTRL_ADDR_N_SYMS_DATA, Data);
-}
-
-u32 XCfo_correct_Get_n_syms(XCfo_correct *InstancePtr) {
-    u32 Data;
-
-    Xil_AssertNonvoid(InstancePtr != NULL);
-    Xil_AssertNonvoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
-
-    Data = XCfo_correct_ReadReg(InstancePtr->Ctrl_BaseAddress, XCFO_CORRECT_CTRL_ADDR_N_SYMS_DATA);
-    return Data;
-}
-
 void XCfo_correct_InterruptGlobalEnable(XCfo_correct *InstancePtr) {
     Xil_AssertVoid(InstancePtr != NULL);
     Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);

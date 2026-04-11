@@ -10,17 +10,17 @@ wire [3:0] inst_idle_sigs;
 wire [0:0] inst_block_sigs;
 wire kernel_block;
 
-assign axis_block_sigs[0] = ~grp_sync_detect_Pipeline_FILL_fu_201.iq_in_TDATA_blk_n;
-assign axis_block_sigs[1] = ~grp_sync_detect_Pipeline_OUT_BUF_fu_228.iq_out_TDATA_blk_n;
-assign axis_block_sigs[2] = ~grp_sync_detect_Pipeline_OUT_LIVE_fu_240.iq_in_TDATA_blk_n;
-assign axis_block_sigs[3] = ~grp_sync_detect_Pipeline_OUT_LIVE_fu_240.iq_out_TDATA_blk_n;
+assign axis_block_sigs[0] = ~grp_sync_detect_Pipeline_FILL_fu_185.iq_in_TDATA_blk_n;
+assign axis_block_sigs[1] = ~grp_sync_detect_Pipeline_OUT_BUF_fu_212.iq_out_TDATA_blk_n;
+assign axis_block_sigs[2] = ~grp_sync_detect_Pipeline_OUT_LIVE_fu_224.iq_in_TDATA_blk_n;
+assign axis_block_sigs[3] = ~grp_sync_detect_Pipeline_OUT_LIVE_fu_224.iq_out_TDATA_blk_n;
 
 assign inst_block_sigs[0] = 1'b0;
 
 assign inst_idle_sigs[0] = 1'b0;
-assign inst_idle_sigs[1] = grp_sync_detect_Pipeline_FILL_fu_201.ap_idle;
-assign inst_idle_sigs[2] = grp_sync_detect_Pipeline_OUT_BUF_fu_228.ap_idle;
-assign inst_idle_sigs[3] = grp_sync_detect_Pipeline_OUT_LIVE_fu_240.ap_idle;
+assign inst_idle_sigs[1] = grp_sync_detect_Pipeline_FILL_fu_185.ap_idle;
+assign inst_idle_sigs[2] = grp_sync_detect_Pipeline_OUT_BUF_fu_212.ap_idle;
+assign inst_idle_sigs[3] = grp_sync_detect_Pipeline_OUT_LIVE_fu_224.ap_idle;
 
 sync_detect_hls_deadlock_idx0_monitor sync_detect_hls_deadlock_idx0_monitor_U (
     .clock(kernel_monitor_clock),

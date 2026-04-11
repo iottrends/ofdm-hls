@@ -784,7 +784,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>1b2c67c5</spirit:value>
+            <spirit:value>6bde165c</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -800,7 +800,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>6dd20d3e</spirit:value>
+            <spirit:value>4d1f4ebe</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -816,7 +816,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>780d5aa8</spirit:value>
+            <spirit:value>fcbfe472</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -832,7 +832,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>9df0ba1d</spirit:value>
+            <spirit:value>1d60f1f0</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -1423,19 +1423,15 @@
         <spirit:fileType>verilogSource</spirit:fileType>
       </spirit:file>
       <spirit:file>
-        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx1_monitor.v</spirit:name>
-        <spirit:fileType>verilogSource</spirit:fileType>
-      </spirit:file>
-      <spirit:file>
         <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx2_monitor.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
       </spirit:file>
       <spirit:file>
-        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx5_monitor.v</spirit:name>
+        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx3_monitor.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
       </spirit:file>
       <spirit:file>
-        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx8_monitor.v</spirit:name>
+        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx6_monitor.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
       </spirit:file>
       <spirit:file>
@@ -1443,11 +1439,15 @@
         <spirit:fileType>verilogSource</spirit:fileType>
       </spirit:file>
       <spirit:file>
-        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx12_monitor.v</spirit:name>
+        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx10_monitor.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
       </spirit:file>
       <spirit:file>
-        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx15_monitor.v</spirit:name>
+        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx13_monitor.v</spirit:name>
+        <spirit:fileType>verilogSource</spirit:fileType>
+      </spirit:file>
+      <spirit:file>
+        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx16_monitor.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
       </spirit:file>
       <spirit:file>
@@ -1464,6 +1464,10 @@
       </spirit:file>
       <spirit:file>
         <spirit:name>hdl/verilog/ofdm_tx_insert_cp_and_send_Pipeline_SYM_LOOP.v</spirit:name>
+        <spirit:fileType>verilogSource</spirit:fileType>
+      </spirit:file>
+      <spirit:file>
+        <spirit:name>hdl/verilog/ofdm_tx_ofdm_tx_Pipeline_GUARD.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
       </spirit:file>
       <spirit:file>
@@ -1603,22 +1607,17 @@
         <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
       </spirit:file>
       <spirit:file>
-        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx1_monitor.v</spirit:name>
-        <spirit:fileType>verilogSource</spirit:fileType>
-        <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
-      </spirit:file>
-      <spirit:file>
         <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx2_monitor.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
         <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
       </spirit:file>
       <spirit:file>
-        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx5_monitor.v</spirit:name>
+        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx3_monitor.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
         <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
       </spirit:file>
       <spirit:file>
-        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx8_monitor.v</spirit:name>
+        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx6_monitor.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
         <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
       </spirit:file>
@@ -1628,12 +1627,17 @@
         <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
       </spirit:file>
       <spirit:file>
-        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx12_monitor.v</spirit:name>
+        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx10_monitor.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
         <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
       </spirit:file>
       <spirit:file>
-        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx15_monitor.v</spirit:name>
+        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx13_monitor.v</spirit:name>
+        <spirit:fileType>verilogSource</spirit:fileType>
+        <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
+      </spirit:file>
+      <spirit:file>
+        <spirit:name>hdl/verilog/ofdm_tx_hls_deadlock_idx16_monitor.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
         <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
       </spirit:file>
@@ -1654,6 +1658,11 @@
       </spirit:file>
       <spirit:file>
         <spirit:name>hdl/verilog/ofdm_tx_insert_cp_and_send_Pipeline_SYM_LOOP.v</spirit:name>
+        <spirit:fileType>verilogSource</spirit:fileType>
+        <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
+      </spirit:file>
+      <spirit:file>
+        <spirit:name>hdl/verilog/ofdm_tx_ofdm_tx_Pipeline_GUARD.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
         <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
       </spirit:file>
@@ -1813,6 +1822,10 @@
         <spirit:fileType>vhdlSource</spirit:fileType>
       </spirit:file>
       <spirit:file>
+        <spirit:name>hdl/vhdl/ofdm_tx_ofdm_tx_Pipeline_GUARD.vhd</spirit:name>
+        <spirit:fileType>vhdlSource</spirit:fileType>
+      </spirit:file>
+      <spirit:file>
         <spirit:name>hdl/vhdl/ofdm_tx_ofdm_tx_Pipeline_HDR_DATA.vhd</spirit:name>
         <spirit:fileType>vhdlSource</spirit:fileType>
       </spirit:file>
@@ -1887,7 +1900,7 @@
       <spirit:file>
         <spirit:name>hdl/vhdl/ofdm_tx.vhd</spirit:name>
         <spirit:fileType>vhdlSource</spirit:fileType>
-        <spirit:userFileType>CHECKSUM_29bd15d0</spirit:userFileType>
+        <spirit:userFileType>CHECKSUM_70fd7d5f</spirit:userFileType>
       </spirit:file>
     </spirit:fileSet>
     <spirit:fileSet>
@@ -1944,6 +1957,11 @@
       </spirit:file>
       <spirit:file>
         <spirit:name>hdl/vhdl/ofdm_tx_insert_cp_and_send_Pipeline_SYM_LOOP.vhd</spirit:name>
+        <spirit:fileType>vhdlSource</spirit:fileType>
+        <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
+      </spirit:file>
+      <spirit:file>
+        <spirit:name>hdl/vhdl/ofdm_tx_ofdm_tx_Pipeline_GUARD.vhd</spirit:name>
         <spirit:fileType>vhdlSource</spirit:fileType>
         <spirit:userFileType>USED_IN_ipstatic</spirit:userFileType>
       </spirit:file>
@@ -2138,11 +2156,11 @@
     </spirit:parameter>
     <spirit:parameter>
       <spirit:name>latency</spirit:name>
-      <spirit:value spirit:id="PARAM_VALUE.latency" spirit:order="4">1595</spirit:value>
+      <spirit:value spirit:id="PARAM_VALUE.latency" spirit:order="4">1627</spirit:value>
     </spirit:parameter>
     <spirit:parameter>
       <spirit:name>II</spirit:name>
-      <spirit:value spirit:id="PARAM_VALUE.II" spirit:order="5">1596 ~ 316776</spirit:value>
+      <spirit:value spirit:id="PARAM_VALUE.II" spirit:order="5">1628 ~ 316808</spirit:value>
     </spirit:parameter>
   </spirit:parameters>
   <spirit:vendorExtensions>
@@ -2153,10 +2171,10 @@
       <xilinx:taxonomies>
         <xilinx:taxonomy>/VITIS_HLS_IP</xilinx:taxonomy>
       </xilinx:taxonomies>
-      <xilinx:displayName>Ofdm_tx</xilinx:displayName>
+      <xilinx:displayName>Hallycon OFDM ofdm_tx</xilinx:displayName>
       <xilinx:definitionSource>HLS</xilinx:definitionSource>
-      <xilinx:coreRevision>2114559295</xilinx:coreRevision>
-      <xilinx:coreCreationDateTime>2026-04-10T08:55:30Z</xilinx:coreCreationDateTime>
+      <xilinx:coreRevision>2114560633</xilinx:coreRevision>
+      <xilinx:coreCreationDateTime>2026-04-11T07:13:39Z</xilinx:coreCreationDateTime>
       <xilinx:sdxKernelAttributes>
         <xilinx:sdx_kernel>true</xilinx:sdx_kernel>
         <xilinx:sdx_kernel_type>hls</xilinx:sdx_kernel_type>
@@ -2166,10 +2184,10 @@
       <xilinx:xilinxVersion>2025.2</xilinx:xilinxVersion>
       <xilinx:checksum xilinx:scope="busInterfaces" xilinx:value="3a6c749f"/>
       <xilinx:checksum xilinx:scope="memoryMaps" xilinx:value="50c5041b"/>
-      <xilinx:checksum xilinx:scope="fileGroups" xilinx:value="4f1659c8"/>
+      <xilinx:checksum xilinx:scope="fileGroups" xilinx:value="806a65d9"/>
       <xilinx:checksum xilinx:scope="ports" xilinx:value="c4cac89e"/>
       <xilinx:checksum xilinx:scope="hdlParameters" xilinx:value="e76f1e5a"/>
-      <xilinx:checksum xilinx:scope="parameters" xilinx:value="c0453e1c"/>
+      <xilinx:checksum xilinx:scope="parameters" xilinx:value="964fa453"/>
     </xilinx:packagingInfo>
   </spirit:vendorExtensions>
 </spirit:component>

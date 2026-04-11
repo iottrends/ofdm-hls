@@ -6,7 +6,7 @@
 
 `timescale 1 ns / 1 ps 
 
-(* CORE_GENERATION_INFO="cfo_correct_cfo_correct,hls_ip_2025_2,{HLS_INPUT_TYPE=cxx,HLS_INPUT_FLOAT=0,HLS_INPUT_FIXED=0,HLS_INPUT_PART=xc7a50t-csg325-1,HLS_INPUT_CLOCK=10.000000,HLS_INPUT_ARCH=others,HLS_SYN_CLOCK=6.934000,HLS_SYN_LAT=37162,HLS_SYN_TPT=none,HLS_SYN_MEM=1,HLS_SYN_DSP=0,HLS_SYN_FF=552,HLS_SYN_LUT=551,HLS_VERSION=2025_2}" *)
+(* CORE_GENERATION_INFO="cfo_correct_cfo_correct,hls_ip_2025_2,{HLS_INPUT_TYPE=cxx,HLS_INPUT_FLOAT=0,HLS_INPUT_FIXED=0,HLS_INPUT_PART=xc7a50t-csg325-1,HLS_INPUT_CLOCK=10.000000,HLS_INPUT_ARCH=others,HLS_SYN_CLOCK=6.934000,HLS_SYN_LAT=74026,HLS_SYN_TPT=none,HLS_SYN_MEM=1,HLS_SYN_DSP=0,HLS_SYN_FF=504,HLS_SYN_LUT=469,HLS_VERSION=2025_2}" *)
 
 (* DowngradeIPIdentifiedWarnings="yes" *)
 module cfo_correct (
@@ -18,6 +18,7 @@ module cfo_correct (
         iq_out_TDATA,
         iq_out_TVALID,
         iq_out_TREADY,
+        cfo_est,
         s_axi_ctrl_AWVALID,
         s_axi_ctrl_AWREADY,
         s_axi_ctrl_AWADDR,
@@ -43,7 +44,7 @@ parameter    ap_ST_fsm_state2 = 4'd2;
 parameter    ap_ST_fsm_state3 = 4'd4;
 parameter    ap_ST_fsm_state4 = 4'd8;
 parameter    C_S_AXI_CTRL_DATA_WIDTH = 32;
-parameter    C_S_AXI_CTRL_ADDR_WIDTH = 5;
+parameter    C_S_AXI_CTRL_ADDR_WIDTH = 4;
 parameter    C_S_AXI_DATA_WIDTH = 32;
 
 parameter C_S_AXI_CTRL_WSTRB_WIDTH = (32 / 8);
@@ -57,6 +58,7 @@ output   iq_in_TREADY;
 output  [47:0] iq_out_TDATA;
 output   iq_out_TVALID;
 input   iq_out_TREADY;
+input  [15:0] cfo_est;
 input   s_axi_ctrl_AWVALID;
 output   s_axi_ctrl_AWREADY;
 input  [C_S_AXI_CTRL_ADDR_WIDTH - 1:0] s_axi_ctrl_AWADDR;
@@ -83,33 +85,24 @@ reg    ap_idle;
 (* fsm_encoding = "none" *) reg   [3:0] ap_CS_fsm;
 wire    ap_CS_fsm_state1;
 reg    ap_ready;
-wire   [15:0] cfo_est;
-wire   [7:0] n_syms;
-wire   [16:0] total_samples_fu_120_p2;
-reg   [16:0] total_samples_reg_154;
-wire   [15:0] select_ln138_fu_138_p3;
-reg   [15:0] select_ln138_reg_159;
-wire   [25:0] delta_fixed_fu_146_p3;
-reg   [25:0] delta_fixed_reg_164;
+wire   [15:0] select_ln139_fu_77_p3;
+reg   [15:0] select_ln139_reg_93;
+wire   [25:0] delta_fixed_fu_85_p3;
+reg   [25:0] delta_fixed_reg_98;
 wire    ap_CS_fsm_state2;
-wire    grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start;
-wire    grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_done;
-wire    grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_idle;
-wire    grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_ready;
-wire    grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TREADY;
-wire   [47:0] grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TDATA;
-wire    grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TVALID;
-wire    grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_in_TREADY;
-reg    grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start_reg;
+wire    grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start;
+wire    grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_done;
+wire    grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_idle;
+wire    grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_ready;
+wire    grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TREADY;
+wire   [47:0] grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TDATA;
+wire    grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TVALID;
+wire    grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_in_TREADY;
+reg    grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start_reg;
 reg   [47:0] iq_out_TDATA_reg;
 wire    ap_CS_fsm_state3;
-wire   [15:0] tmp_fu_90_p3;
-wire   [12:0] tmp_1_fu_102_p3;
-wire   [16:0] zext_ln134_fu_98_p1;
-wire   [16:0] zext_ln134_1_fu_110_p1;
-wire   [16:0] add_ln134_fu_114_p2;
-wire   [15:0] add_ln138_fu_126_p2;
-wire   [0:0] icmp_ln138_fu_132_p2;
+wire   [15:0] add_ln139_fu_65_p2;
+wire   [0:0] icmp_ln139_fu_71_p2;
 wire    ap_CS_fsm_state4;
 wire    regslice_both_iq_out_U_apdone_blk;
 reg   [3:0] ap_NS_fsm;
@@ -130,24 +123,23 @@ wire    ap_ce_reg;
 // power-on initialization
 initial begin
 #0 ap_CS_fsm = 4'd1;
-#0 grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start_reg = 1'b0;
+#0 grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start_reg = 1'b0;
 end
 
-cfo_correct_cfo_correct_Pipeline_CORRECT grp_cfo_correct_Pipeline_CORRECT_fu_78(
+cfo_correct_cfo_correct_Pipeline_CORRECT grp_cfo_correct_Pipeline_CORRECT_fu_54(
     .ap_clk(ap_clk),
     .ap_rst(ap_rst_n_inv),
-    .ap_start(grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start),
-    .ap_done(grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_done),
-    .ap_idle(grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_idle),
-    .ap_ready(grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_ready),
+    .ap_start(grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start),
+    .ap_done(grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_done),
+    .ap_idle(grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_idle),
+    .ap_ready(grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_ready),
     .iq_in_TVALID(iq_in_TVALID_int_regslice),
-    .iq_out_TREADY(grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TREADY),
-    .iq_out_TDATA(grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TDATA),
-    .iq_out_TVALID(grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TVALID),
-    .total_samples(total_samples_reg_154),
+    .iq_out_TREADY(grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TREADY),
+    .iq_out_TDATA(grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TDATA),
+    .iq_out_TVALID(grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TVALID),
     .iq_in_TDATA(iq_in_TDATA_int_regslice),
-    .iq_in_TREADY(grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_in_TREADY),
-    .sext_ln147(delta_fixed_reg_164)
+    .iq_in_TREADY(grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_in_TREADY),
+    .sext_ln148(delta_fixed_reg_98)
 );
 
 cfo_correct_ctrl_s_axi #(
@@ -174,8 +166,6 @@ ctrl_s_axi_U(
     .ACLK(ap_clk),
     .ARESET(ap_rst_n_inv),
     .ACLK_EN(1'b1),
-    .cfo_est(cfo_est),
-    .n_syms(n_syms),
     .ap_start(ap_start),
     .interrupt(interrupt),
     .ap_ready(ap_ready),
@@ -203,7 +193,7 @@ regslice_both_iq_out_U(
     .ap_clk(ap_clk),
     .ap_rst(ap_rst_n_inv),
     .data_in(iq_out_TDATA_int_regslice),
-    .vld_in(grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TVALID),
+    .vld_in(grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TVALID),
     .ack_in(iq_out_TREADY_int_regslice),
     .data_out(iq_out_TDATA),
     .vld_out(regslice_both_iq_out_U_vld_out),
@@ -221,32 +211,31 @@ end
 
 always @ (posedge ap_clk) begin
     if (ap_rst_n_inv == 1'b1) begin
-        grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start_reg <= 1'b0;
+        grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start_reg <= 1'b0;
     end else begin
         if ((1'b1 == ap_CS_fsm_state2)) begin
-            grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start_reg <= 1'b1;
-        end else if ((grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_ready == 1'b1)) begin
-            grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start_reg <= 1'b0;
+            grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start_reg <= 1'b1;
+        end else if ((grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_ready == 1'b1)) begin
+            grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start_reg <= 1'b0;
         end
     end
 end
 
 always @ (posedge ap_clk) begin
     if ((1'b1 == ap_CS_fsm_state2)) begin
-        delta_fixed_reg_164[25 : 10] <= delta_fixed_fu_146_p3[25 : 10];
+        delta_fixed_reg_98[25 : 10] <= delta_fixed_fu_85_p3[25 : 10];
     end
 end
 
 always @ (posedge ap_clk) begin
-    if (((grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TVALID == 1'b1) & (1'b1 == ap_CS_fsm_state3))) begin
-        iq_out_TDATA_reg <= grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TDATA;
+    if (((grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TVALID == 1'b1) & (1'b1 == ap_CS_fsm_state3))) begin
+        iq_out_TDATA_reg <= grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TDATA;
     end
 end
 
 always @ (posedge ap_clk) begin
     if ((1'b1 == ap_CS_fsm_state1)) begin
-        select_ln138_reg_159 <= select_ln138_fu_138_p3;
-        total_samples_reg_154[16 : 5] <= total_samples_fu_120_p2[16 : 5];
+        select_ln139_reg_93 <= select_ln139_fu_77_p3;
     end
 end
 
@@ -261,7 +250,7 @@ end
 assign ap_ST_fsm_state2_blk = 1'b0;
 
 always @ (*) begin
-    if ((grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_done == 1'b0)) begin
+    if ((grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_done == 1'b0)) begin
         ap_ST_fsm_state3_blk = 1'b1;
     end else begin
         ap_ST_fsm_state3_blk = 1'b0;
@@ -302,15 +291,15 @@ end
 
 always @ (*) begin
     if ((1'b1 == ap_CS_fsm_state3)) begin
-        iq_in_TREADY_int_regslice = grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_in_TREADY;
+        iq_in_TREADY_int_regslice = grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_in_TREADY;
     end else begin
         iq_in_TREADY_int_regslice = 1'b0;
     end
 end
 
 always @ (*) begin
-    if (((grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TVALID == 1'b1) & (1'b1 == ap_CS_fsm_state3))) begin
-        iq_out_TDATA_int_regslice = grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TDATA;
+    if (((grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TVALID == 1'b1) & (1'b1 == ap_CS_fsm_state3))) begin
+        iq_out_TDATA_int_regslice = grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TDATA;
     end else begin
         iq_out_TDATA_int_regslice = iq_out_TDATA_reg;
     end
@@ -329,7 +318,7 @@ always @ (*) begin
             ap_NS_fsm = ap_ST_fsm_state3;
         end
         ap_ST_fsm_state3 : begin
-            if (((grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_done == 1'b1) & (1'b1 == ap_CS_fsm_state3))) begin
+            if (((grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_done == 1'b1) & (1'b1 == ap_CS_fsm_state3))) begin
                 ap_NS_fsm = ap_ST_fsm_state4;
             end else begin
                 ap_NS_fsm = ap_ST_fsm_state3;
@@ -348,9 +337,7 @@ always @ (*) begin
     endcase
 end
 
-assign add_ln134_fu_114_p2 = (zext_ln134_fu_98_p1 + zext_ln134_1_fu_110_p1);
-
-assign add_ln138_fu_126_p2 = (cfo_est + 16'd163);
+assign add_ln139_fu_65_p2 = (cfo_est + 16'd163);
 
 assign ap_CS_fsm_state1 = ap_CS_fsm[32'd0];
 
@@ -364,33 +351,22 @@ always @ (*) begin
     ap_rst_n_inv = ~ap_rst_n;
 end
 
-assign delta_fixed_fu_146_p3 = {{select_ln138_reg_159}, {10'd0}};
+assign delta_fixed_fu_85_p3 = {{select_ln139_reg_93}, {10'd0}};
 
-assign grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start = grp_cfo_correct_Pipeline_CORRECT_fu_78_ap_start_reg;
+assign grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start = grp_cfo_correct_Pipeline_CORRECT_fu_54_ap_start_reg;
 
-assign grp_cfo_correct_Pipeline_CORRECT_fu_78_iq_out_TREADY = (iq_out_TREADY_int_regslice & ap_CS_fsm_state3);
+assign grp_cfo_correct_Pipeline_CORRECT_fu_54_iq_out_TREADY = (iq_out_TREADY_int_regslice & ap_CS_fsm_state3);
 
-assign icmp_ln138_fu_132_p2 = ((add_ln138_fu_126_p2 > 16'd326) ? 1'b1 : 1'b0);
+assign icmp_ln139_fu_71_p2 = ((add_ln139_fu_65_p2 > 16'd326) ? 1'b1 : 1'b0);
 
 assign iq_in_TREADY = regslice_both_iq_in_U_ack_in;
 
 assign iq_out_TVALID = regslice_both_iq_out_U_vld_out;
 
-assign select_ln138_fu_138_p3 = ((icmp_ln138_fu_132_p2[0:0] == 1'b1) ? cfo_est : 16'd0);
-
-assign tmp_1_fu_102_p3 = {{n_syms}, {5'd0}};
-
-assign tmp_fu_90_p3 = {{n_syms}, {8'd0}};
-
-assign total_samples_fu_120_p2 = (add_ln134_fu_114_p2 + 17'd576);
-
-assign zext_ln134_1_fu_110_p1 = tmp_1_fu_102_p3;
-
-assign zext_ln134_fu_98_p1 = tmp_fu_90_p3;
+assign select_ln139_fu_77_p3 = ((icmp_ln139_fu_71_p2[0:0] == 1'b1) ? cfo_est : 16'd0);
 
 always @ (posedge ap_clk) begin
-    total_samples_reg_154[4:0] <= 5'b00000;
-    delta_fixed_reg_164[9:0] <= 10'b0000000000;
+    delta_fixed_reg_98[9:0] <= 10'b0000000000;
 end
 
 

@@ -167,8 +167,8 @@ attribute shreg_extract : string;
         G_eq_M_imag_address0 : OUT STD_LOGIC_VECTOR (7 downto 0);
         G_eq_M_imag_ce0 : OUT STD_LOGIC;
         G_eq_M_imag_q0 : IN STD_LOGIC_VECTOR (31 downto 0);
-        sext_ln474 : IN STD_LOGIC_VECTOR (22 downto 0);
-        sext_ln601 : IN STD_LOGIC_VECTOR (22 downto 0);
+        sext_ln514 : IN STD_LOGIC_VECTOR (22 downto 0);
+        sext_ln641 : IN STD_LOGIC_VECTOR (22 downto 0);
         bits_out_TDATA : OUT STD_LOGIC_VECTOR (7 downto 0);
         bits_out_TVALID : OUT STD_LOGIC );
     end component;
@@ -195,8 +195,8 @@ attribute shreg_extract : string;
         G_eq_M_imag_address0 : OUT STD_LOGIC_VECTOR (7 downto 0);
         G_eq_M_imag_ce0 : OUT STD_LOGIC;
         G_eq_M_imag_q0 : IN STD_LOGIC_VECTOR (31 downto 0);
-        sext_ln474 : IN STD_LOGIC_VECTOR (22 downto 0);
-        sext_ln601 : IN STD_LOGIC_VECTOR (22 downto 0);
+        sext_ln514 : IN STD_LOGIC_VECTOR (22 downto 0);
+        sext_ln641 : IN STD_LOGIC_VECTOR (22 downto 0);
         bits_out_TDATA : OUT STD_LOGIC_VECTOR (7 downto 0);
         bits_out_TVALID : OUT STD_LOGIC;
         grp_fu_112_p_din0 : OUT STD_LOGIC_VECTOR (22 downto 0);
@@ -283,8 +283,8 @@ begin
         G_eq_M_imag_address0 => grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_G_eq_M_imag_address0,
         G_eq_M_imag_ce0 => grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_G_eq_M_imag_ce0,
         G_eq_M_imag_q0 => G_eq_M_imag_q0,
-        sext_ln474 => cpe_cos,
-        sext_ln601 => cpe_sin,
+        sext_ln514 => cpe_cos,
+        sext_ln641 => cpe_sin,
         bits_out_TDATA => grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_bits_out_TDATA,
         bits_out_TVALID => grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_bits_out_TVALID);
 
@@ -309,8 +309,8 @@ begin
         G_eq_M_imag_address0 => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_G_eq_M_imag_address0,
         G_eq_M_imag_ce0 => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_G_eq_M_imag_ce0,
         G_eq_M_imag_q0 => G_eq_M_imag_q0,
-        sext_ln474 => cpe_cos,
-        sext_ln601 => cpe_sin,
+        sext_ln514 => cpe_cos,
+        sext_ln641 => cpe_sin,
         bits_out_TDATA => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_bits_out_TDATA,
         bits_out_TVALID => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_bits_out_TVALID,
         grp_fu_112_p_din0 => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_112_p_din0,

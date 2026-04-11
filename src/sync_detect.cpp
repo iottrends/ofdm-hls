@@ -85,7 +85,7 @@ void sync_detect(
 {
 #pragma HLS INTERFACE axis      port=iq_in
 #pragma HLS INTERFACE axis      port=iq_out
-#pragma HLS INTERFACE ap_vld    port=cfo_est
+#pragma HLS INTERFACE ap_none   port=cfo_est  // C4a: direct wire to cfo_correct, valid by construction
 #pragma HLS INTERFACE s_axilite port=n_syms  bundle=ctrl
 #pragma HLS INTERFACE s_axilite port=return  bundle=ctrl
     // ── Search buffer ─────────────────────────────────────────

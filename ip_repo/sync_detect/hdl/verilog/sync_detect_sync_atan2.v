@@ -56,8 +56,8 @@ wire    ap_CS_fsm_state2;
 reg   [15:0] acc_1_loc_fu_28;
 wire    ap_CS_fsm_state3;
 wire   [23:0] sub_ln60_fu_72_p2;
-wire   [0:0] tmp_7_fu_94_p3;
-wire   [0:0] tmp_6_fu_64_p3;
+wire   [0:0] tmp_5_fu_94_p3;
+wire   [0:0] tmp_4_fu_64_p3;
 wire   [14:0] acc_fu_102_p3;
 wire   [23:0] sub_ln60_1_fu_88_p2;
 wire   [19:0] tmp_fu_119_p4;
@@ -191,9 +191,9 @@ always @ (*) begin
     endcase
 end
 
-assign acc_1_ph_fu_110_p3 = ((tmp_6_fu_64_p3[0:0] == 1'b1) ? acc_fu_102_p3 : 15'd0);
+assign acc_1_ph_fu_110_p3 = ((tmp_4_fu_64_p3[0:0] == 1'b1) ? acc_fu_102_p3 : 15'd0);
 
-assign acc_fu_102_p3 = ((tmp_7_fu_94_p3[0:0] == 1'b1) ? 15'd19900 : 15'd12867);
+assign acc_fu_102_p3 = ((tmp_5_fu_94_p3[0:0] == 1'b1) ? 15'd19900 : 15'd12867);
 
 assign ap_CS_fsm_state1 = ap_CS_fsm[32'd0];
 
@@ -211,18 +211,18 @@ assign sub_ln60_fu_72_p2 = (24'd0 - x);
 
 assign tmp_1_fu_129_p4 = {{y[23:4]}};
 
-assign tmp_6_fu_64_p3 = x[32'd23];
+assign tmp_4_fu_64_p3 = x[32'd23];
 
-assign tmp_7_fu_94_p3 = y[32'd23];
+assign tmp_5_fu_94_p3 = y[32'd23];
 
 assign tmp_fu_119_p4 = {{sub_ln60_1_fu_88_p2[23:4]}};
 
 assign xi_1_fu_78_p4 = {{sub_ln60_fu_72_p2[23:4]}};
 
-assign xi_4_fu_148_p3 = ((tmp_6_fu_64_p3[0:0] == 1'b1) ? xi_1_fu_78_p4 : xi_fu_54_p4);
+assign xi_4_fu_148_p3 = ((tmp_4_fu_64_p3[0:0] == 1'b1) ? xi_1_fu_78_p4 : xi_fu_54_p4);
 
 assign xi_fu_54_p4 = {{x[23:4]}};
 
-assign yi_fu_139_p3 = ((tmp_6_fu_64_p3[0:0] == 1'b1) ? tmp_fu_119_p4 : tmp_1_fu_129_p4);
+assign yi_fu_139_p3 = ((tmp_4_fu_64_p3[0:0] == 1'b1) ? tmp_fu_119_p4 : tmp_1_fu_129_p4);
 
 endmodule //sync_detect_sync_atan2

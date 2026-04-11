@@ -53,7 +53,7 @@ reg    ap_enable_reg_pp0_iter1;
 reg    ap_idle_pp0;
 reg    ap_block_state2_pp0_stage0_iter1;
 reg    ap_block_pp0_stage0_subdone;
-wire   [0:0] icmp_ln286_fu_89_p2;
+wire   [0:0] icmp_ln325_fu_89_p2;
 reg    ap_condition_exit_pp0_iter0_stage0;
 wire    ap_loop_exit_ready;
 reg    ap_ready_int;
@@ -62,9 +62,9 @@ wire    ap_block_pp0_stage0;
 reg    ap_block_pp0_stage0_11001;
 wire   [0:0] s_last_fu_107_p2;
 reg   [0:0] s_last_reg_152;
-wire   [63:0] zext_ln286_fu_101_p1;
+wire   [63:0] zext_ln325_fu_101_p1;
 reg   [8:0] i_fu_44;
-wire   [8:0] add_ln286_fu_95_p2;
+wire   [8:0] add_ln325_fu_95_p2;
 wire    ap_loop_init;
 reg   [8:0] ap_sig_allocacmp_i_1;
 reg    ap_block_pp0_stage0_01001;
@@ -138,8 +138,8 @@ end
 
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        if (((icmp_ln286_fu_89_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
-            i_fu_44 <= add_ln286_fu_95_p2;
+        if (((icmp_ln325_fu_89_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
+            i_fu_44 <= add_ln325_fu_95_p2;
         end else if ((ap_loop_init == 1'b1)) begin
             i_fu_44 <= 9'd0;
         end
@@ -153,7 +153,7 @@ always @ (posedge ap_clk) begin
 end
 
 always @ (*) begin
-    if (((icmp_ln286_fu_89_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+    if (((icmp_ln325_fu_89_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b1;
     end else begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b0;
@@ -243,7 +243,7 @@ always @ (*) begin
     endcase
 end
 
-assign add_ln286_fu_95_p2 = (ap_sig_allocacmp_i_1 + 9'd1);
+assign add_ln325_fu_95_p2 = (ap_sig_allocacmp_i_1 + 9'd1);
 
 assign ap_CS_fsm_pp0_stage0 = ap_CS_fsm[32'd0];
 
@@ -277,13 +277,13 @@ assign ap_ready = ap_ready_sig;
 
 assign fft_in_TDATA = or_ln_fu_118_p4;
 
-assign icmp_ln286_fu_89_p2 = ((ap_sig_allocacmp_i_1 == 9'd256) ? 1'b1 : 1'b0);
+assign icmp_ln325_fu_89_p2 = ((ap_sig_allocacmp_i_1 == 9'd256) ? 1'b1 : 1'b0);
 
-assign in_M_imag_address0 = zext_ln286_fu_101_p1;
+assign in_M_imag_address0 = zext_ln325_fu_101_p1;
 
 assign in_M_imag_ce0 = in_M_imag_ce0_local;
 
-assign in_M_real_address0 = zext_ln286_fu_101_p1;
+assign in_M_real_address0 = zext_ln325_fu_101_p1;
 
 assign in_M_real_ce0 = in_M_real_ce0_local;
 
@@ -291,6 +291,6 @@ assign or_ln_fu_118_p4 = {{{s_last_reg_152}, {in_M_imag_q0}}, {in_M_real_q0}};
 
 assign s_last_fu_107_p2 = ((ap_sig_allocacmp_i_1 == 9'd255) ? 1'b1 : 1'b0);
 
-assign zext_ln286_fu_101_p1 = ap_sig_allocacmp_i_1;
+assign zext_ln325_fu_101_p1 = ap_sig_allocacmp_i_1;
 
 endmodule //ofdm_rx_run_fft_Pipeline_FFT_TX

@@ -1,6 +1,6 @@
 `timescale 1 ns / 1 ps
 
-module cfo_correct_hls_deadlock_idx1_monitor ( // for module cfo_correct_cfo_correct_inst.grp_cfo_correct_Pipeline_CORRECT_fu_78
+module cfo_correct_hls_deadlock_idx1_monitor ( // for module cfo_correct_cfo_correct_inst.grp_cfo_correct_Pipeline_CORRECT_fu_54
     input wire clock,
     input wire reset,
     input wire [1:0] axis_block_sigs,

@@ -10,6 +10,10 @@ set PROJ_DIR "$ROOT/vivado/ofdm_impl"
 set IP_REPO  "$ROOT/ip_repo"
 set PART     "xc7a50tcsg325-2"
 
+# ── Low-memory settings (target: 4 GB RAM) ─────────────────
+# Cap threads across all Vivado engines; OOC runs sequentially (-jobs 1 below)
+set_param general.maxThreads 2
+
 # ── Create project ─────────────────────────────────────────
 create_project ofdm_hdl $PROJ_DIR -part $PART -force
 set_property ip_repo_paths $IP_REPO [current_project]
@@ -209,26 +213,36 @@ set wrapper [glob "$PROJ_DIR/ofdm_hdl.gen/sources_1/bd/ofdm_chain/hdl/ofdm_chain
 add_files -norecurse $wrapper
 set_property top ofdm_chain_wrapper [current_fileset]
 
-# ── XDC ────────────────────────────────────────────────────
-read_xdc "$ROOT/vivado/ofdm_top.xdc"
+# ── XDC (add to synth_1 fileset) ───────────────────────────
+add_files -fileset constrs_1 -norecurse "$ROOT/vivado/ofdm_top.xdc"
 
-# ── Compile each IP OOC → DCP (resolves "module not found") ─
-puts "\n========== Synthesising IP cores OOC =========="
-synth_ip [get_ips *]
-
-# ── Top-level synthesis ─────────────────────────────────────
+# ── Synthesis via launch_runs ───────────────────────────────
+# launch_runs synth_1 handles the full OOC dependency chain:
+#   BD sub-IPs (axis_data_fifo, xfft, xlconstant) → OOC DCPs → top synth.
+# Direct synth_design would skip the OOC step → "module not found".
 puts "\n========== Running Vivado Synthesis =========="
-synth_design -top ofdm_chain_wrapper -part $PART -flatten_hierarchy none
+set_property STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY none [get_runs synth_1]
+launch_runs synth_1 -jobs 1
+wait_on_run synth_1
+if {[get_property PROGRESS [get_runs synth_1]] != "100%"} {
+    puts "ERROR: Synthesis failed — check vivado_run.log"
+    exit 1
+}
+open_run synth_1 -name synth_1
 
 # ── Post-synthesis utilization ──────────────────────────────
 report_utilization -file "$ROOT/vivado/utilization_post_synth.rpt" -hierarchical
 report_utilization -file "$ROOT/vivado/utilization_post_synth_summary.rpt"
 
-# ── Implementation ─────────────────────────────────────────
+# ── Implementation via launch_runs ─────────────────────────
 puts "\n========== Running Implementation =========="
-opt_design
-place_design
-route_design
+launch_runs impl_1 -to_step route_design -jobs 1
+wait_on_run impl_1
+if {[get_property PROGRESS [get_runs impl_1]] != "100%"} {
+    puts "ERROR: Implementation failed — check vivado_run.log"
+    exit 1
+}
+open_run impl_1 -name impl_1
 
 # ── Reports ────────────────────────────────────────────────
 report_utilization -file "$ROOT/vivado/utilization_post_impl.rpt" -hierarchical
