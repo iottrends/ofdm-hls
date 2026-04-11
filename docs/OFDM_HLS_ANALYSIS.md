@@ -757,16 +757,37 @@ the inter-block stream.
 #### C5. No Data Payload Integrity Check
 
 Only the 10-bit frame header has CRC-16. Data symbols have no CRC, checksum, or integrity
-marker. After Viterbi decode, corrupted bytes are silently written to `bits_out` and passed
-to the host. For a UAV command/control link, a 1-bit error in "throttle value" or "attitude
-setpoint" has no error recovery path. The link delivers wrong commands as valid.
+marker. After Viterbi decode, corrupted bytes are silently written to the output FIFO and
+passed to the host. For a UAV command/control link, a 1-bit error in "throttle value" or
+"attitude setpoint" has no error recovery path. The link delivers wrong commands as valid.
 
 The FEC + interleaver + scrambler reduce error rate but do not eliminate it — especially
 at the SNR margins where the link operates at range.
 
-**Fix:** Append a CRC-32 to the full data payload in `ofdm_tx` (4 bytes at the end of
-`bits_in`). In `ofdm_rx`, compute CRC-32 over all received payload bytes and assert
-`data_err = 1` on mismatch. Cost: ~200 LUT, combinational, zero latency overhead.
+**Decision: firmware/driver scope — no HLS changes.**
+
+CRC belongs at the MAC layer, not the PHY. Implementing it in HLS would cost ~200 LUT,
+require re-synthesis of both `ofdm_tx` and `ofdm_rx`, and add a new `data_err` port to
+the block design. The same protection is achieved at zero FPGA cost by handling it in the
+LiteX driver:
+
+```
+TX (LiteX firmware):
+  payload[0..N-1]  = application data
+  payload[N..N+3]  = crc32(payload[0..N-1])   # 4 bytes appended
+  DMA → host_tx_in FIFO → HLS TX chain (treats CRC bytes as plain data)
+
+RX (LiteX firmware):
+  bytes = DMA read from host_rx_out FIFO
+  if crc32(bytes[0..len-5]) != unpack_u32(bytes[len-4..len-1]):
+      discard frame, signal upper layer (retransmit / NAK)
+  else:
+      deliver bytes[0..len-5] to application
+```
+
+This keeps the HLS chain as pure PHY (moves bits, no policy). Integrity, retransmit policy,
+and sequence numbering are driver responsibilities. The CRC polynomial (CRC-32C or IEEE
+802.3) and frame format can be changed without touching any HLS IP or re-running synthesis.
 
 ---
 
@@ -991,7 +1012,7 @@ Items 1–8 must be completed before any hardware power-on. Items 9–13 before 
 | 4 | C4a | Wire cfo_est directly: sync_detect → cfo_correct (BD TCL) | 30 min TCL | Critical: eliminates software round-trip |
 | 5 | C4b | Add 131,072-depth input FIFO before sync_detect (4 BRAM_36) | 30 min TCL | Critical: double-buffers live ADC stream |
 | 6 | C4c | Add 32,768-depth output FIFO after rx_scrambler (1 BRAM_36) | 15 min TCL | Critical: gives DMA a read window |
-| 7 | C5 | Add CRC-32 over data payload in ofdm_tx / ofdm_rx | 2 hr HLS | High: silent corruption detection |
+| 7 | C5 | CRC-32 in LiteX driver (TX append, RX check+strip) | 1 hr firmware | High: silent corruption detection, no HLS cost |
 | 8 | C6 | Flush xfft pipelines in LiteX init (256 zero samples each) | 1 hr Python | Critical: first-frame channel estimate |
 | 9 | S1 | Enable AD9364 IQ calibration in SPI init sequence | 2 hr firmware | High: +1–2 dB EVM |
 | 10 | S5 | Add soft PAPR clipping at 4σ in ofdm_tx after IFFT | 2 hr HLS | High: +3 dB ERP, +40% range |
