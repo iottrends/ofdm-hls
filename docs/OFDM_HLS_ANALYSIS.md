@@ -551,3 +551,386 @@ If the integrated design is still over budget:
 | LiteX integration (ofdm_subsystem.py) | **TODO — required for real bitstream** |
 | AD9364 LVDS bring-up on hardware | TODO |
 | Over-the-air loopback test (drone ↔ ground) | TODO |
+
+---
+
+## 9. Architect Review — Hardware Bring-Up Risk Assessment
+
+**Context:** Artix-50T SDR boards ordered. Target: solid digital UAV link competitive with
+commercial SDR products, approaching defence-grade reliability. This section identifies every
+issue that will prevent hardware bring-up or degrade link quality, in priority order.
+
+---
+
+### 9.1 Executive Summary
+
+The baseband DSP is mathematically correct and HLS-disciplined. The BER numbers hold. There
+are **six issues that will cause failure on first hardware power-on** and **twelve issues
+that cap performance below commercial-grade**. None require redesigning the DSP — they are
+integration and protocol-layer problems that can be fixed before the boards arrive.
+
+---
+
+### 9.2 Critical — Will Fail on First Power-On
+
+These must be fixed before any hardware bring-up attempt.
+
+---
+
+#### C1. `n_syms` Circular Dependency
+
+`sync_detect` takes `n_syms` as an AXI-Lite input and uses it to compute
+`total_output = (n_syms + 2) × 288` samples — it sets TLAST on the output stream at that
+count. But `n_syms` is only extractable by `ofdm_rx` from the decoded header, which arrives
+*after* sync_detect runs. The software cannot know `n_syms` before programming sync_detect
+unless the transmitter signals it out-of-band.
+
+**What breaks:** If `n_syms` is wrong, sync_detect sets TLAST at the wrong sample position.
+`ofdm_rx` reads samples across the wrong frame boundary. The entire AXI-Stream chain
+becomes permanently misaligned until a hard reset of all blocks.
+
+**Fix:** Use a fixed constant `n_syms = 255` (maximum) in sync_detect — always output
+`257 × 288 = 74,016` samples and set TLAST there. Let `ofdm_rx` handle shorter frames
+internally using the header `n_syms` field. No n_syms feedback loop, no dependency.
+
+---
+
+#### C2. Guard Symbol Not Sent by TX
+
+`sync_detect.h` documents that the search is designed around `SYNC_NL = 288` null samples
+prepended before the ZC preamble:
+
+```
+// With one guard symbol prepended (SYNC_NL zeros), the preamble CP is
+// at t = 288 and the first data CP boundary at t = 576 = SEARCH_WIN
+```
+
+`ofdm_tx` sends nothing before `send_preamble()` — it starts immediately with the ZC
+symbol. In simulation the testbench prepends zeros externally, masking the issue. On
+hardware with a live ADC stream, there are no pre-preamble zeros. If the receiver starts
+searching while the channel is still settling or the previous frame's tail is still in the
+FIFO, sync_detect finds a spurious metric peak in the noise and locks to the wrong offset.
+
+**Fix:** Add `send_guard()` to `ofdm_tx` as the first thing in the top-level function:
+
+```cpp
+// Send SYNC_NL null samples so sync_detect search window is clean
+GUARD_LOOP: for (int i = 0; i < SYNC_NL; i++) {
+    #pragma HLS PIPELINE II=1
+    iq_t s; s.i = 0; s.q = 0; s.last = 0;
+    iq_out.write(s);
+}
+```
+
+Three lines. Fixes cold-start sync for all future frames.
+
+---
+
+#### C3. Drain Loop Hangs Permanently on Corrupt Frame
+
+`ofdm_rx.cpp:765`:
+
+```cpp
+DRAIN: do {
+    #pragma HLS PIPELINE II=1
+    iq_t s = iq_in.read();
+    if (s.last) break;
+} while (true);
+```
+
+This runs when `header_err = 1`. It waits for `s.last` from sync_detect. If `n_syms` was
+wrong (C1), TLAST arrives at the wrong position. If the stream was interrupted or sync_detect
+was reset, TLAST may never arrive. The HLS state machine stalls permanently. The AXI-Stream
+bus deadlocks. The board requires a hard reset.
+
+**Fix:** Add a sample counter as a hard timeout:
+
+```cpp
+ap_uint<17> drain_cnt = 0;
+DRAIN: do {
+    #pragma HLS PIPELINE II=1
+    iq_t s = iq_in.read();
+    if (s.last || ++drain_cnt > 74100) break;
+} while (true);
+```
+
+Maximum legal frame is `(255 + 2) × 288 = 74,016` samples. The counter costs 17 FF and
+zero LUT in the pipeline.
+
+---
+
+#### C4. CFO Handoff Has No Hardware Path — FIFO Will Overflow
+
+`sync_detect` outputs `cfo_est` as an AXI-Lite register (`ap_vld`). `cfo_correct` reads
+`cfo_est` from its own AXI-Lite register. These are **not wired together** in the Vivado
+block design — there is no direct hardware path. The software must:
+
+1. Wait for sync_detect `ap_done` interrupt
+2. AXI-Lite read `cfo_est` (PCIe → FPGA → AXI bus: ~1–2 µs round-trip)
+3. AXI-Lite write the value to cfo_correct
+4. Assert cfo_correct `ap_start`
+
+During steps 2–4, sync_detect's output is flowing into the AXI-Stream FIFO feeding
+cfo_correct. The default Vivado auto-inserted FIFO depth is 512 words. At 100 MHz, 512
+words = 5 µs of data. The software round-trip takes ~2 µs minimum but can spike to 20+ µs
+under interrupt latency. The FIFO overflows silently — no error flag, no backpressure.
+Samples are dropped. Every frame is corrupted.
+
+**Fix (hardware path — correct approach):** In `create_project.tcl`, add a register-slice
+cell that captures `cfo_est` from sync_detect's output pin and drives cfo_correct's input
+pin directly in hardware on `ap_done`. No software involvement per frame.
+
+**Fix (software path — quick workaround):** Insert an explicit AXI-Stream FIFO IP between
+sync_detect and cfo_correct with `depth = 131072` (≥ 74,016 words). In the TCL:
+
+```tcl
+create_bd_cell -type ip -vlnv xilinx.com:ip:axis_data_fifo:2.0 sc_cfo_fifo
+set_property -dict [list CONFIG.FIFO_DEPTH {131072}] [get_bd_cells sc_cfo_fifo]
+```
+
+This uses ~2 BRAM_36 (within budget) and gives the software 1.3 ms to complete the handoff.
+
+---
+
+#### C5. No Data Payload Integrity Check
+
+Only the 10-bit frame header has CRC-16. Data symbols have no CRC, checksum, or integrity
+marker. After Viterbi decode, corrupted bytes are silently written to `bits_out` and passed
+to the host. For a UAV command/control link, a 1-bit error in "throttle value" or "attitude
+setpoint" has no error recovery path. The link delivers wrong commands as valid.
+
+The FEC + interleaver + scrambler reduce error rate but do not eliminate it — especially
+at the SNR margins where the link operates at range.
+
+**Fix:** Append a CRC-32 to the full data payload in `ofdm_tx` (4 bytes at the end of
+`bits_in`). In `ofdm_rx`, compute CRC-32 over all received payload bytes and assert
+`data_err = 1` on mismatch. Cost: ~200 LUT, combinational, zero latency overhead.
+
+---
+
+#### C6. xfft Pipeline State Undefined at Startup
+
+The `xfft v9.1 pipelined_streaming_io` instance has no reset pin. After FPGA configuration
+and `rst_n` deassertion, the xfft internal pipeline holds undefined values. `ofdm_tx` and
+`ofdm_rx` assert `ap_start` immediately on the first software trigger. The first FFT output
+frame will have up to 256 samples of garbage from the unflushed pipeline contaminating the
+very first preamble and header symbols.
+
+On the RX side, the first channel estimate will be computed from garbage FFT output,
+producing a completely wrong `G_eq`. Every data symbol in that first frame will fail to
+decode. This may look like a sporadic "first frame always fails" symptom that is easy to
+dismiss but is actually deterministic.
+
+**Fix:** In the LiteX init sequence, after deasserting reset, send one dummy 256-sample
+burst through each xfft before enabling the HLS chain:
+
+```python
+# Flush xfft pipeline — send 256 zero samples, discard output
+for _ in range(256):
+    self.ofdm_tx_ifft_tdata.write(0)
+    self.ofdm_tx_ifft_tvalid.write(1)
+```
+
+This takes 256 cycles (2.56 µs) and runs once on boot.
+
+---
+
+### 9.3 Serious — Will Degrade Link Quality on Hardware
+
+These cause meaningful performance loss and should be fixed before any range testing.
+
+---
+
+#### S1. IQ Imbalance — EVM Floor Raised from −65 dB to ~−24 dB
+
+The AD9364 has typical IQ imbalance of ±0.5 dB amplitude and ±2° phase at room temperature,
+drifting further with temperature. This creates a conjugate image at −f for each subcarrier.
+In a 200-SC OFDM system, the image raises the interference floor across the entire band:
+
+```
+ICI power ≈ (ε_A)² × signal_power
+At 0.5 dB (ε_A ≈ 0.06): ICI floor ≈ −24 dB EVM
+```
+
+Your simulation EVM floor is −65 dB (quantization limited). IQ imbalance raises it to
+−24 dB — a 41 dB degradation. 16-QAM requires EVM < −24 dB. You will be right at the
+margin in a lab at room temperature, and below it over operating temperature.
+
+**Fix:** Enable the AD9364 internal IQ correction calibration via SPI during init
+(`RFDC_CAL_MODE = 1` in the AD9364 register map). This is a firmware task — no HLS changes.
+
+---
+
+#### S2. Hard-Decision Viterbi — 2–3 dB Left on the Table
+
+The Viterbi decoder receives hard bits (0 or 1) from the demapper. Soft-decision Viterbi
+uses the log-likelihood ratio of each bit — the signed distance from the decision boundary
+in the equalized constellation. This gives approximately 2 dB additional coding gain at
+`BER = 10⁻³` for the same K=7 code, with no additional bandwidth or power.
+
+The equalized `cgeq_t` values in `equalize_demap_pack()` already contain the soft
+information — they are simply hard-sliced and discarded before being passed to the Viterbi.
+
+For a UAV operating at 15–18 dB link margin at max range, 2 dB translates to ~40% more
+range for QPSK, or reduces the required transmit power by 37%.
+
+**Fix:** Pass the real/imaginary parts of the equalized symbol directly to the Viterbi as
+4-bit or 6-bit LLR values. Modify the demapper to emit soft bits and the Viterbi ACS to
+use add-compare-select on LLR sums instead of hard Hamming distances.
+
+---
+
+#### S3. Preamble-Only Channel Estimation — Channel Changes Within Frame
+
+`estimate_channel()` computes `G_eq[k]` once from the ZC preamble and holds it constant
+for all data symbols. This assumes a static channel for the entire frame duration.
+
+Frame duration at 20 MSPS: `(255 + 2) × 288 / 20e6 = 3.7 ms`
+
+Channel coherence time at 5.8 GHz for a 120 km/h drone:
+```
+f_D = v × f_c / c = 33.3 m/s × 5.8e9 / 3e8 = 644 Hz
+T_c ≈ 0.423 / 644 Hz ≈ 0.66 ms
+```
+
+The frame is **5.6× longer than the channel coherence time**. The channel changes
+significantly within one frame at speed. The current CPE tracking compensates for phase
+rotation only (one scalar correction per symbol). It does not track amplitude variation,
+per-subcarrier fading evolution, or multipath spread changes.
+
+**Fix:** After each data symbol's FFT, update `G_eq` using the 6 BPSK pilots:
+
+```cpp
+// For each data symbol, after run_fft():
+for (int p = 0; p < NUM_PILOT_SC; p++) {
+    G_pilot_new[p] = fft_buf[PILOT_IDX[p]] * conj_zc_pilot[p];
+    // Blend: G_eq_pilot = alpha*G_pilot_new + (1-alpha)*G_eq_pilot
+}
+// Linear interpolate G_eq_pilot → G_eq[k] for all data SCs
+```
+
+The 6 pilot positions (spaced ~38 SCs apart) give sufficient spatial coverage for linear
+interpolation across 200 data SCs. This is ~20 lines of HLS, ~50 LUT, 0 DSP.
+
+---
+
+#### S4. No Spectral Mask Compliance — Sidelobes at −13 dB
+
+Rectangular-windowed OFDM produces sinc-shaped sidelobes. First sidelobe is −13 dB relative
+to the in-band peak, located at approximately ±(bandwidth × 1.5) from center. At 20 MHz
+occupied bandwidth, the −13 dB sidelobe falls at ±30 MHz — directly in the adjacent channel
+for 20 MHz-spaced channel plans.
+
+The AD9364 TX FIR can suppress this, but only if it is configured with appropriate
+coefficients. By default it operates as a passthrough.
+
+**Fix for hardware bring-up:** Load a raised-cosine or root-raised-cosine FIR coefficient
+set into the AD9364 TX filter via SPI on init. No HLS changes. This is a one-time SPI
+configuration in the LiteX BSP.
+
+**Proper fix:** Apply a Hann or Nutall window to the time-domain symbol after CP insertion
+in `ofdm_tx`. Reduces sidelobes to −32 dB at cost of ~3% inter-subcarrier energy spread
+(negligible EVM impact). Cost: ~50 LUT in `ofdm_tx`.
+
+---
+
+#### S5. PAPR = 10 dB — Effective Transmit Power 9 dB Below Hardware Maximum
+
+OFDM PAPR for 200 equal-amplitude subcarriers is approximately 9–10 dB (practical, after
+natural cancellations). No PAPR reduction is applied. The AD9364 transmit chain must back
+off by the PAPR to avoid clipping at the DAC and distortion at the amplifier stage.
+
+At the Hallycon M2 board: the AD9364 maximum output is ~0 dBm. With PAPR = 9 dB, the
+average output power is −9 dBm — 9 dB less than the hardware maximum. This directly
+reduces link budget and maximum range by approximately 65% (×0.35 in linear distance terms).
+
+**Fix:** Soft clip the time-domain IFFT output in `ofdm_tx` at a threshold of 4σ before
+CP insertion. This clips approximately 0.1% of peaks, reduces PAPR from ~9 dB to ~6 dB,
+and degrades EVM by less than 0.3 dB (well within 16-QAM tolerance of −24 dB).
+
+```cpp
+// After run_ifft(), before insert_cp():
+CLIP: for (int i = 0; i < FFT_SIZE; i++) {
+    #pragma HLS PIPELINE II=1
+    const sample_t clip = sample_t(0.75);  // 4σ for typical OFDM distribution
+    if (time_buf[i].real() >  clip) time_buf[i] = csample_t( clip, time_buf[i].imag());
+    if (time_buf[i].real() < -clip) time_buf[i] = csample_t(-clip, time_buf[i].imag());
+    if (time_buf[i].imag() >  clip) time_buf[i] = csample_t(time_buf[i].real(),  clip);
+    if (time_buf[i].imag() < -clip) time_buf[i] = csample_t(time_buf[i].real(), -clip);
+}
+```
+
+Cost: ~30 LUT. Gain: 3 dB average transmit power = 40% more range at same BER.
+
+---
+
+#### S6. AXI-Stream FIFO Depth Not Specified — Silent Sample Drops
+
+The block design connects all chain stages via AXI-Stream. Vivado auto-inserts FIFOs of
+default depth 512 words between each block. One frame = up to 74,016 words. With `ap_ctrl_hs`
+blocks, each stage starts only after the host writes `ap_start`. If there is any inter-stage
+startup latency (even one clock of software overhead), the upstream block outputs into a 512-
+word FIFO that overflows in `512 / 100e6 = 5 µs`. At 100 MHz with 20 MSPS data, samples are
+being written faster than the FIFO drains. Overflow means silent data loss — no error flag,
+no backpressure stall.
+
+**Fix:** In `create_project.tcl`, explicitly size each inter-block FIFO:
+
+```tcl
+create_bd_cell -type ip -vlnv xilinx.com:ip:axis_data_fifo:2.0 fifo_sc_to_cfo
+set_property -dict [list CONFIG.FIFO_DEPTH {131072}] [get_bd_cells fifo_sc_to_cfo]
+
+create_bd_cell -type ip -vlnv xilinx.com:ip:axis_data_fifo:2.0 fifo_cfo_to_rx
+set_property -dict [list CONFIG.FIFO_DEPTH {131072}] [get_bd_cells fifo_cfo_to_rx]
+```
+
+Two FIFOs × 131,072 × 32-bit words = 1 MB total = 4 BRAM_36. Within the 75 BRAM_36
+budget (currently using ~22).
+
+---
+
+### 9.4 Performance Gap vs Defence-Grade Systems
+
+The following table shows where this design stands against L3-Harris, Collins JTRS-class,
+and Silvus StreamCaster-class products. Items marked with a fix path can be closed without
+redesigning the baseband.
+
+| Feature | This design | Target grade | Gap | Fix path |
+|---------|-------------|--------------|-----|----------|
+| FEC | Hard-decision K=7 Viterbi | Soft LDPC r=1/2 | ~5 dB | Soft Viterbi (S2): +2 dB now |
+| Channel tracking | Preamble-only + CPE | Per-symbol MMSE pilot interpolation | ~2 dB at speed | S3 — 20 lines HLS |
+| PAPR | None | Clipping + filtering | 3 dB ERP | S5 — 30 LUT |
+| IQ calibration | None | Hardware IQ correction | 1–2 dB EVM | S1 — SPI config |
+| Spectral mask | Raw OFDM sidelobes −13 dB | −40 dB sidelobes | Regulatory | S4 — AD9364 FIR |
+| AMC | Fixed MCS per session | Per-frame SNR-adaptive MCS | Link robustness | SNR output from ofdm_rx |
+| ARQ | None | Selective repeat HARQ | Reliability | Software layer |
+| Authentication | None | AES-256-GCM + ECDSA | Safety-critical | Software layer |
+| Frequency agility | Fixed channel | Adaptive FHSS / DFS | Jamming resistance | Multi-channel plan |
+| Diversity | Single antenna | 2×1 MRC at minimum | 3–6 dB SNR | Second AD9364 |
+| Waveform signature | Fixed ZC root u=25 | Randomized root per session | Detectability | Configurable LUT |
+
+**Achievable before first hardware test** (fixes S1–S5 plus C1–C6):
+
+Closing these items produces a link that beats every hobby SDR system (OpenHD, wfb-ng,
+DJI OcuSync 1) and approaches commercial UAV datalink products (DJI OcuSync 3 uses LDPC
++ 2×2 MIMO; this design gets within 3–4 dB without MIMO).
+
+---
+
+### 9.5 Priority Fix List
+
+Items 1–6 must be completed before any hardware power-on. Items 7–11 before range testing.
+
+| # | ID | Issue | Effort | Impact |
+|---|----|----|---|---|
+| 1 | C1 | Fix n_syms feedback — hard-code n_syms=255 in sync_detect | 1 hr HLS | Critical: prevents stream misalignment |
+| 2 | C2 | Add 288-sample guard symbol to ofdm_tx send sequence | 30 min HLS | Critical: cold-start sync reliability |
+| 3 | C3 | Add 74,100-sample timeout counter to drain loop | 30 min HLS | Critical: prevents permanent deadlock |
+| 4 | C4 | Add 131,072-depth FIFO between sync_detect and cfo_correct | 1 hr TCL | Critical: prevents frame data loss |
+| 5 | C5 | Add CRC-32 over data payload in ofdm_tx / ofdm_rx | 2 hr HLS | High: silent corruption detection |
+| 6 | C6 | Flush xfft pipelines in LiteX init (256 zero samples each) | 1 hr Python | Critical: first-frame channel estimate |
+| 7 | S1 | Enable AD9364 IQ calibration in SPI init sequence | 2 hr firmware | High: +1–2 dB EVM |
+| 8 | S5 | Add soft PAPR clipping at 4σ in ofdm_tx after IFFT | 2 hr HLS | High: +3 dB ERP, +40% range |
+| 9 | S4 | Load raised-cosine coefficients into AD9364 TX FIR | 2 hr firmware | High: spectral compliance |
+| 10 | S3 | Per-symbol pilot channel update in ofdm_rx data loop | 2 days HLS | High: +2 dB at UAV speed |
+| 11 | S2 | Soft-decision LLR Viterbi decoder | 1 week HLS | High: +2–3 dB coding gain |
