@@ -34,6 +34,7 @@ CHANNELS="awgn phase multipath combined"
 PHASE_SIGMA=0.005
 CFO_SC=0.3
 MOD=1   # 0=QPSK, 1=16QAM
+RATE=0  # 0=rate-1/2, 1=rate-2/3
 
 # Build dir and LD path (matches setup_vitis.sh)
 BUILD_DIR="$SCRIPT_DIR/ofdm_rx_proj/sol1/csim/build"
@@ -50,6 +51,7 @@ while [[ $# -gt 0 ]]; do
         --phase-sigma) PHASE_SIGMA="$2";   shift 2 ;;
         --cfo-sc)      CFO_SC="$2";        shift 2 ;;
         --mod)         MOD="$2";           shift 2 ;;
+        --rate)        RATE="$2";          shift 2 ;;
         --quick)
             FRAMES=3
             SNR_POINTS="5 10 15 20"
@@ -83,8 +85,8 @@ echo "======================================================"
 hdr "Step 1 — Generate input bits and HLS TX IQ"
 info "Generates tb_input_to_tx.bin and runs HLS TX C-sim → tb_tx_output_hls.txt"
 echo ""
-python3 sim/ofdm_reference.py --gen --mod $MOD
-./setup_vitis.sh csim $MOD 2>&1 | grep -E "@I|@E|error" || true
+python3 sim/ofdm_reference.py --gen --mod $MOD --rate $RATE
+./setup_vitis.sh csim $MOD $RATE 2>&1 | grep -E "@I|@E|error" || true
 if [ ! -f tb_tx_output_hls.txt ]; then
     err "HLS TX C-sim failed — tb_tx_output_hls.txt not found"
     exit 1
@@ -151,7 +153,7 @@ for CHANNEL in $CHANNELS; do
 
             RUN_OUT=$(cd "$BUILD_DIR" && \
                 LD_LIBRARY_PATH="${LD_PATH}:${LD_LIBRARY_PATH}" \
-                ./csim.exe --mod $MOD 2>&1) || true
+                ./csim.exe --mod $MOD --rate $RATE 2>&1) || true
 
             # Parse bit errors and total bits from TB output
             BE=$(echo "$RUN_OUT" | grep -i "Bit.*errors" | \

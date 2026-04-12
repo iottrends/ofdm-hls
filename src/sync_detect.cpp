@@ -191,9 +191,13 @@ void sync_detect(
         // In hardware, ADC input fills the range; integer comparison works.
         float Pi_f = (float)Pi, Pq_f = (float)Pq;
         float R_f  = (float)R,  Rl_f = (float)Rl;
-        float denom = R_f * Rl_f;
-        if (denom > 0.0f) {
-            float metric = (Pi_f*Pi_f + Pq_f*Pq_f) / denom;
+        // Reject silent/guard-zone candidates: when both windows carry only
+        // quantised noise, R·Rl collapses below the numerator and the ratio
+        // blows past its Cauchy-Schwarz bound. The __SYNTHESIS__ path gets
+        // this for free via integer-bit truncation of R/Rl to ap_uint<6>.
+        const float ENERGY_FLOOR = 1e-3f;
+        if (R_f > ENERGY_FLOOR && Rl_f > ENERGY_FLOOR) {
+            float metric = (Pi_f*Pi_f + Pq_f*Pq_f) / (R_f * Rl_f);
             if (metric > best_metric) {
                 best_metric = metric;
                 best_t      = t;

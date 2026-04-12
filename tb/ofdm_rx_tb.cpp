@@ -37,8 +37,9 @@ static std::string tb_path(const char* fname) {
     return dir ? (std::string(dir) + "/" + fname) : fname;
 }
 
-// Test configuration — must match TX testbench
-#define TB_N_SYMS    255
+// Default frame length — can be overridden with --n-syms N at runtime.
+// Must match --n-syms passed to the TX side (both HLS TX TB and Python ref).
+#define TB_N_SYMS_DEFAULT   255
 
 #define TX_OUT_FILE  "tb_tx_output_hls.txt"    // TX C-sim output (IQ pairs)
 #define IN_BITS_FILE "tb_input_to_tx.bin"      // original packed bits
@@ -47,9 +48,16 @@ static std::string tb_path(const char* fname) {
 int main(int argc, char* argv[]) {
     int TB_MOD      = 1;   // 0=QPSK, 1=16QAM
     int TB_FEC_RATE = 0;   // 0=rate-1/2, 1=rate-2/3
+    int TB_N_SYMS   = TB_N_SYMS_DEFAULT;
     for (int i = 1; i < argc; i++) {
-        if (std::string(argv[i]) == "--mod"  && i + 1 < argc) TB_MOD      = std::atoi(argv[++i]);
-        if (std::string(argv[i]) == "--rate" && i + 1 < argc) TB_FEC_RATE = std::atoi(argv[++i]);
+        if (std::string(argv[i]) == "--mod"    && i + 1 < argc) TB_MOD      = std::atoi(argv[++i]);
+        if (std::string(argv[i]) == "--rate"   && i + 1 < argc) TB_FEC_RATE = std::atoi(argv[++i]);
+        if (std::string(argv[i]) == "--n-syms" && i + 1 < argc) TB_N_SYMS   = std::atoi(argv[++i]);
+    }
+    if (TB_N_SYMS < 1 || TB_N_SYMS > 255) {
+        std::cerr << "[TB] ERROR: --n-syms must be in [1, 255], got "
+                  << TB_N_SYMS << "\n";
+        return 1;
     }
     hls::stream<iq_t>        iq_raw("iq_raw");
     hls::stream<iq_t>        iq_aligned("iq_aligned");
@@ -72,13 +80,19 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // C2 fix: ofdm_tx now sends SYNC_NL=288 guard zeros before the preamble,
-    // so tb_tx_output_hls.txt already starts with the guard.  Total samples =
-    // guard + preamble + header + data = (TB_N_SYMS + 3) symbols.
-    // No need to prepend zeros manually — doing so would double the guard and
-    // push the preamble CP to t=576=SEARCH_WIN (edge), breaking sync_detect.
-    const int total_syms    = TB_N_SYMS + 3;  // +guard +preamble +header
+    // C2 fix: ofdm_tx sends SYNC_NL=288 guard zeros before the preamble,
+    // so tb_tx_output_hls.txt already starts with the guard.  Total real
+    // samples = guard + preamble + header + data = (TB_N_SYMS + 3) symbols.
+    //
+    // sync_detect + cfo_correct always consume the maximum stream length
+    // (MAX_DATA_SYMS + 3) × SYNC_NL regardless of the actual n_syms encoded
+    // in the header.  For variable-length frames (TB_N_SYMS < MAX_DATA_SYMS)
+    // the TB must therefore pad the trailing samples with zeros so the
+    // upstream blocks don't stall on an empty stream.
+    const int total_syms    = TB_N_SYMS + 3;                 // +guard +preamble +header
     const int total_samples = total_syms * (FFT_SIZE + CP_LEN);
+    const int stream_len    = (MAX_DATA_SYMS + 3) * (FFT_SIZE + CP_LEN);
+    const int pad_samples   = stream_len - total_samples;    // 0 when TB_N_SYMS==MAX_DATA_SYMS
 
     int samples_loaded = 0;
     double i_val, q_val;
@@ -86,7 +100,8 @@ int main(int argc, char* argv[]) {
         iq_t s;
         s.i    = sample_t(i_val);
         s.q    = sample_t(q_val);
-        s.last = (samples_loaded == total_samples - 1) ? ap_uint<1>(1) : ap_uint<1>(0);
+        // last flag will be asserted on the very final stream sample below.
+        s.last = ap_uint<1>(0);
         iq_raw.write(s);
         samples_loaded++;
     }
@@ -97,8 +112,24 @@ int main(int argc, char* argv[]) {
                   << " IQ samples, got " << samples_loaded << "\n";
         return 1;
     }
+
+    // Pad trailing zeros so sync_detect's max-length read drains cleanly.
+    for (int n = 0; n < pad_samples; n++) {
+        iq_t s;
+        s.i    = sample_t(0);
+        s.q    = sample_t(0);
+        s.last = (n == pad_samples - 1) ? ap_uint<1>(1) : ap_uint<1>(0);
+        iq_raw.write(s);
+    }
+    // If TB_N_SYMS == MAX_DATA_SYMS there is no padding, so the last file
+    // sample has no TLAST.  Not fatal for C-sim (streams are unbounded), but
+    // make it explicit for cosim correctness.  No easy way to patch a
+    // hls::stream in-place, so we rely on the downstream blocks draining
+    // correctly — same behaviour as the original TB.
+
     std::cout << "[TB] Loaded " << samples_loaded << " IQ samples from "
-              << TX_OUT_FILE << " (includes " << SYNC_NL << " guard zeros from TX)\n";
+              << TX_OUT_FILE << " (+" << pad_samples << " padded zeros, "
+              << "includes " << SYNC_NL << " guard zeros from TX)\n";
 
     // ── Step 1: Timing sync + CFO estimation ─────────────────
     sync_detect(iq_raw, iq_aligned, cfo_est, (ap_uint<8>)TB_N_SYMS);

@@ -27,8 +27,9 @@ static std::string tb_path(const char* fname) {
     return dir ? (std::string(dir) + "/" + fname) : fname;
 }
 
-// Test configuration — must match values used in ofdm_reference.py
-#define TB_N_SYMS   255
+// Default frame length — can be overridden with --n-syms N at runtime.
+// Must match --n-syms passed to ofdm_reference.py (ground-truth generator).
+#define TB_N_SYMS_DEFAULT   255
 
 // Expected output file written by this testbench
 #define OUT_FILE   "tb_tx_output_hls.txt"
@@ -36,12 +37,19 @@ static std::string tb_path(const char* fname) {
 #define IN_FILE    "tb_input_to_tx.bin"
 
 int main(int argc, char* argv[]) {
-    // Runtime modulation and FEC rate
+    // Runtime modulation, FEC rate, and frame length
     int TB_MOD      = 1;   // 0=QPSK, 1=16QAM
     int TB_FEC_RATE = 0;   // 0=rate-1/2, 1=rate-2/3
+    int TB_N_SYMS   = TB_N_SYMS_DEFAULT;
     for (int i = 1; i < argc; i++) {
-        if (std::string(argv[i]) == "--mod"  && i + 1 < argc) TB_MOD      = std::atoi(argv[++i]);
-        if (std::string(argv[i]) == "--rate" && i + 1 < argc) TB_FEC_RATE = std::atoi(argv[++i]);
+        if (std::string(argv[i]) == "--mod"    && i + 1 < argc) TB_MOD      = std::atoi(argv[++i]);
+        if (std::string(argv[i]) == "--rate"   && i + 1 < argc) TB_FEC_RATE = std::atoi(argv[++i]);
+        if (std::string(argv[i]) == "--n-syms" && i + 1 < argc) TB_N_SYMS   = std::atoi(argv[++i]);
+    }
+    if (TB_N_SYMS < 1 || TB_N_SYMS > 255) {
+        std::cerr << "[TB] ERROR: --n-syms must be in [1, 255], got "
+                  << TB_N_SYMS << "\n";
+        return 1;
     }
     hls::stream<ap_uint<8>> raw_in("raw_in");
     hls::stream<ap_uint<8>> scrambled("scrambled");

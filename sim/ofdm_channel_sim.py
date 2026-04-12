@@ -390,7 +390,8 @@ if __name__ == "__main__":
                         help="Noise trials per SNR point for sweep (default: 5)")
     parser.add_argument("--mod",          type=int,   default=MOD,
                         help="0=QPSK 1=16QAM")
-    parser.add_argument("--nsyms",        type=int,   default=N_SYMS)
+    parser.add_argument("--nsyms", "--n-syms", dest="nsyms",
+                        type=int, default=N_SYMS, help="Number of data symbols [1..255]")
     parser.add_argument("--seed",         type=int,   default=42)
     # Channel type and impairment parameters
     parser.add_argument("--channel",      default="awgn",
