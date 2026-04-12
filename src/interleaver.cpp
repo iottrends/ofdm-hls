@@ -96,32 +96,74 @@ void interleaver(
     #pragma HLS INTERFACE s_axilite port=is_rx  bundle=ctrl
     #pragma HLS INTERFACE s_axilite port=return bundle=ctrl
 
-    // Bit buffer: max 100 bytes for 16-QAM.
-    // LUTRAM: ~13 LUTs, single-port.  Fill and permute are separate
-    // sequential phases so there are no read-write port conflicts.
-    ap_uint<8> buf[100];
+    // Bit/nibble buffer: max 400 bytes for 16-QAM soft RX (800 nibbles),
+    // max 100 bytes for 16-QAM hard TX (800 bits).
+    ap_uint<8> buf[400];
     #pragma HLS BIND_STORAGE variable=buf type=RAM_1P impl=LUTRAM
 
-    SYMBOL_LOOP: for (int s = 0; s < (int)n_syms; s++) {
-        if (mod == 0) {
-            // ── QPSK: 50 bytes = 400 bits per symbol ─────────
+    ap_uint<4> acc_nib = 0;
 
-            FILL_Q: for (int i = 0; i < 50; i++) {
+    SYMBOL_LOOP: for (int s = 0; s < (int)n_syms; s++) {
+        if (mod == 0 && !is_rx) {
+            // ── QPSK TX: 50 bytes = 400 hard bits ───────────
+
+            FILL_Q_TX: for (int i = 0; i < 50; i++) {
                 #pragma HLS PIPELINE II=1
                 buf[i] = data_in.read();
             }
 
             ap_uint<8> out_byte = 0;
-            PERM_Q: for (int j = 0; j < 400; j++) {
+            PERM_Q_TX: for (int j = 0; j < 400; j++) {
                 #pragma HLS PIPELINE II=1
                 #pragma HLS loop_tripcount min=400 max=400
 
-                int src = is_rx ? src_qpsk_rx(j) : src_qpsk_tx(j);
-
-                // Read source bit (MSB-first: bit 7 of byte = first bit in stream)
+                int src = src_qpsk_tx(j);
                 ap_uint<1> bit = buf[src >> 3][7 - (src & 7)];
+                out_byte = (ap_uint<8>)((out_byte << 1) | (ap_uint<8>)bit);
+                if ((j & 7) == 7) {
+                    data_out.write(out_byte);
+                    out_byte = 0;
+                }
+            }
 
-                // Shift-accumulate MSB-first into output byte
+        } else if (mod == 0 && is_rx) {
+            // ── QPSK RX soft: 200 bytes = 400 nibbles ───────
+
+            FILL_Q_RX: for (int i = 0; i < 200; i++) {
+                #pragma HLS PIPELINE II=1
+                buf[i] = data_in.read();
+            }
+
+            PERM_Q_RX: for (int j = 0; j < 400; j++) {
+                #pragma HLS PIPELINE II=1
+                #pragma HLS loop_tripcount min=400 max=400
+
+                int src = src_qpsk_rx(j);
+                ap_uint<4> nib = (src & 1) ? (ap_uint<4>)buf[src >> 1](3, 0)
+                                           : (ap_uint<4>)buf[src >> 1](7, 4);
+
+                if ((j & 1) == 0) {
+                    acc_nib = (ap_uint<4>)nib;
+                } else {
+                    data_out.write((ap_uint<8>)((ap_uint<8>)acc_nib << 4) | nib);
+                }
+            }
+
+        } else if (!is_rx) {
+            // ── 16-QAM TX: 100 bytes = 800 hard bits ────────
+
+            FILL_16_TX: for (int i = 0; i < 100; i++) {
+                #pragma HLS PIPELINE II=1
+                buf[i] = data_in.read();
+            }
+
+            ap_uint<8> out_byte = 0;
+            PERM_16_TX: for (int j = 0; j < 800; j++) {
+                #pragma HLS PIPELINE II=1
+                #pragma HLS loop_tripcount min=800 max=800
+
+                int src = src_16qam_tx(j);
+                ap_uint<1> bit = buf[src >> 3][7 - (src & 7)];
                 out_byte = (ap_uint<8>)((out_byte << 1) | (ap_uint<8>)bit);
                 if ((j & 7) == 7) {
                     data_out.write(out_byte);
@@ -130,26 +172,25 @@ void interleaver(
             }
 
         } else {
-            // ── 16-QAM: 100 bytes = 800 bits per symbol ──────
+            // ── 16-QAM RX soft: 400 bytes = 800 nibbles ─────
 
-            FILL_16: for (int i = 0; i < 100; i++) {
+            FILL_16_RX: for (int i = 0; i < 400; i++) {
                 #pragma HLS PIPELINE II=1
                 buf[i] = data_in.read();
             }
 
-            ap_uint<8> out_byte = 0;
-            PERM_16: for (int j = 0; j < 800; j++) {
+            PERM_16_RX: for (int j = 0; j < 800; j++) {
                 #pragma HLS PIPELINE II=1
                 #pragma HLS loop_tripcount min=800 max=800
 
-                int src = is_rx ? src_16qam_rx(j) : src_16qam_tx(j);
+                int src = src_16qam_rx(j);
+                ap_uint<4> nib = (src & 1) ? (ap_uint<4>)buf[src >> 1](3, 0)
+                                           : (ap_uint<4>)buf[src >> 1](7, 4);
 
-                ap_uint<1> bit = buf[src >> 3][7 - (src & 7)];
-
-                out_byte = (ap_uint<8>)((out_byte << 1) | (ap_uint<8>)bit);
-                if ((j & 7) == 7) {
-                    data_out.write(out_byte);
-                    out_byte = 0;
+                if ((j & 1) == 0) {
+                    acc_nib = (ap_uint<4>)nib;
+                } else {
+                    data_out.write((ap_uint<8>)((ap_uint<8>)acc_nib << 4) | nib);
                 }
             }
         }

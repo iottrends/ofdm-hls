@@ -462,6 +462,53 @@ static void estimate_channel(
             G_eq[k] = cgeq_t(geq_t(y_re * inv), geq_t(-y_im * inv));
         }
     }
+
+    // Phase 4: Frequency-domain smoothing of G_eq.
+    //
+    // Per-subcarrier LS estimation leaves independent noise on each SC.
+    // A few outlier SCs get large estimation errors that persist across
+    // all data symbols, dominating the post-equalization BER floor.
+    //
+    // 5-tap moving average across adjacent active subcarriers reduces
+    // estimation noise by ~7 dB while preserving frequency selectivity
+    // for channels with coherence BW > 5 × 78 kHz = 390 kHz.
+    //
+    // Active SC layout: bins 25–127 (pos half), 129–231 (neg half).
+    // All bins within each half are active (data or pilot). Smooth
+    // each half independently to avoid averaging across DC null.
+
+    static const int BAND_LO[2]  = {25, 129};
+    static const int BAND_HI[2]  = {127, 231};
+    static const int BAND_LEN    = 103;  // 127-25+1 = 231-129+1
+    static const geq_t INV_5     = geq_t(0.2);
+
+    cgeq_t g_buf[BAND_LEN];
+
+    SMOOTH_BANDS: for (int band = 0; band < 2; band++) {
+        int lo = BAND_LO[band];
+
+        // Copy unsmoothed G_eq for this half-band
+        CH_SM_COPY: for (int i = 0; i < BAND_LEN; i++) {
+            #pragma HLS PIPELINE II=1
+            g_buf[i] = G_eq[lo + i];
+        }
+
+        // 5-tap moving average with edge clamping
+        CH_SM_AVG: for (int i = 0; i < BAND_LEN; i++) {
+            int i0 = (i - 2 < 0)          ? 0          : i - 2;
+            int i1 = (i - 1 < 0)          ? 0          : i - 1;
+            int i3 = (i + 1 >= BAND_LEN)  ? BAND_LEN-1 : i + 1;
+            int i4 = (i + 2 >= BAND_LEN)  ? BAND_LEN-1 : i + 2;
+
+            geq_t re = ((geq_t)g_buf[i0].real() + (geq_t)g_buf[i1].real() +
+                        (geq_t)g_buf[i].real()  +
+                        (geq_t)g_buf[i3].real() + (geq_t)g_buf[i4].real()) * INV_5;
+            geq_t im = ((geq_t)g_buf[i0].imag() + (geq_t)g_buf[i1].imag() +
+                        (geq_t)g_buf[i].imag()  +
+                        (geq_t)g_buf[i3].imag() + (geq_t)g_buf[i4].imag()) * INV_5;
+            G_eq[lo + i] = cgeq_t(re, im);
+        }
+    }
 }
 
 // ============================================================
@@ -549,124 +596,78 @@ static ap_fixed<32,4> compute_pilot_cpe(csample_t fft_out[FFT_SIZE], cgeq_t G_eq
 }
 
 // ============================================================
-// SECTION 6: QPSK Demapper
+// SECTION 6: Soft-Value Clamping Helper
 //
-// Inverts qpsk_map() from ofdm_tx.cpp:
-//   bit1 = sign(I): I < 0 → 1,  I ≥ 0 → 0
-//   bit0 = sign(Q): Q < 0 → 1,  Q ≥ 0 → 0
-// Returns 2-bit QPSK index matching qpsk_map() encoding.
+// Clamps a scaled ap_fixed<32,10> value to the 4-bit signed
+// soft-decision range [-7, +7].  Positive = likely bit 0.
 // ============================================================
-static ap_uint<2> qpsk_demap(cgeq_t sym) {
+static ap_int<4> soft_clamp(geq_t scaled) {
     #pragma HLS INLINE
-    // Input is cgeq_t (ap_fixed<32,10>) — wide enough to hold noisy equalized
-    // values without overflow (e.g. ±1.4 at 10 dB SNR fits, ±1.0 would wrap
-    // in the old ap_fixed<16,1> input type).
-    ap_uint<2> result;
-    result[1] = (sym.real() < geq_t(0)) ? ap_uint<1>(1) : ap_uint<1>(0);
-    result[0] = (sym.imag() < geq_t(0)) ? ap_uint<1>(1) : ap_uint<1>(0);
-    return result;
+    if (scaled > geq_t(7))  return ap_int<4>(7);
+    if (scaled < geq_t(-7)) return ap_int<4>(-7);
+    return (ap_int<4>)(int)scaled;
 }
 
 // ============================================================
-// SECTION 7: 16-QAM Demapper
+// SECTION 7: Equalize, CPE-Correct, Soft-Demap, and Pack
 //
-// Inverts qam16_map() from ofdm_tx.cpp.
-// Each axis is sliced into 4 regions using threshold ±2/√10:
-//   v ≥ +2/√10          → bits 00  (+3/√10)
-//   0 ≤ v < +2/√10      → bits 01  (+1/√10)
-//   -2/√10 ≤ v < 0      → bits 11  (-1/√10)
-//   v < -2/√10           → bits 10  (-3/√10)
-// Returns 4-bit index [I_bits(3:2), Q_bits(1:0)].
-// ============================================================
-static ap_uint<4> qam16_demap(cgeq_t sym) {
-    #pragma HLS INLINE
-    const geq_t THRESH = geq_t(0.6325);   // 2/sqrt(10), in ap_fixed<32,10>
-
-    ap_uint<2> i_bits, q_bits;
-
-    if (sym.real() >= THRESH)
-        i_bits = ap_uint<2>(0b00);
-    else if (sym.real() >= geq_t(0))
-        i_bits = ap_uint<2>(0b01);
-    else if (sym.real() >= -THRESH)
-        i_bits = ap_uint<2>(0b11);
-    else
-        i_bits = ap_uint<2>(0b10);
-
-    if (sym.imag() >= THRESH)
-        q_bits = ap_uint<2>(0b00);
-    else if (sym.imag() >= geq_t(0))
-        q_bits = ap_uint<2>(0b01);
-    else if (sym.imag() >= -THRESH)
-        q_bits = ap_uint<2>(0b11);
-    else
-        q_bits = ap_uint<2>(0b10);
-
-    // Explicit 4-bit container to avoid ap_uint<2><<2 truncation.
-    ap_uint<4> result;
-    result[3] = i_bits[1];
-    result[2] = i_bits[0];
-    result[1] = q_bits[1];
-    result[0] = q_bits[0];
-    return result;
-}
-
-// ============================================================
-// SECTION 8: Equalize, CPE-Correct, Demap, and Pack one Data Symbol
+// Outputs 4-bit signed soft decisions packed 2 per byte:
+//   byte[7:4] = first soft value,  byte[3:0] = second soft value
+//   Positive soft value = likely bit 0, negative = likely bit 1.
 //
-// 1 SC per loop iteration, #pragma HLS PIPELINE II=1.
-// No loop-unrolling: the byte accumulator has a 1-cycle carry dependency
-// (ap_uint OR) which is the loop-carried critical path — well within II=1.
+// QPSK  (mod=0): 200 SCs × 2 soft values = 200 bytes/symbol
+//   Per SC: [soft_I | soft_Q]
+// 16QAM (mod=1): 200 SCs × 4 soft values = 400 bytes/symbol
+//   Per SC: [soft_I_MSB | soft_I_LSB], [soft_Q_MSB | soft_Q_LSB]
 //
-// cpe_cos/cpe_sin: geq_t (ap_fixed<32,10>), converted once per symbol by caller.
-// apply_cpe(): 4 DSP48 multiplies (fixed-point), no float casts.
-//
-// QPSK  (mod=0): 200 iterations, write byte every 4th  → 50 bytes/symbol
-// 16QAM (mod=1): 200 iterations, write byte every 2nd  → 100 bytes/symbol
-//
-// Byte layout (unchanged from TX):
-//   QPSK:  [sc0[7:6]|sc1[5:4]|sc2[3:2]|sc3[1:0]]
-//   16QAM: [sc0[7:4]|sc1[3:0]]
+// Soft-value computation:
+//   QPSK & 16QAM MSB: soft = clamp(val × SCALE, -7, +7)
+//   16QAM LSB:        soft = clamp((|val| - 2/√10) × SCALE, -7, +7)
 // ============================================================
 static void equalize_demap_pack(
     csample_t               fft_out[FFT_SIZE],
     cgeq_t                  G_eq[FFT_SIZE],
     mod_t                   mod,
-    geq_t                   cpe_cos,   // cos(phase_err), geq_t ∈ [-1,+1)
-    geq_t                   cpe_sin,   // sin(phase_err), geq_t ∈ [-1,+1)
+    geq_t                   cpe_cos,
+    geq_t                   cpe_sin,
     hls::stream<ap_uint<8>> &bits_out
 ) {
     #pragma HLS INLINE off
 
+    const geq_t SOFT_SCALE  = geq_t(10.0);
+    const geq_t THRESH_16QAM = geq_t(0.6325);  // 2/sqrt(10)
+
     if (mod == 0) {
-        // QPSK: 2 bits/SC → 4 SCs per byte
-        ap_uint<8> byte_acc = 0;
-        QPSK_PACK: for (int i = 0; i < NUM_DATA_SC; i++) {
+        // QPSK: 2 soft values per SC → 1 byte per SC
+        QPSK_SOFT: for (int i = 0; i < NUM_DATA_SC; i++) {
             #pragma HLS PIPELINE II=1
             cgeq_t eq  = equalize_sc(fft_out[DATA_SC_IDX[i]], G_eq[DATA_SC_IDX[i]]);
-            ap_uint<2> sym = qpsk_demap(apply_cpe(eq, cpe_cos, cpe_sin));
+            cgeq_t rot = apply_cpe(eq, cpe_cos, cpe_sin);
 
-            // Place 2-bit symbol at the correct offset within the byte.
-            // Reset accumulator at the start of each new byte (i%4==0).
-            ap_uint<8> shifted = (ap_uint<8>)sym << ((3 - (i & 3)) * 2);
-            byte_acc = ((i & 3) == 0) ? shifted : (byte_acc | shifted);
+            ap_int<4> s0 = soft_clamp(rot.real() * SOFT_SCALE);
+            ap_int<4> s1 = soft_clamp(rot.imag() * SOFT_SCALE);
 
-            if ((i & 3) == 3) bits_out.write(byte_acc);
+            ap_uint<8> ob = ((ap_uint<8>)(ap_uint<4>)s0 << 4) | (ap_uint<4>)s1;
+            bits_out.write(ob);
         }
     } else {
-        // 16-QAM: 4 bits/SC → 2 SCs per byte
-        ap_uint<8> byte_acc = 0;
-        QAM16_PACK: for (int i = 0; i < NUM_DATA_SC; i++) {
+        // 16QAM: 4 soft values per SC → iterate 2× per SC (I-axis then Q-axis)
+        QAM16_SOFT: for (int idx = 0; idx < NUM_DATA_SC * 2; idx++) {
             #pragma HLS PIPELINE II=1
-            cgeq_t eq  = equalize_sc(fft_out[DATA_SC_IDX[i]], G_eq[DATA_SC_IDX[i]]);
-            ap_uint<4> sym = qam16_demap(apply_cpe(eq, cpe_cos, cpe_sin));
+            int  sc = idx >> 1;
+            bool q_axis = idx & 1;
 
-            // Even SC → upper nibble; odd SC → lower nibble.
-            ap_uint<8> shifted = ((i & 1) == 0) ? (ap_uint<8>)((ap_uint<8>)sym << 4)
-                                                 : (ap_uint<8>)sym;
-            byte_acc = ((i & 1) == 0) ? shifted : (byte_acc | shifted);
+            cgeq_t eq  = equalize_sc(fft_out[DATA_SC_IDX[sc]], G_eq[DATA_SC_IDX[sc]]);
+            cgeq_t rot = apply_cpe(eq, cpe_cos, cpe_sin);
 
-            if ((i & 1) == 1) bits_out.write(byte_acc);
+            geq_t val = q_axis ? rot.imag() : rot.real();
+            geq_t abs_val = (val >= geq_t(0)) ? val : (geq_t)(-val);
+
+            ap_int<4> s_msb = soft_clamp(val * SOFT_SCALE);
+            ap_int<4> s_lsb = soft_clamp((abs_val - THRESH_16QAM) * SOFT_SCALE);
+
+            ap_uint<8> ob = ((ap_uint<8>)(ap_uint<4>)s_msb << 4) | (ap_uint<4>)s_lsb;
+            bits_out.write(ob);
         }
     }
 }
