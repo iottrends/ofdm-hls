@@ -545,7 +545,9 @@ if __name__ == "__main__":
     parser.add_argument("--input",   type=str, default=None,
                         help="Override IQ input file for --decode-hls (default: tb_tx_output_hls.txt)")
     parser.add_argument("--mod",     type=int, default=MOD,      help="0=QPSK 1=16QAM")
-    parser.add_argument("--nsyms",   type=int, default=N_SYMS,   help="Number of data symbols")
+    # Accept both --nsyms (legacy) and --n-syms (matches HLS TB argv style)
+    parser.add_argument("--nsyms", "--n-syms", dest="nsyms",
+                        type=int, default=N_SYMS,   help="Number of data symbols [1..255]")
     parser.add_argument("--rate",    type=int, default=FEC_RATE,  help="0=rate-1/2 1=rate-2/3")
     args = parser.parse_args()
 
