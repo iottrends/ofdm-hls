@@ -1,5 +1,5 @@
 // ============================================================
-// viterbi_dec.cpp v2 — Sliding-Window Hard-Decision Viterbi Decoder
+// viterbi_dec.cpp v3 — Sliding-Window Soft-Decision Viterbi Decoder
 //
 // v2 optimisations over v1 (target: ~4,000 LUT, was 13,388 LUT):
 //   • ACS:     PIPELINE II=1 + UNROLL factor=16
@@ -50,10 +50,9 @@ void viterbi_dec(
 #pragma HLS INTERFACE s_axilite port=n_data_bytes bundle=ctrl
 #pragma HLS INTERFACE s_axilite port=return       bundle=ctrl
     // Path metrics — complete partition (flip-flop registers, free read ports).
-    // Within a batch of 16 consecutive sp values, all p0 indices are distinct
-    // (batch 0: p0 ∈ {0,2,...,30}; batch 1: {32,...,62}) → no read conflicts.
-    ap_uint<16> pm[N_STATES];
-    ap_uint<16> pm_new[N_STATES];
+    // Soft-decision: max 28 per stage × ~34k stages → needs >20 bits.
+    ap_uint<24> pm[N_STATES];
+    ap_uint<24> pm_new[N_STATES];
 #pragma HLS array_partition variable=pm     complete
 #pragma HLS array_partition variable=pm_new complete
 
@@ -67,19 +66,19 @@ void viterbi_dec(
     // Initialise path metrics
     INIT: for (int s = 0; s < N_STATES; s++) {
 #pragma HLS unroll
-        pm[s] = (s == 0) ? ap_uint<16>(0) : ap_uint<16>(0x7FFF);
+        pm[s] = (s == 0) ? ap_uint<24>(0) : ap_uint<24>(0x7FFFFF);
     }
 
     const int n_data_bits   = n_data_bytes * 8;
     const int n_coded_bits  = (rate == 0) ? (n_data_bits * 2)
                                           : (n_data_bits / 2 * 3);
-    const int n_coded_bytes = (n_coded_bits + 7) / 8;
+    const int n_coded_bytes = (n_coded_bits + 1) / 2;  // soft: 2 nibbles/byte
     // Bit-mask padding (WIN_LEN=128 is a power of 2 → no division):
     const int n_padded      = (n_data_bits + (WIN_LEN - 1)) & ~(WIN_LEN - 1);
     const int total_fwd     = n_padded + FLUSH_LEN;
 
     ap_uint<8> in_byte    = 0;
-    int        buf_bits   = 0;
+    int        buf_nibs   = 0;   // nibbles remaining in current byte (0, 1, or 2)
     int        bytes_rd   = 0;
     int        win_cnt    = 0;
 
@@ -91,31 +90,30 @@ void viterbi_dec(
     MAIN_LOOP: for (int fwd = 0; fwd < total_fwd; fwd++) {
 #pragma HLS loop_tripcount max=(MAX_DATA_BITS + FLUSH_LEN)
 
-        // ── Read r0 (G0) and r1 (G1) for this trellis stage ──
-        ap_uint<2> r0, r1;
+        // ── Read soft values r0, r1 (4-bit signed, 2 per byte) ──
+        ap_int<4> r0_soft = 0, r1_soft = 0;
+        ap_uint<1> r0_ok = 0, r1_ok = 0;
 
         if (fwd < n_data_bits) {
-            if (buf_bits == 0) {
+            if (buf_nibs == 0) {
                 if (bytes_rd < n_coded_bytes) in_byte = coded_in.read();
                 bytes_rd++;
-                buf_bits = 8;
+                buf_nibs = 2;
             }
-            buf_bits--;
-            r0 = (in_byte >> buf_bits) & 1;
+            buf_nibs--;
+            r0_soft = buf_nibs ? (ap_int<4>)(in_byte >> 4) : (ap_int<4>)(ap_uint<4>)in_byte;
+            r0_ok = 1;
 
             if (rate == 0 || (fwd & 1) == 0) {
-                if (buf_bits == 0) {
+                if (buf_nibs == 0) {
                     if (bytes_rd < n_coded_bytes) in_byte = coded_in.read();
                     bytes_rd++;
-                    buf_bits = 8;
+                    buf_nibs = 2;
                 }
-                buf_bits--;
-                r1 = (in_byte >> buf_bits) & 1;
-            } else {
-                r1 = 2;   // punctured — erasure contributes 0
+                buf_nibs--;
+                r1_soft = buf_nibs ? (ap_int<4>)(in_byte >> 4) : (ap_int<4>)(ap_uint<4>)in_byte;
+                r1_ok = 1;
             }
-        } else {
-            r0 = 2; r1 = 2;   // flush-padding stages
         }
 
         // ── ACS: 16 butterflies/cycle, 4 cycles/stage ─────────
@@ -136,15 +134,23 @@ void viterbi_dec(
             ap_uint<1> g0, g1;
             branch_outputs(p0, b, g0, g1);
 
-            ap_uint<2> bm0 = 0;
-            if (r0 != 2) bm0 += (ap_uint<1>)(r0[0] ^ g0);
-            if (r1 != 2) bm0 += (ap_uint<1>)(r1[0] ^ g1);
+            // Soft branch metric: bm_bit = g ? (7+r) : (7-r), range [0,14]
+            ap_uint<5> bm0 = 0;
+            ap_uint<2> n_active = 0;
+            if (r0_ok) {
+                bm0 += g0 ? (ap_uint<4>)(7 + (int)r0_soft)
+                          : (ap_uint<4>)(7 - (int)r0_soft);
+                n_active++;
+            }
+            if (r1_ok) {
+                bm0 += g1 ? (ap_uint<4>)(7 + (int)r1_soft)
+                          : (ap_uint<4>)(7 - (int)r1_soft);
+                n_active++;
+            }
+            ap_uint<5> bm1 = (ap_uint<5>)((int)n_active * 14) - bm0;
 
-            ap_uint<2> n_active = (ap_uint<1>)(r0 != 2) + (ap_uint<1>)(r1 != 2);
-            ap_uint<2> bm1      = n_active - bm0;
-
-            ap_uint<16> cost0 = pm[p0] + bm0;
-            ap_uint<16> cost1 = pm[p1] + bm1;
+            ap_uint<24> cost0 = pm[p0] + bm0;
+            ap_uint<24> cost1 = pm[p1] + bm1;
 
             ap_uint<1> chose_p1 = (cost1 < cost0) ? ap_uint<1>(1) : ap_uint<1>(0);
             pm_new[sp]   = chose_p1 ? cost1 : cost0;
@@ -179,7 +185,7 @@ void viterbi_dec(
 
                 // Find minimum-metric terminal state
                 int best_s = 0;
-                ap_uint<16> best_val = pm[0];
+                ap_uint<24> best_val = pm[0];
                 BEST_S: for (int s = 1; s < N_STATES; s++) {
 #pragma HLS PIPELINE II=1
                     if (pm[s] < best_val) { best_val = pm[s]; best_s = s; }
