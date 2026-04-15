@@ -9,7 +9,7 @@
 #   ./setup_vitis.sh all           # csim + synth + report
 # ============================================================
 
-XILINX_ROOT="$HOME/Xilinx/2025.2"
+XILINX_ROOT="/mnt/d/work/vivado/2025.2"
 SCRIPT_DIR_SETUP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── RDI vars (mirrors what vivado/vitis wrapper scripts derive) ──
