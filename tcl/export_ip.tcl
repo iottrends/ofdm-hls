@@ -1,8 +1,12 @@
-# export_ip.tcl — Export all OFDM HLS blocks as Vivado IP
+# export_ip.tcl — Export the 5 merged OFDM HLS blocks as Vivado IP
 # Opens EXISTING synthesized projects — no re-synthesis.
 # Run via: ./setup_vitis.sh export_ip
 #
-# Output: ip_repo/<block>/ — Vivado IP catalog packages
+# Output: ip_repo/<top>/ — Vivado IP catalog packages
+#
+# Post-merge topology (5 IPs total):
+#   TX:  tx_chain  →  ofdm_tx
+#   RX:  sync_cfo  →  ofdm_rx  →  fec_rx   (fec_rx on 200 MHz clock)
 
 set ROOT [file normalize [file dirname [file dirname [info script]]]]
 set IP_DIR "$ROOT/ip_repo"
@@ -10,14 +14,12 @@ file mkdir $IP_DIR
 
 # {project_dir  top_function}
 set BLOCKS {
-    {ofdm_tx_proj    ofdm_tx}
-    {ofdm_rx_proj    ofdm_rx}
+    {tx_chain_proj     tx_chain}
+    {ofdm_tx_proj      ofdm_tx}
     {sync_detect_proj  sync_detect}
-    {cfo_correct_proj  cfo_correct}
-    {scrambler_proj    scrambler}
-    {interleaver_proj  interleaver}
-    {conv_enc_proj     conv_enc}
-    {viterbi_proj      viterbi_dec}
+    {ofdm_rx_proj      ofdm_rx}
+    {fec_rx_proj       fec_rx}
+    {ofdm_mac_proj     ofdm_mac}
 }
 
 foreach item $BLOCKS {
@@ -54,5 +56,5 @@ foreach item $BLOCKS {
 }
 
 puts "============================================"
-puts " All IPs exported to: $IP_DIR/"
+puts " All 5 IPs exported to: $IP_DIR/"
 puts "============================================"

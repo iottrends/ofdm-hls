@@ -115,8 +115,12 @@ int main(int argc, char* argv[]) {
 
     // ── Step 3: OFDM demodulate → coded bytes ────────────────
     // mod and n_syms are now decoded from the in-band header symbol.
-    hls::stream<iq_t> fft_in_s("fft_in"), fft_out_s("fft_out");
-    ofdm_rx(iq_corrected, coded_out, fft_in_s, fft_out_s, header_err);
+    hls::stream<iq32_t> fft_in_s("fft_in"), fft_out_s("fft_out");
+    modcod_t   rx_modcod_out = 0;
+    ap_uint<8> rx_nsyms_out  = 0;
+    ap_uint<8> rx_nsyms_fb   = 0;
+    ofdm_rx(iq_corrected, coded_out, fft_in_s, fft_out_s, header_err,
+            rx_modcod_out, rx_nsyms_out, rx_nsyms_fb);
     if (header_err) {
         std::cerr << "[TB] FAIL: ofdm_rx header CRC error\n";
         return 1;

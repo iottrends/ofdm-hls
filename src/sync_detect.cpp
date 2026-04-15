@@ -1,49 +1,147 @@
 // ============================================================
-// sync_detect.cpp v2 — Schmidl-Cox Timing Sync + CFO Estimator
+// sync_detect.cpp v4 — Free-running preamble gate + inline CFO
 //
-// v2 resource optimisations (target: ~3-4K LUT, ~8 DSP):
+// Replaces the old one-shot sync_detect + cfo_correct pair.  One block,
+// one clock, 4-state FSM: SEARCH / FWD_PREHDR / WAIT_NSYMS / FWD_DATA.
+// Algorithm per docs/RX_GATING_DESIGN.md.
 //
-//   v1 had 12,972 LUT / 40 DSP.  Root causes:
-//   (a) ap_fixed<32,2> widening on ri/rq/si/sq:
-//       32×32-bit multiply needs 2 DSP each → 8 muls × 2 = 16 DSP.
-//       Fix: use sample_t (ap_fixed<16,1>) directly.
-//       16×16 fits in 1 DSP → saves 8 DSP.
-//   (b) Float metric: Pi_f*Pi_f + Pq_f*Pq_f + Rl_f*R_f → 3 float muls.
-//       Each float mul = 3 DSP → saves 9 DSP.
-//       Fix: division-free integer cross-multiply comparison.
-//   (c) hls::atan2f → float CORDIC → ~6 DSP.
-//       Fix: fixed-point shift-add CORDIC, 0 DSP.
+// Control: ap_ctrl_none, while(1) body.  ap_start is not driven by
+// anyone — block auto-starts after reset.
 //
-// Algorithm (unchanged from v1):
-//   Phase 1: fill 864-sample BRAM buffer.
-//   Phase 2: for t = 0..SEARCH_WIN-1 compute normalized CP metric
-//     P(t)  = Σ r[t+k]·conj(r[t+k+N])   CP cross-correlation
-//     R(t)  = Σ |r[t+k+N]|²              energy of delayed window
-//     Rl(t) = Σ |r[t+k]|²               energy of left window
-//     metric(t) = |P|² / (R · Rl)       ∈ [0,1], Cauchy-Schwarz bound
-//   best_t = argmax metric(t).
-//   Phase 3: replay + forward SYNC_NL samples from best_t.
+// Resource budget (target Artix-50T at 10 ns):
+//   BRAM18: 4 (circular buffer 4096 × 32 bit, split into buf_i/buf_q each
+//              2-port)
+//   DSP48 : ~18 (running sums + CFO complex mult + threshold cross-mult)
+//   LUT   : ~3k
 //
-//   CFO: ε_sc = angle(P_best) / (2π)  [subcarrier units]
+// Target II: 1 for the main loop.  If BRAM port pressure forces it to 2
+// or 4, still easily clears the 20 MSPS input rate at 100 MHz.
 // ============================================================
 #include "sync_detect.h"
-#include <cmath>   // for atan2f in C-sim only
+#include "free_run.h"
+#include <cmath>    // atan2f in csim only
 
-// ── Accumulator type ─────────────────────────────────────────
-// ap_fixed<24,8>: 8 integer bits (range ±128), 16 fractional bits.
-// With sample_t = ap_fixed<16,1> inputs and CP_LEN=32 accumulations:
-//   Pi_max = 32 × 1.0 × 1.0 = 32 < 128  ✓
-//   R_max  = 32 × 1.0         = 32 < 128  ✓
-typedef ap_fixed<24,8> acc_t;
+// ── Sizing ──────────────────────────────────────────────────
+#define BUF_SIZE     4096
+#define BUF_MASK     (BUF_SIZE - 1)     // power-of-2 cheap modulo
+#define POW_WIN_LEN  64                 // envelope integration window
 
-// ── Fixed-point atan2 (CORDIC, no float, no DSP) ─────────────
-// Synthesis:  vectoring CORDIC, PIPELINED II=1 (sequential 16 stages).
-//             Using PIPELINE (not UNROLL) keeps hardware to ~1 shifter +
-//             2 adders ≈ 200-300 LUT vs 3,596 LUT for fully unrolled.
-//             Called only once per frame — latency of ~20 cycles is fine.
-// C-sim:      std::atan2f (accurate reference).
-static ap_fixed<16,4> sync_atan2(acc_t y, acc_t x)
-{
+// ── Fixed-point accumulator types ───────────────────────────
+// sample_t = ap_fixed<16,1>    range [-1, +1), 15 frac bits
+//
+// sample × sample product: range < 1.0, 30 frac bits.  With CP_LEN=32 terms
+// accumulated: max magnitude ≤ 32 × 1.0 = 32, 8 integer bits ample.
+typedef ap_fixed<24,8>  acc_t;      // running sums P_re, P_im, R, Rl, pow_env
+typedef ap_fixed<32,12> prod_t;     // cross-multiply threshold comparisons
+
+// SC threshold squared in ap_ufixed<16,0>.  0.49 ≈ round(0.49 × 2^16) / 2^16.
+static const ap_ufixed<16,0> SC_TH_SQ_CONST = ap_ufixed<16,0>(0.49);
+
+// ── CFO phase-step scaling constant ─────────────────────────
+// Derivation (see docs/RX_GATING_DESIGN.md):
+//   Δφ_rad/sample = 2π · ε_sc / N         where N=FFT_SIZE=256, ε_sc = ang/(2π)
+//   Δφ_NCO/sample = Δφ_rad · 2^32 / (2π)  (full circle = 2^32 NCO units)
+//                 = ε_sc · 2^32 / 256
+//                 = ε_sc · 2^24           (exact, clean shift)
+//                 = (ang / (2π)) · 2^24
+//                 = ang · [2^24 / (2π)]
+// Precomputed constant:  2^24 / (2π) = 16777216 · 0.15915494... ≈ 2670177
+// Max rel error: < 2×10⁻⁷  (22-bit signed representation).
+//
+// ang is ap_fixed<16,4>, so ang.range() returns raw bits × 2^-12.
+// Formula:  phase_step = (ang_raw_signed * TWO24_OVER_2PI) >> 12
+// Max product before shift: 2^15 × 2670177 ≈ 8.75e10, fits ap_int<40>.
+// After shift: ≤ 2^31 (signed), fits ap_int<32>.
+static const ap_int<24> TWO24_OVER_2PI = 2670177;
+
+// ── Quarter-wave sine LUT (copied from cfo_correct.cpp v3) ──
+// 256 entries of sin(k × π/512) for k = 0..255.  Quarter-wave symmetry
+// gives a full 1024-entry sine table at 1/4 the BRAM cost.
+static const sample_t SIN_LUT[256] = {
+    sample_t(+0.000000), sample_t(+0.006136), sample_t(+0.012272), sample_t(+0.018407),
+    sample_t(+0.024541), sample_t(+0.030675), sample_t(+0.036807), sample_t(+0.042938),
+    sample_t(+0.049068), sample_t(+0.055195), sample_t(+0.061321), sample_t(+0.067444),
+    sample_t(+0.073565), sample_t(+0.079682), sample_t(+0.085797), sample_t(+0.091909),
+    sample_t(+0.098017), sample_t(+0.104122), sample_t(+0.110222), sample_t(+0.116319),
+    sample_t(+0.122411), sample_t(+0.128498), sample_t(+0.134581), sample_t(+0.140658),
+    sample_t(+0.146730), sample_t(+0.152797), sample_t(+0.158858), sample_t(+0.164913),
+    sample_t(+0.170962), sample_t(+0.177004), sample_t(+0.183040), sample_t(+0.189069),
+    sample_t(+0.195090), sample_t(+0.201105), sample_t(+0.207111), sample_t(+0.213110),
+    sample_t(+0.219101), sample_t(+0.225084), sample_t(+0.231058), sample_t(+0.237024),
+    sample_t(+0.242980), sample_t(+0.248928), sample_t(+0.254866), sample_t(+0.260794),
+    sample_t(+0.266713), sample_t(+0.272621), sample_t(+0.278520), sample_t(+0.284408),
+    sample_t(+0.290285), sample_t(+0.296151), sample_t(+0.302006), sample_t(+0.307850),
+    sample_t(+0.313682), sample_t(+0.319502), sample_t(+0.325310), sample_t(+0.331106),
+    sample_t(+0.336890), sample_t(+0.342661), sample_t(+0.348419), sample_t(+0.354164),
+    sample_t(+0.359895), sample_t(+0.365613), sample_t(+0.371317), sample_t(+0.377007),
+    sample_t(+0.382683), sample_t(+0.388345), sample_t(+0.393992), sample_t(+0.399624),
+    sample_t(+0.405241), sample_t(+0.410843), sample_t(+0.416430), sample_t(+0.422000),
+    sample_t(+0.427555), sample_t(+0.433094), sample_t(+0.438616), sample_t(+0.444122),
+    sample_t(+0.449611), sample_t(+0.455084), sample_t(+0.460539), sample_t(+0.465976),
+    sample_t(+0.471397), sample_t(+0.476799), sample_t(+0.482184), sample_t(+0.487550),
+    sample_t(+0.492898), sample_t(+0.498228), sample_t(+0.503538), sample_t(+0.508830),
+    sample_t(+0.514103), sample_t(+0.519356), sample_t(+0.524590), sample_t(+0.529804),
+    sample_t(+0.534998), sample_t(+0.540171), sample_t(+0.545325), sample_t(+0.550458),
+    sample_t(+0.555570), sample_t(+0.560662), sample_t(+0.565732), sample_t(+0.570781),
+    sample_t(+0.575808), sample_t(+0.580814), sample_t(+0.585798), sample_t(+0.590760),
+    sample_t(+0.595699), sample_t(+0.600616), sample_t(+0.605511), sample_t(+0.610383),
+    sample_t(+0.615232), sample_t(+0.620057), sample_t(+0.624860), sample_t(+0.629638),
+    sample_t(+0.634393), sample_t(+0.639124), sample_t(+0.643832), sample_t(+0.648514),
+    sample_t(+0.653173), sample_t(+0.657807), sample_t(+0.662416), sample_t(+0.667000),
+    sample_t(+0.671559), sample_t(+0.676093), sample_t(+0.680601), sample_t(+0.685084),
+    sample_t(+0.689541), sample_t(+0.693971), sample_t(+0.698376), sample_t(+0.702755),
+    sample_t(+0.707107), sample_t(+0.711432), sample_t(+0.715731), sample_t(+0.720002),
+    sample_t(+0.724247), sample_t(+0.728464), sample_t(+0.732654), sample_t(+0.736816),
+    sample_t(+0.740951), sample_t(+0.745058), sample_t(+0.749136), sample_t(+0.753187),
+    sample_t(+0.757209), sample_t(+0.761202), sample_t(+0.765167), sample_t(+0.769103),
+    sample_t(+0.773010), sample_t(+0.776888), sample_t(+0.780737), sample_t(+0.784557),
+    sample_t(+0.788346), sample_t(+0.792107), sample_t(+0.795837), sample_t(+0.799537),
+    sample_t(+0.803208), sample_t(+0.806848), sample_t(+0.810457), sample_t(+0.814036),
+    sample_t(+0.817585), sample_t(+0.821103), sample_t(+0.824589), sample_t(+0.828045),
+    sample_t(+0.831470), sample_t(+0.834863), sample_t(+0.838225), sample_t(+0.841555),
+    sample_t(+0.844854), sample_t(+0.848120), sample_t(+0.851355), sample_t(+0.854558),
+    sample_t(+0.857729), sample_t(+0.860867), sample_t(+0.863973), sample_t(+0.867046),
+    sample_t(+0.870087), sample_t(+0.873095), sample_t(+0.876070), sample_t(+0.879012),
+    sample_t(+0.881921), sample_t(+0.884797), sample_t(+0.887640), sample_t(+0.890449),
+    sample_t(+0.893224), sample_t(+0.895966), sample_t(+0.898674), sample_t(+0.901349),
+    sample_t(+0.903989), sample_t(+0.906596), sample_t(+0.909168), sample_t(+0.911706),
+    sample_t(+0.914210), sample_t(+0.916679), sample_t(+0.919114), sample_t(+0.921514),
+    sample_t(+0.923880), sample_t(+0.926210), sample_t(+0.928506), sample_t(+0.930767),
+    sample_t(+0.932993), sample_t(+0.935184), sample_t(+0.937339), sample_t(+0.939459),
+    sample_t(+0.941544), sample_t(+0.943593), sample_t(+0.945607), sample_t(+0.947586),
+    sample_t(+0.949528), sample_t(+0.951435), sample_t(+0.953306), sample_t(+0.955141),
+    sample_t(+0.956940), sample_t(+0.958703), sample_t(+0.960431), sample_t(+0.962121),
+    sample_t(+0.963776), sample_t(+0.965394), sample_t(+0.966976), sample_t(+0.968522),
+    sample_t(+0.970031), sample_t(+0.971504), sample_t(+0.972940), sample_t(+0.974339),
+    sample_t(+0.975702), sample_t(+0.977028), sample_t(+0.978317), sample_t(+0.979570),
+    sample_t(+0.980785), sample_t(+0.981964), sample_t(+0.983105), sample_t(+0.984210),
+    sample_t(+0.985278), sample_t(+0.986308), sample_t(+0.987301), sample_t(+0.988258),
+    sample_t(+0.989177), sample_t(+0.990058), sample_t(+0.990903), sample_t(+0.991710),
+    sample_t(+0.992480), sample_t(+0.993212), sample_t(+0.993907), sample_t(+0.994565),
+    sample_t(+0.995185), sample_t(+0.995767), sample_t(+0.996313), sample_t(+0.996820),
+    sample_t(+0.997290), sample_t(+0.997723), sample_t(+0.998118), sample_t(+0.998476),
+    sample_t(+0.998795), sample_t(+0.999078), sample_t(+0.999322), sample_t(+0.999529),
+    sample_t(+0.999699), sample_t(+0.999831), sample_t(+0.999925), sample_t(+0.999981)
+};
+
+// Compute sin/cos from a 32-bit phase accumulator using quadrant symmetry.
+// phase_acc[31:30] = quadrant, phase_acc[29:22] = 8-bit LUT index.
+static void sincos_lut(ap_uint<32> p, sample_t& sin_v, sample_t& cos_v) {
+#pragma HLS INLINE
+    ap_uint<2> quad = p(31, 30);
+    ap_uint<8> idx  = p(29, 22);
+    sample_t s = SIN_LUT[idx];
+    sample_t c = SIN_LUT[255 - idx];
+    switch (quad.to_uint()) {
+        case 0: sin_v =  s; cos_v =  c; break;
+        case 1: sin_v =  c; cos_v = -s; break;
+        case 2: sin_v = -s; cos_v = -c; break;
+        default:sin_v = -c; cos_v =  s; break;
+    }
+}
+
+// Fixed-point atan2 for CFO estimate.  Returns radians in ap_fixed<16,4>.
+static ap_fixed<16,4> sync_atan2(acc_t y, acc_t x) {
 #pragma HLS INLINE off
 #ifdef __SYNTHESIS__
     const ap_fixed<20,8> ATAN_LUT[16] = {
@@ -52,192 +150,247 @@ static ap_fixed<16,4> sync_atan2(acc_t y, acc_t x)
         0.0039063f, 0.0019532f, 0.0009766f, 0.0004883f,
         0.0002441f, 0.0001221f, 0.0000610f, 0.0000305f
     };
-    // Use ap_fixed<20,8>: same ±128 integer range as acc_t inputs, 12 fractional
-    // bits.  Narrowing from 28→20 bits reduces the ashr combinational path from
-    // ~9.5 ns to ~6.8 ns, meeting the II=1 pipeline target.
     ap_fixed<20,8> xi = x, yi = y, acc = 0;
-    if (xi < 0) {
-        xi  = -x;  yi  = -y;
-        acc = (y >= 0) ? ap_fixed<20,8>( 3.14159265f)
-                       : ap_fixed<20,8>(-3.14159265f);
-    }
-    // Sequential pipelined CORDIC — one iteration per cycle, ~200 LUT total.
+    if (xi < 0) { xi = -x; yi = -y; acc = yi < 0 ? ap_fixed<20,8>(-3.141593f) : ap_fixed<20,8>(3.141593f); }
     CORDIC: for (int i = 0; i < 16; i++) {
-#pragma HLS PIPELINE II=2
-#pragma HLS loop_tripcount min=16 max=16
-        ap_fixed<20,8> xs = xi >> i;
-        ap_fixed<20,8> ys = yi >> i;
-        if (yi >= 0) { xi += ys;  yi -= xs;  acc -= (ap_fixed<20,8>)ATAN_LUT[i]; }
-        else         { xi -= ys;  yi += xs;  acc += (ap_fixed<20,8>)ATAN_LUT[i]; }
+#pragma HLS PIPELINE II=1
+        ap_fixed<20,8> dx = xi >> i, dy = yi >> i;
+        if (yi < 0) { xi -= dy; yi += dx; acc -= ATAN_LUT[i]; }
+        else        { xi += dy; yi -= dx; acc += ATAN_LUT[i]; }
     }
     return (ap_fixed<16,4>)acc;
 #else
-    return (ap_fixed<16,4>)atan2f((float)y, (float)x);
+    return (ap_fixed<16,4>)std::atan2f((float)y, (float)x);
 #endif
 }
 
+// ── Top ─────────────────────────────────────────────────────
 void sync_detect(
-    hls::stream<iq_t>& iq_in,
-    hls::stream<iq_t>& iq_out,
-    cfo_t&             cfo_est,
-    ap_uint<8>         n_syms
-)
-{
-#pragma HLS INTERFACE axis      port=iq_in
-#pragma HLS INTERFACE axis      port=iq_out
-#pragma HLS INTERFACE ap_none   port=cfo_est  // C4a: direct wire to cfo_correct, valid by construction
-#pragma HLS INTERFACE s_axilite port=n_syms  bundle=ctrl
-#pragma HLS INTERFACE s_axilite port=return  bundle=ctrl
-    // ── Search buffer ─────────────────────────────────────────
-    sample_t buf_i[SYNC_BUF_SZ];
-    sample_t buf_q[SYNC_BUF_SZ];
-#pragma HLS bind_storage variable=buf_i type=RAM_2P impl=BRAM
-#pragma HLS bind_storage variable=buf_q type=RAM_2P impl=BRAM
+    hls::stream<iq_t>&  iq_in,
+    hls::stream<iq_t>&  iq_out,
+    ap_uint<8>          n_syms_fb,
+    ap_uint<1>          n_syms_fb_vld,
+    ap_ufixed<24,8>     pow_threshold,
+    ap_uint<32>&        stat_preamble_count,
+    ap_uint<32>&        stat_header_bad_count,
+    ap_ufixed<24,8>&    stat_pow_env
+) {
+#pragma HLS INTERFACE axis        port=iq_in
+#pragma HLS INTERFACE axis        port=iq_out
+#pragma HLS INTERFACE ap_none     port=n_syms_fb
+#pragma HLS INTERFACE ap_none     port=n_syms_fb_vld
+#pragma HLS INTERFACE s_axilite   port=pow_threshold         bundle=stat
+#pragma HLS INTERFACE s_axilite   port=stat_preamble_count   bundle=stat
+#pragma HLS INTERFACE s_axilite   port=stat_header_bad_count bundle=stat
+#pragma HLS INTERFACE s_axilite   port=stat_pow_env          bundle=stat
+#pragma HLS INTERFACE ap_ctrl_none port=return
 
-    // ── Phase 1: Fill ─────────────────────────────────────────
-    FILL: for (int n = 0; n < SYNC_BUF_SZ; n++) {
-#pragma HLS pipeline II=1
-#pragma HLS loop_tripcount min=SYNC_BUF_SZ max=SYNC_BUF_SZ
-        iq_t s   = iq_in.read();
-        buf_i[n] = s.i;
-        buf_q[n] = s.q;
-    }
+    // ── Circular buffer (I and Q in separate BRAMs) ─────────
+    static sample_t buf_i[BUF_SIZE];
+    static sample_t buf_q[BUF_SIZE];
+#pragma HLS BIND_STORAGE variable=buf_i type=RAM_2P impl=BRAM
+#pragma HLS BIND_STORAGE variable=buf_q type=RAM_2P impl=BRAM
 
-    // ── Phase 2: Normalized CP timing metric ──────────────────
-    //
-    // CORR inner loop: #pragma HLS PIPELINE II=1.
-    //   ri/rq/si/sq kept as sample_t (ap_fixed<16,1>) — NO widening.
-    //   16-bit × 16-bit multiply fits in 1 DSP48E1 (was 32×32 → 2 DSP each).
-    //   8 multiplies × 1 DSP = 8 DSP total.
-    //
-    // Metric comparison: integer cross-multiply on truncated integer parts.
-    //   Pi_int ∈ [-64,+64) → ap_int<8>; R_int ∈ [0,32) → ap_uint<8>.
-    //   Squared values: 8-bit × 8-bit → 16-bit (HLS uses LUT for <12-bit).
-    //   Cross-multiply: 16-bit × 16-bit (forced to fabric via BIND_OP).
-    //   No float, no division, 0 extra DSP.
+    // Power-envelope delay line (64-deep FF register file)
+    static acc_t pow_delay[POW_WIN_LEN];
+#pragma HLS ARRAY_PARTITION variable=pow_delay complete
+    ap_uint<6> pow_idx = 0;
 
-    int   best_t  = 0;
-    acc_t best_Pi = 0;
-    acc_t best_Pq = 0;
-#ifdef __SYNTHESIS__
-    // Synthesis path: integer cross-multiply — 0 float, 0 DSP for comparison.
-    // Requires signal amplitude ≥ ~0.18 (ADC full-scale use) so that the
-    // integer part of Pi, R, Rl is non-zero after truncation.
-    // Valid for all real RF hardware operation; C-sim uses float below.
-    ap_uint<13> best_num = 0;   // |P_int|²  at best_t
-    ap_uint<10> best_den = 0;   // R_int × Rl_int at best_t
-#else
-    float best_metric = 0.0f;   // C-sim: float ratio, amplitude-independent
-#endif
+    // Running accumulators (persist across loop iterations via `static`)
+    static acc_t P_re = 0, P_im = 0;
+    static acc_t R    = 0;
+    static acc_t Rl   = 0;
+    static acc_t pow_env = 0;
 
-    SEARCH: for (int t = 0; t < SEARCH_WIN; t++) {
-#pragma HLS loop_tripcount min=SEARCH_WIN max=SEARCH_WIN
-        acc_t Pi = 0, Pq = 0, R = 0, Rl = 0;
+    // FSM state
+    static ap_uint<2> state = 0;   // 0=SEARCH 1=FWD_PREHDR 2=WAIT_NSYMS 3=FWD_DATA
 
-        CORR: for (int k = 0; k < CP_LEN; k++) {
+    static ap_uint<12> wr_ptr  = 0;
+    static ap_uint<12> rd_ptr  = 0;
+    static int fwd_remaining   = 0;
+    static int warmup          = 0;
+    static int deaf_counter    = 0;
+
+    // CFO phase NCO
+    static ap_uint<32> phase_acc  = 0;
+    static ap_int<32>  phase_step = 0;
+
+    // Feedback latch (sticky across WAIT_NSYMS)
+    static ap_uint<1>  got_fb        = 0;
+    static ap_uint<8>  latched_nsyms = 0;
+
+    // Stats
+    static ap_uint<32> preamble_cnt    = 0;
+    static ap_uint<32> header_bad_cnt  = 0;
+
+    enum { S_SEARCH = 0, S_FWD_PREHDR = 1, S_WAIT_NSYMS = 2, S_FWD_DATA = 3 };
+
+    FREE_RUN_LOOP_BEGIN
 #pragma HLS PIPELINE II=1
-#pragma HLS loop_tripcount min=CP_LEN max=CP_LEN
-            // Direct sample_t (ap_fixed<16,1>) — no widening to <32,2>.
-            // Both buf_i ports used simultaneously (RAM_2P: port A = left
-            // window [t+k], port B = right window [t+k+FFT_SIZE]).
-            sample_t ri = buf_i[t + k];
-            sample_t rq = buf_q[t + k];
-            sample_t si = buf_i[t + k + FFT_SIZE];
-            sample_t sq = buf_q[t + k + FFT_SIZE];
 
-            Pi += ri * si + rq * sq;   // Re(r · conj(s))
-            Pq += rq * si - ri * sq;   // Im(r · conj(s))
-            R  += si * si + sq * sq;   // |s|²  right window
-            Rl += ri * ri + rq * rq;   // |r|²  left window
+        // ── 1. Mandatory sample intake (never back-pressures iq_in) ──
+        iq_t in_s = iq_in.read();
+        sample_t s_i = in_s.i;
+        sample_t s_q = in_s.q;
+
+        // ── 2. Addresses of samples entering / leaving each running window ──
+        ap_uint<12> idx_new_N = (ap_uint<12>)(wr_ptr - FFT_SIZE);
+        ap_uint<12> idx_old   = (ap_uint<12>)(wr_ptr - CP_LEN);
+        ap_uint<12> idx_old_N = (ap_uint<12>)(wr_ptr - CP_LEN - FFT_SIZE);
+
+        sample_t rN_i  = buf_i[idx_new_N], rN_q  = buf_q[idx_new_N];
+        sample_t rO_i  = buf_i[idx_old],   rO_q  = buf_q[idx_old];
+        sample_t rON_i = buf_i[idx_old_N], rON_q = buf_q[idx_old_N];
+
+        // ── 3. Write the new sample into the buffer ─────────
+        buf_i[wr_ptr] = s_i;
+        buf_q[wr_ptr] = s_q;
+
+        // ── 4. Update running sums only when the metric is "live" ──
+        //   Live in SEARCH; frozen in FWD_PREHDR / WAIT_NSYMS / FWD_DATA.
+        bool metric_live = (state == S_SEARCH);
+
+        // Instantaneous powers
+        acc_t new_pow   = (acc_t)(s_i * s_i + s_q * s_q);
+        acc_t newN_pow  = (acc_t)(rN_i * rN_i + rN_q * rN_q);
+        acc_t oldL_pow  = (acc_t)(rO_i * rO_i + rO_q * rO_q);
+        acc_t oldN_pow  = (acc_t)(rON_i * rON_i + rON_q * rON_q);
+
+        // Complex cross-product new × conj(new_N)
+        acc_t new_P_re = (acc_t)(s_i * rN_i + s_q * rN_q);
+        acc_t new_P_im = (acc_t)(s_q * rN_i - s_i * rN_q);
+        // Departing term: old × conj(old_N)
+        acc_t old_P_re = (acc_t)(rO_i * rON_i + rO_q * rON_q);
+        acc_t old_P_im = (acc_t)(rO_q * rON_i - rO_i * rON_q);
+
+        // Power envelope — always live (needed for trigger and readback)
+        acc_t pow_out = pow_delay[pow_idx];
+        pow_delay[pow_idx] = new_pow;
+        pow_idx = (pow_idx + 1) & (POW_WIN_LEN - 1);
+        pow_env = pow_env + new_pow - pow_out;
+
+        if (metric_live) {
+            P_re = P_re + new_P_re - old_P_re;
+            P_im = P_im + new_P_im - old_P_im;
+            R    = R    + newN_pow - oldN_pow;
+            Rl   = Rl   + new_pow  - oldL_pow;
         }
 
-#ifdef __SYNTHESIS__
-        // ── Division-free metric comparison (synthesis) ───────
-        // Use tight integer types to minimise fabric-multiply LUT:
-        //   Pi, Pq ∈ [-64,+64) → ap_int<7> (range ±63; tiny clamp risk
-        //   at ±64 is acceptable — sync_detect just needs argmax).
-        //   R, Rl ∈ [0,32)   → ap_uint<6>
-        //   Pi²+Pq² ≤ 2×63²=7938 → ap_uint<13>
-        //   R×Rl   ≤ 31×31 =961  → ap_uint<10>
-        //   Cross-multiply: 13-bit × 10-bit → ~50 LUT each.
-        ap_int<7>   Pi_c  = (ap_int<7>) Pi;
-        ap_int<7>   Pq_c  = (ap_int<7>) Pq;
-        ap_uint<6>  R_c   = (ap_uint<6>)R;
-        ap_uint<6>  Rl_c  = (ap_uint<6>)Rl;
+        stat_pow_env = (ap_ufixed<24,8>)pow_env;
 
-        ap_uint<13> new_num = (ap_uint<13>)(Pi_c * Pi_c)
-                            + (ap_uint<13>)(Pq_c * Pq_c);
-        ap_uint<10> new_den = (ap_uint<10>)R_c * Rl_c;
+        // ── 5. Dual-threshold detection ─────────────────────
+        prod_t P_magsq = (prod_t)(P_re * P_re + P_im * P_im);
+        prod_t R_Rl    = (prod_t)R * (prod_t)Rl;
+        prod_t thresh  = (prod_t)(R_Rl * SC_TH_SQ_CONST);
+        bool sc_above  = (P_magsq > thresh) && (Rl > acc_t(0)) && (R > acc_t(0));
+        bool pow_above = pow_env > (acc_t)pow_threshold;
 
-        ap_uint<23> cmp_lhs = (ap_uint<23>)new_num * (ap_uint<23>)best_den;
-        ap_uint<23> cmp_rhs = (ap_uint<23>)best_num * (ap_uint<23>)new_den;
-#pragma HLS BIND_OP variable=cmp_lhs op=mul impl=fabric
-#pragma HLS BIND_OP variable=cmp_rhs op=mul impl=fabric
+        // ── 6. Warmup + deaf window ─────────────────────────
+        if (warmup < BUF_SIZE) warmup++;
+        if (deaf_counter > 0)  deaf_counter--;
+        bool gate_armed = (warmup >= BUF_SIZE) && (deaf_counter == 0);
 
-        bool is_better = (new_den > 0) &&
-                         (best_den == 0 || cmp_lhs > cmp_rhs);
-
-        if (is_better) {
-            best_t   = t;
-            best_num = new_num;
-            best_den = new_den;
-            best_Pi  = Pi;
-            best_Pq  = Pq;
+        // ── 7. Sticky-latch the n_syms_fb strobe ────────────
+        if (n_syms_fb_vld) {
+            latched_nsyms = n_syms_fb;
+            got_fb = 1;
         }
-#else
-        // ── Float metric comparison (C-sim only) ──────────────
-        // The HLS test vectors use ~7% of full-scale (amplitude ~0.07),
-        // so the integer parts of Pi/R/Rl are 0 — float is needed here.
-        // In hardware, ADC input fills the range; integer comparison works.
-        float Pi_f = (float)Pi, Pq_f = (float)Pq;
-        float R_f  = (float)R,  Rl_f = (float)Rl;
-        float denom = R_f * Rl_f;
-        if (denom > 0.0f) {
-            float metric = (Pi_f*Pi_f + Pq_f*Pq_f) / denom;
-            if (metric > best_metric) {
-                best_metric = metric;
-                best_t      = t;
-                best_Pi     = Pi;
-                best_Pq     = Pq;
+
+        // ── 8. FSM transitions ──────────────────────────────
+        iq_t out_s; out_s.i = 0; out_s.q = 0; out_s.last = 0;
+        bool want_emit = false;
+
+        switch (state) {
+        case S_SEARCH:
+            if (gate_armed && sc_above && pow_above) {
+                // best_t = first sample of the left window currently being
+                // summed (== wr_ptr − CP_LEN − FFT_SIZE).  rd_ptr starts
+                // slightly earlier so ofdm_rx gets the preamble CP intact.
+                rd_ptr = (ap_uint<12>)(wr_ptr - CP_LEN - FFT_SIZE);
+                // CFO estimate: ε_sc = angle(P) / (2π);
+                //   phase_step (32-bit NCO) = ε_sc × 2^32 / FFT_SIZE
+                //   = angle × 2^32 / (2π × 256) = angle × 2^22 / π
+                ap_fixed<16,4> ang = sync_atan2(P_im, P_re);
+                // phase_step = ang × 2^24 / (2π) — see TWO24_OVER_2PI derivation.
+                // Sign-extend raw bits (ap_fixed<16,4> is signed two's complement).
+                ap_int<16> ang_raw_s = (ap_int<16>)ang.range();
+                phase_step = (ap_int<32>)(
+                    ((ap_int<40>)ang_raw_s * (ap_int<24>)TWO24_OVER_2PI) >> 12);
+                phase_acc = 0;
+                fwd_remaining = (int)SYNC_NL * 2;   // 576 = preamble + header
+                state = S_FWD_PREHDR;
+                preamble_cnt++;
+                stat_preamble_count = preamble_cnt;
             }
+            break;
+
+        case S_FWD_PREHDR:
+        case S_FWD_DATA: {
+            sample_t rd_i = buf_i[rd_ptr];
+            sample_t rd_q = buf_q[rd_ptr];
+            sample_t c, s;
+            sincos_lut(phase_acc, s, c);
+            // r_out = r_in × e^{-j·phase}  → derotation
+            out_s.i = (sample_t)(rd_i * c + rd_q * s);
+            out_s.q = (sample_t)(rd_q * c - rd_i * s);
+            out_s.last = 0;
+            want_emit = true;
+            break;
         }
-#endif
-    }
 
-    // ── CFO estimate ─────────────────────────────────────────
-    // Fixed-point CORDIC atan2 — 0 DSP (shift-add only).
-    // Result: ε_sc = angle(P_best) / (2π),  |ε_sc| ≤ 0.5 SC.
-    ap_fixed<16,4> ang = sync_atan2(best_Pq, best_Pi);
-    const ap_fixed<16,4> INV_TWO_PI = ap_fixed<16,4>(0.15915494f);
-    cfo_est = cfo_t(ang * INV_TWO_PI);
+        case S_WAIT_NSYMS:
+            if (got_fb) {
+                got_fb = 0;
+                if (latched_nsyms > 0) {
+                    fwd_remaining = (int)latched_nsyms * (int)SYNC_NL;
+                    state = S_FWD_DATA;
+                } else {
+                    // Header error — accumulators are contaminated; reset
+                    // and enter the 288-cycle deaf window before re-arming.
+                    header_bad_cnt++;
+                    stat_header_bad_count = header_bad_cnt;
+                    P_re = 0; P_im = 0; R = 0; Rl = 0; pow_env = 0;
+                    POW_CLR_HDR: for (int k = 0; k < POW_WIN_LEN; k++) {
+#pragma HLS UNROLL
+                        pow_delay[k] = 0;
+                    }
+                    deaf_counter = (int)SYNC_NL;
+                    state = S_SEARCH;
+                }
+            }
+            break;
+        }
 
-    // ── Phase 3: Stream output aligned to best_t ─────────────
-    // C1 fix: always output the maximum frame length (MAX_DATA_SYMS + 2 symbols).
-    // n_syms is accepted on the AXI-Lite port but not used here — ofdm_rx extracts
-    // the real n_syms from the decoded header.  Using MAX_DATA_SYMS breaks the
-    // chicken-and-egg dependency where sync_detect needed to know n_syms before
-    // ofdm_rx had a chance to decode it.
-    const int total_output = (MAX_DATA_SYMS + 2) * SYNC_NL;
-    const int buf_avail = SYNC_BUF_SZ - best_t;
-    const int from_buf  = (buf_avail < total_output) ? buf_avail : total_output;
-    const int from_live = total_output - from_buf;
+        // ── 9. Back-pressure-safe output emit ───────────────
+        if (want_emit) {
+            bool written = iq_out.write_nb(out_s);
+            if (written) {
+                rd_ptr = (ap_uint<12>)(rd_ptr + 1);
+                phase_acc = phase_acc + (ap_uint<32>)phase_step;
+                fwd_remaining--;
+                if (fwd_remaining == 0) {
+                    if (state == S_FWD_PREHDR) {
+                        state = S_WAIT_NSYMS;
+                    } else {
+                        // FWD_DATA done: reset accumulators, open deaf window,
+                        // return to SEARCH.
+                        P_re = 0; P_im = 0; R = 0; Rl = 0; pow_env = 0;
+                        POW_CLR_DATA: for (int k = 0; k < POW_WIN_LEN; k++) {
+#pragma HLS UNROLL
+                            pow_delay[k] = 0;
+                        }
+                        deaf_counter = (int)SYNC_NL;
+                        state = S_SEARCH;
+                    }
+                }
+            }
+            // If not written (downstream full), rd_ptr / fwd_remaining /
+            // phase_acc stay put.  wr_ptr still advances below — input
+            // samples continue landing in circ_buf.
+        }
 
-    OUT_BUF: for (int n = 0; n < from_buf; n++) {
-#pragma HLS pipeline II=1
-#pragma HLS loop_tripcount min=0 max=SYNC_BUF_SZ
-        iq_t s;
-        s.i    = buf_i[best_t + n];
-        s.q    = buf_q[best_t + n];
-        s.last = (from_live == 0 && n == from_buf - 1) ? ap_uint<1>(1)
-                                                        : ap_uint<1>(0);
-        iq_out.write(s);
-    }
+        // ── 10. Always advance the write pointer ────────────
+        wr_ptr = (ap_uint<12>)(wr_ptr + 1);
 
-    OUT_LIVE: for (int n = 0; n < from_live; n++) {
-#pragma HLS pipeline II=1
-#pragma HLS loop_tripcount min=0 max=((MAX_DATA_SYMS + 1) * SYNC_NL)
-        iq_t s  = iq_in.read();
-        s.last  = (n == from_live - 1) ? ap_uint<1>(1) : ap_uint<1>(0);
-        iq_out.write(s);
-    }
+    FREE_RUN_LOOP_END
 }

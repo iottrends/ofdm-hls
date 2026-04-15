@@ -23,14 +23,23 @@
 //   bits_out   : decoded bytes
 //                QPSK:  50 bytes/symbol  (4 syms/byte × 200 data SC)
 //                16QAM: 100 bytes/symbol (2 syms/byte × 200 data SC)
-//   fft_in     : time-domain data to external xfft IP (ofdm_rx → xfft)
-//   fft_out    : freq-domain data from external xfft IP (xfft → ofdm_rx)
-//   header_err : 1 if CRC-16 on frame header failed; bits_out empty on error.
-//                mod and n_syms are extracted from the header symbol (no AXI-Lite).
+//   fft_in      : 32-bit time-domain data to external xfft IP (ofdm_rx → xfft)
+//   fft_out     : 32-bit freq-domain data from external xfft IP (xfft → ofdm_rx)
+//   header_err  : 1 if CRC-16 on frame header failed; bits_out empty on error.
+//   modcod_out  : 2-bit {mod,rate} decoded from header (ap_vld per packet).
+//   n_syms_out  : 8-bit n_syms decoded from header (ap_vld per packet).
+//   n_syms_fb   : feedback to sync_cfo — number of data symbols to forward.
+//                 Pulsed with n_syms on success, pulsed with 0 on header CRC
+//                 error so sync_cfo returns to SEARCH cleanly (ap_vld).
+//
+// Free-running: top body is while(1); ap_start tied high at BD.
 void ofdm_rx(
     hls::stream<iq_t>       &iq_in,
     hls::stream<ap_uint<8>> &bits_out,
-    hls::stream<iq_t>       &fft_in,
-    hls::stream<iq_t>       &fft_out,
-    ap_uint<1>              &header_err
+    hls::stream<iq32_t>     &fft_in,
+    hls::stream<iq32_t>     &fft_out,
+    ap_uint<1>              &header_err,
+    modcod_t                &modcod_out,
+    ap_uint<8>              &n_syms_out,
+    ap_uint<8>              &n_syms_fb
 );

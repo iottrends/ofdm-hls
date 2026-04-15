@@ -276,10 +276,10 @@ static const sample_t ZC_Q_LUT[NUM_DATA_SC] = {
 // 256 freq-domain samples.  The xfft core is configured for 256-pt forward
 // FFT with scale_sch=0xAA (÷256 total) via its s_axis_config port in the BD.
 static void run_fft(
-    csample_t          in[FFT_SIZE],
-    csample_t          out[FFT_SIZE],
-    hls::stream<iq_t> &fft_in,
-    hls::stream<iq_t> &fft_out
+    csample_t            in[FFT_SIZE],
+    csample_t            out[FFT_SIZE],
+    hls::stream<iq32_t> &fft_in,
+    hls::stream<iq32_t> &fft_out
 ) {
     #pragma HLS INLINE off
 
@@ -322,18 +322,19 @@ static void run_fft(
         out[i] = csample_t((sample_t)(re[i] / FFT_SIZE), (sample_t)(im[i] / FFT_SIZE));
     (void)fft_in; (void)fft_out;
 #else
+    // xfft frame length is fixed at IP-build time (FFT_SIZE=256); no input
+    // TLAST needed — xfft generates its own output TLAST.
     FFT_TX: for (int i = 0; i < FFT_SIZE; i++) {
         #pragma HLS PIPELINE II=1
-        iq_t s;
-        s.i    = in[i].real();
-        s.q    = in[i].imag();
-        s.last = (i == FFT_SIZE - 1) ? ap_uint<1>(1) : ap_uint<1>(0);
+        iq32_t s;
+        s.i = in[i].real();
+        s.q = in[i].imag();
         fft_in.write(s);
     }
 
     FFT_RX: for (int i = 0; i < FFT_SIZE; i++) {
         #pragma HLS PIPELINE II=1
-        iq_t s = fft_out.read();
+        iq32_t s = fft_out.read();
         out[i] = csample_t(s.i, s.q);
     }
 #endif
@@ -705,20 +706,33 @@ static ap_uint<16> crc16_hdr(ap_uint<10> data) {
 void ofdm_rx(
     hls::stream<iq_t>       &iq_in,
     hls::stream<ap_uint<8>> &bits_out,
-    hls::stream<iq_t>       &fft_in,
-    hls::stream<iq_t>       &fft_out,
-    ap_uint<1>              &header_err
+    hls::stream<iq32_t>     &fft_in,
+    hls::stream<iq32_t>     &fft_out,
+    ap_uint<1>              &header_err,
+    modcod_t                &modcod_out,
+    ap_uint<8>              &n_syms_out,
+    ap_uint<8>              &n_syms_fb
 ) {
-    #pragma HLS INTERFACE axis      port=iq_in
-    #pragma HLS INTERFACE axis      port=bits_out
-    #pragma HLS INTERFACE axis      port=fft_in
-    #pragma HLS INTERFACE axis      port=fft_out
-    #pragma HLS INTERFACE s_axilite port=header_err bundle=ctrl
-    #pragma HLS INTERFACE s_axilite port=return     bundle=ctrl
+    #pragma HLS INTERFACE axis        port=iq_in
+    #pragma HLS INTERFACE axis        port=bits_out
+    #pragma HLS INTERFACE axis        port=fft_in
+    #pragma HLS INTERFACE axis        port=fft_out
+    // Free-running: ap_ctrl_none, body is while(1).  No host/MAC start.
+    #pragma HLS INTERFACE s_axilite   port=header_err bundle=stat
+    #pragma HLS INTERFACE ap_vld      register port=modcod_out
+    #pragma HLS INTERFACE ap_vld      register port=n_syms_out
+    #pragma HLS INTERFACE ap_vld      register port=n_syms_fb
+    #pragma HLS INTERFACE ap_ctrl_none port=return
 
     csample_t time_buf[FFT_SIZE];
     csample_t freq_buf[FFT_SIZE];
     cgeq_t    G_eq[FFT_SIZE];       // precomputed equalizer: conj(G)/|G|², ≈256 ideal
+
+    // Free-running: once ap_start fires (tied high at BD), process
+    // packet-after-packet forever.  Each loop iteration waits on iq_in —
+    // which only delivers samples when sync_cfo's gate is open.
+    FREE_RUN: while (1) {
+        #pragma HLS PIPELINE off
 
     // ── 1. Preamble: estimate channel, precompute G_eq ─────────
     remove_cp_and_read(iq_in, time_buf);
@@ -759,22 +773,24 @@ void ofdm_rx(
 
     if (rx_crc != exp_crc) {
         header_err = 1;
-        // C3 fix: drain with a hard timeout.
-        // Maximum legal frame = (MAX_DATA_SYMS + 2) * SYNC_NL = 257 * 288 = 74,016
-        // samples.  If TLAST never arrives (wrong n_syms, reset glitch, stream
-        // corruption from C1) the original loop hangs forever and deadlocks the
-        // entire AXI-Stream chain.  The counter costs 17 FF, zero extra LUT.
-        ap_uint<17> drain_cnt = 0;
-        DRAIN: do {
-            #pragma HLS PIPELINE II=1
-            iq_t s = iq_in.read();
-            if (s.last || ++drain_cnt > 74100) break;
-        } while (true);
-        return;
+        modcod_out = 0;
+        n_syms_out = 0;
+        // Drain no longer needed — sync_cfo is the gatekeeper.  Pulse
+        // n_syms_fb = 0 so sync_cfo returns to SEARCH without forwarding
+        // any data samples; the no-op RX path naturally restarts.
+        n_syms_fb = 0;
+        continue;   // back to WAIT_PREAMBLE
     }
     header_err = 0;
-    mod_t     mod    = (mod_t)rx_payload[0];
+    // New header layout: payload[1:0] = modcod {mod, rate}, payload[9:2] = n_syms.
+    modcod_t   modcod = (modcod_t)rx_payload(1, 0);
+    mod_t      mod    = (mod_t)modcod[1];
     ap_uint<8> n_syms = rx_payload(9, 2);
+    // Surface decoded fields to the MAC via ap_vld output wires.
+    modcod_out = modcod;
+    n_syms_out = n_syms;
+    // Feedback to sync_cfo: "forward this many data-symbols' worth of samples".
+    n_syms_fb = n_syms;
 
     // ── 3. Data symbols: pilot CPE track → equalize → demap → pack ──
     RX_SYMBOL_LOOP: for (ap_uint<8> s = 0; s < n_syms; s++) {
@@ -791,4 +807,5 @@ void ofdm_rx(
 
         equalize_demap_pack(freq_buf, G_eq, mod, cpe_cos, cpe_sin, bits_out);
     }
+    } // FREE_RUN while(1)
 }

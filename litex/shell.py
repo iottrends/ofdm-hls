@@ -53,34 +53,45 @@ from litepcie.software              import generate_litepcie_software
 # Port map mirrors the external interfaces declared in
 # vivado/create_project.tcl (make_bd_intf_pins_external):
 #
-#   host_tx_in    AXI-Stream,  8-bit  (host payload bytes → scrambler)
-#   host_rx_out   AXI-Stream,  8-bit  (descrambler → host bytes)
-#   rf_tx_out     AXI-Stream, 48-bit  (ofdm_tx iq_out → RFIC; HLS iq_t = {i:16,q:16,last:1})
-#   rf_rx_in      AXI-Stream, 48-bit  (RFIC → adc_input_fifo → sync_detect; same iq_t layout)
+#   host_tx_in    AXI-Stream,  8-bit + TLAST  (host payload → ofdm_mac)
+#   host_rx_out   AXI-Stream,  8-bit + TLAST  (ofdm_mac → host)
+#   rf_tx_out     AXI-Stream, 40-bit          (ofdm_tx iq_out → RFIC; HLS iq_t)
+#   rf_rx_in      AXI-Stream, 40-bit          (RFIC → adc_fifo → sync_cfo)
+#   ctrl_axi      AXI4-Lite slave (host reaches MAC + PHY CSRs)
+#   mac_tx_done_pulse / mac_rx_pkt_pulse  (MSI interrupt strobes, ofdm domain)
 #
-# None of the four interfaces expose a separate TLAST — the HLS iq_t.last bit
-# rides inside TDATA[32], and the byte streams have no packetisation.
-#
-# AXI-Lite control: not yet exposed at the BD boundary.  See README §4
-# for the crossbar aggregation step needed to bring CSRs under CPU control.
+# The combined ofdm_mac HLS block handles MAC framing (header/FCS/filter)
+# AND per-frame PHY CSR sequencing (via its m_axi master into the smartconnect).
+# No gateware MAC FSM remains in LiteX — all MAC logic is in HLS C++.
 
 class OFDMChainWrapper(Module):
-    """Opaque Instance() of ofdm_chain_wrapper.v, clocked in the `ofdm` domain
-    (100 MHz — matches the BD's -freq_hz constraint).  CDC to/from the LiteX
-    sys and rfic domains is handled by the caller via stream.ClockDomainCrossing.
+    """Opaque Instance() of ofdm_chain_wrapper.v.
 
-    Also exposes the BD's axi_smartconnect CSR crossbar (`ctrl_axi`) as a bare
-    AXI4-Lite slave bundle.  OFDMLowerMAC drives these signals to sequence the
-    per-frame register writes + ap_start pulses."""
+    Two clock domains:
+      - `ofdm`     (100 MHz) drives BD port `clk`
+      - `ofdm_fec` (200 MHz) drives BD port `clk_fec` (fec_rx only)
+
+    Host-facing AXIS byte endpoints carry TLAST (packet framing).  RF-side
+    48-bit IQ streams do not (continuous sample streams).
+
+    `ctrl_axi` is the BD's smartconnect S00_AXI — host-visible AXI4-Lite
+    slave for reaching MAC + PHY CSRs.  The host driver pokes this via
+    PCIe; no gateware FSM drives it (the combined MAC handles per-frame
+    PHY sequencing in HLS via its own m_axi master S01)."""
     def __init__(self):
-        # All endpoints live in the ofdm (100 MHz) clock domain.
-        self.host_tx  = stream.Endpoint([("data",  8)])
-        self.host_rx  = stream.Endpoint([("data",  8)])
+        # Host byte streams (ofdm domain, 8-bit + TLAST)
+        self.host_tx  = stream.Endpoint([("data",  8), ("last", 1)])
+        self.host_rx  = stream.Endpoint([("data",  8), ("last", 1)])
+        # RF IQ streams (ofdm domain, 48-bit HLS iq_t; no TLAST sideband)
         self.rf_tx    = stream.Endpoint([("data", 48)])
         self.rf_rx    = stream.Endpoint([("data", 48)])
 
-        # AXI-Lite slave bundle (driven by OFDMLowerMAC).  16-bit address
-        # space covers the 10 × 4 KB windows laid out in create_ofdm_bd.tcl.
+        # MAC interrupt pulses out of the BD (ofdm domain)
+        self.mac_tx_done_pulse = Signal()
+        self.mac_rx_pkt_pulse  = Signal()
+
+        # AXI-Lite slave bundle for host CSR access — 16-bit address space
+        # covers six 4 KB slaves (5 PHY + MAC) from create_ofdm_bd.tcl.
         self.ctrl_axi_awaddr  = Signal(16)
         self.ctrl_axi_awprot  = Signal(3)
         self.ctrl_axi_awvalid = Signal()
@@ -102,16 +113,20 @@ class OFDMChainWrapper(Module):
         self.ctrl_axi_rready  = Signal()
 
         self.specials += Instance("ofdm_chain_wrapper",
-            i_clk   = ClockSignal("ofdm"),
-            i_rst_n = ~ResetSignal("ofdm"),
+            i_clk       = ClockSignal("ofdm"),
+            i_clk_fec   = ClockSignal("ofdm_fec"),
+            i_rst_n     = ~ResetSignal("ofdm"),
+            i_rst_fec_n = ~ResetSignal("ofdm_fec"),
 
-            # host_tx_in  (slave)
+            # host_tx_in  (slave, with TLAST)
             i_host_tx_in_tdata  = self.host_tx.data,
+            i_host_tx_in_tlast  = self.host_tx.last,
             i_host_tx_in_tvalid = self.host_tx.valid,
             o_host_tx_in_tready = self.host_tx.ready,
 
-            # host_rx_out (master)
+            # host_rx_out (master, with TLAST)
             o_host_rx_out_tdata  = self.host_rx.data,
+            o_host_rx_out_tlast  = self.host_rx.last,
             o_host_rx_out_tvalid = self.host_rx.valid,
             i_host_rx_out_tready = self.host_rx.ready,
 
@@ -125,7 +140,11 @@ class OFDMChainWrapper(Module):
             i_rf_rx_in_tvalid = self.rf_rx.valid,
             o_rf_rx_in_tready = self.rf_rx.ready,
 
-            # ctrl_axi (AXI4-Lite slave, driven by OFDMLowerMAC)
+            # MAC interrupt pulses (ofdm domain)
+            o_mac_tx_done_pulse = self.mac_tx_done_pulse,
+            o_mac_rx_pkt_pulse  = self.mac_rx_pkt_pulse,
+
+            # ctrl_axi (AXI4-Lite slave, driven by host via PCIe BAR)
             i_ctrl_axi_awaddr  = self.ctrl_axi_awaddr,
             i_ctrl_axi_awprot  = self.ctrl_axi_awprot,
             i_ctrl_axi_awvalid = self.ctrl_axi_awvalid,
@@ -204,330 +223,33 @@ class _RFTxBridge(Module):
             self.sink.ready.eq(self.source.ready),
         ]
 
-
 # =============================================================================
-# OFDMLowerMAC — autonomous per-frame CSR sequencer
-# =============================================================================
-#
-# Driver writes four CSRs (mcs / rate / ring_bytes / enable) and polls two
-# (busy / frame_count).  On enable rising edge, this FSM:
-#
-#   1. Latches mcs + rate (snapshot — mid-burst driver updates are ignored).
-#   2. Computes bytes_per_frame from a 4-entry LUT.
-#   3. For each frame (until ring_bytes_remaining == 0):
-#        a. Walks a table of ~23 AXI-Lite writes → all HLS s_axi_ctrl slaves
-#           (scrambler.n_bytes, conv_enc.rate, conv_enc.n_data_bytes,
-#           interleaver.mod, interleaver.n_syms, ofdm_tx.mod, ofdm_tx.n_syms,
-#           and the RX-side mirror — sync_detect.n_syms, viterbi_dec.rate
-#           etc., plus 10 ap_start pulses).
-#        b. Polls ofdm_tx.AP_CTRL bit1 (ap_done).
-#        c. Increments frame_count; subtracts bytes_per_frame from remaining.
-#   4. Parks in BURST_DONE until driver writes enable=0, then → IDLE.
-#
-# Clock domain: everything lives in `ofdm` (100 MHz).  The driver-facing
-# CSRs auto-CDC via LiteX's CSRStorage/CSRStatus infrastructure.
-
-class OFDMLowerMAC(Module, AutoCSR):
-    """Free-running per-frame sequencer sitting on ctrl_axi."""
-
-    # ── Block base addresses in ctrl_axi space (must match create_ofdm_bd.tcl) ──
-    BASE_TX_SCRAM = 0x0000
-    BASE_TX_CONV  = 0x1000
-    BASE_TX_INTLV = 0x2000
-    BASE_OFDM_TX  = 0x3000
-    BASE_SYNC     = 0x4000
-    BASE_CFO      = 0x5000
-    BASE_OFDM_RX  = 0x6000
-    BASE_RX_INTLV = 0x7000
-    BASE_VIT      = 0x8000
-    BASE_RX_SCRAM = 0x9000
-
-    # ── Register offsets within each HLS s_axi_ctrl slave (from mac.md) ──
-    AP_CTRL         = 0x00
-    MOD             = 0x10     # ofdm_tx, interleaver
-    N_SYMS_TX       = 0x18     # ofdm_tx, interleaver  (NOTE: different from sync!)
-    IS_RX           = 0x20     # interleaver only
-    N_SYMS_SYNC     = 0x10     # sync_detect — different offset from ofdm_tx!
-    RATE            = 0x10     # conv_enc, viterbi_dec
-    N_DATA_BYTES    = 0x18     # conv_enc, viterbi_dec (32b)
-    N_BYTES         = 0x10     # scrambler (16b, used by both tx_/rx_)
-
-    # ── Hardcoded parameters (Phase 1) ──
-    N_SYMS = 10   # payload OFDM symbols per PHY frame
-
-    def __init__(self, chain):
-        """chain: OFDMChainWrapper instance whose ctrl_axi_* signals we drive."""
-
-        # -------- Driver-visible CSRs --------
-        self.mcs         = CSRStorage(1,  description="Modulation: 0=QPSK, 1=16QAM")
-        self.rate        = CSRStorage(1,  description="Code rate: 0=1/2, 1=2/3")
-        self.ring_bytes  = CSRStorage(24, description="Total bytes in current TX DMA burst — must be an integer multiple of bytes_per_frame(mcs,rate)")
-        self.enable      = CSRStorage(1,  description="Write 1 to kick; driver polls busy=0 then writes 0 to rearm")
-        self.busy        = CSRStatus(1,  description="FSM is mid-burst")
-        self.frame_count = CSRStatus(16, description="Cumulative frames since reset")
-        self.state       = CSRStatus(4,  description="FSM state (0=IDLE .. 8=DONE)")
-
-        # -------- Internal signals --------
-        latched_mcs  = Signal()
-        latched_rate = Signal()
-        bytes_per_fr = Signal(16)
-        bytes_remain = Signal(24)
-        boot_done    = Signal()
-
-        # bytes_per_frame LUT (from mac.md frame math):
-        #   QPSK  1/2 → 25 × 10 = 250
-        #   QPSK  2/3 → 33 × 10 = 333  (HLS truncates 33.33)
-        #   16QAM 1/2 → 50 × 10 = 500
-        #   16QAM 2/3 → 66 × 10 = 666  (HLS truncates 66.67)
-        self.comb += Case(Cat(latched_rate, latched_mcs), {
-            0b00: bytes_per_fr.eq(250),
-            0b01: bytes_per_fr.eq(333),
-            0b10: bytes_per_fr.eq(500),
-            0b11: bytes_per_fr.eq(666),
-        })
-
-        # n_data_bytes for conv_enc / viterbi_dec = same as bytes_per_frame,
-        # zero-extended to 32 bits.
-        n_data_bytes_32 = Signal(32)
-        self.comb += n_data_bytes_32.eq(bytes_per_fr)
-
-        latched_mcs_32  = Signal(32)
-        latched_rate_32 = Signal(32)
-        self.comb += [
-            latched_mcs_32.eq(latched_mcs),
-            latched_rate_32.eq(latched_rate),
-        ]
-
-        # -------- AXI-Lite master helper signals --------
-        wr_launch = Signal()
-        wr_addr   = Signal(16)
-        wr_data   = Signal(32)
-        wr_done   = Signal()
-
-        rd_launch = Signal()
-        rd_addr   = Signal(16)
-        rd_data   = Signal(32)
-        rd_done   = Signal()
-
-        # Inner AXI-Lite master FSM (runs one AW→W→B or AR→R cycle per launch).
-        self.submodules.axi = axi = FSM(reset_state="IDLE")
-        axi.act("IDLE",
-            If(wr_launch, NextState("WR_AW")),
-            If(rd_launch, NextState("RD_AR")),
-        )
-        axi.act("WR_AW",
-            chain.ctrl_axi_awvalid.eq(1),
-            chain.ctrl_axi_awaddr.eq(wr_addr),
-            If(chain.ctrl_axi_awready, NextState("WR_W")),
-        )
-        axi.act("WR_W",
-            chain.ctrl_axi_wvalid.eq(1),
-            chain.ctrl_axi_wdata.eq(wr_data),
-            chain.ctrl_axi_wstrb.eq(0xF),
-            If(chain.ctrl_axi_wready, NextState("WR_B")),
-        )
-        axi.act("WR_B",
-            chain.ctrl_axi_bready.eq(1),
-            If(chain.ctrl_axi_bvalid,
-                wr_done.eq(1),
-                NextState("IDLE"),
-            ),
-        )
-        axi.act("RD_AR",
-            chain.ctrl_axi_arvalid.eq(1),
-            chain.ctrl_axi_araddr.eq(rd_addr),
-            If(chain.ctrl_axi_arready, NextState("RD_R")),
-        )
-        axi.act("RD_R",
-            chain.ctrl_axi_rready.eq(1),
-            If(chain.ctrl_axi_rvalid,
-                NextValue(rd_data, chain.ctrl_axi_rdata),
-                rd_done.eq(1),
-                NextState("IDLE"),
-            ),
-        )
-
-        # -------- Per-frame write table --------
-        # Each entry: (ctrl_axi addr, 32-bit data source).
-        # Step counter indexes this table; addr/data mux below.
-        AP_START = Constant(1, 32)
-        N_SYMS_C = Constant(self.N_SYMS, 32)
-
-        write_table = [
-            # TX config
-            (self.BASE_TX_SCRAM + self.N_BYTES,      bytes_per_fr),
-            (self.BASE_TX_CONV  + self.RATE,         latched_rate_32),
-            (self.BASE_TX_CONV  + self.N_DATA_BYTES, n_data_bytes_32),
-            (self.BASE_TX_INTLV + self.MOD,          latched_mcs_32),
-            (self.BASE_TX_INTLV + self.N_SYMS_TX,    N_SYMS_C),
-            (self.BASE_OFDM_TX  + self.MOD,          latched_mcs_32),
-            (self.BASE_OFDM_TX  + self.N_SYMS_TX,    N_SYMS_C),
-            # RX config (Phase 1 loopback: mirror of TX)
-            (self.BASE_RX_SCRAM + self.N_BYTES,      bytes_per_fr),
-            (self.BASE_VIT      + self.RATE,         latched_rate_32),
-            (self.BASE_VIT      + self.N_DATA_BYTES, n_data_bytes_32),
-            (self.BASE_RX_INTLV + self.MOD,          latched_mcs_32),
-            (self.BASE_RX_INTLV + self.N_SYMS_TX,    N_SYMS_C),
-            (self.BASE_SYNC     + self.N_SYMS_SYNC,  N_SYMS_C),
-            # AP_START pulses — TX chain upstream→downstream, then RX chain
-            (self.BASE_TX_SCRAM + self.AP_CTRL,      AP_START),
-            (self.BASE_TX_CONV  + self.AP_CTRL,      AP_START),
-            (self.BASE_TX_INTLV + self.AP_CTRL,      AP_START),
-            (self.BASE_OFDM_TX  + self.AP_CTRL,      AP_START),
-            (self.BASE_SYNC     + self.AP_CTRL,      AP_START),
-            (self.BASE_CFO      + self.AP_CTRL,      AP_START),
-            (self.BASE_OFDM_RX  + self.AP_CTRL,      AP_START),
-            (self.BASE_RX_INTLV + self.AP_CTRL,      AP_START),
-            (self.BASE_VIT      + self.AP_CTRL,      AP_START),
-            (self.BASE_RX_SCRAM + self.AP_CTRL,      AP_START),
-        ]
-        N_STEPS = len(write_table)
-
-        step      = Signal(max=N_STEPS + 1)
-        step_addr = Signal(16)
-        step_data = Signal(32)
-        self.comb += [
-            Case(step, {i: step_addr.eq(addr) for i, (addr, _) in enumerate(write_table)}),
-            Case(step, {i: step_data.eq(data) for i, (_, data) in enumerate(write_table)}),
-        ]
-
-        # -------- Main sequencer FSM --------
-        self.submodules.main = main = FSM(reset_state="IDLE")
-
-        main.act("IDLE",
-            self.state.status.eq(0),
-            If(self.enable.storage,
-                If(boot_done,
-                    NextState("BURST_START"),
-                ).Else(
-                    NextState("BOOT_IS_RX_LAUNCH"),
-                ),
-            ),
-        )
-        # Boot-time one-shot: rx_interleaver.is_rx = 1
-        main.act("BOOT_IS_RX_LAUNCH",
-            self.state.status.eq(1),
-            self.busy.status.eq(1),
-            wr_addr.eq(self.BASE_RX_INTLV + self.IS_RX),
-            wr_data.eq(1),
-            wr_launch.eq(1),
-            NextState("BOOT_IS_RX_WAIT"),
-        )
-        main.act("BOOT_IS_RX_WAIT",
-            self.state.status.eq(1),
-            self.busy.status.eq(1),
-            wr_addr.eq(self.BASE_RX_INTLV + self.IS_RX),
-            wr_data.eq(1),
-            If(wr_done,
-                NextValue(boot_done, 1),
-                NextState("BURST_START"),
-            ),
-        )
-        main.act("BURST_START",
-            self.state.status.eq(2),
-            self.busy.status.eq(1),
-            NextValue(latched_mcs,  self.mcs.storage),
-            NextValue(latched_rate, self.rate.storage),
-            NextValue(bytes_remain, self.ring_bytes.storage),
-            NextState("FRAME_CHECK"),
-        )
-        main.act("FRAME_CHECK",
-            self.state.status.eq(3),
-            self.busy.status.eq(1),
-            If(bytes_remain == 0,
-                NextState("BURST_DONE"),
-            ).Else(
-                NextValue(step, 0),
-                NextState("WR_LAUNCH"),
-            ),
-        )
-        main.act("WR_LAUNCH",
-            self.state.status.eq(4),
-            self.busy.status.eq(1),
-            wr_addr.eq(step_addr),
-            wr_data.eq(step_data),
-            wr_launch.eq(1),
-            NextState("WR_WAIT"),
-        )
-        main.act("WR_WAIT",
-            self.state.status.eq(4),
-            self.busy.status.eq(1),
-            wr_addr.eq(step_addr),
-            wr_data.eq(step_data),
-            If(wr_done,
-                If(step == N_STEPS - 1,
-                    NextState("POLL_LAUNCH"),
-                ).Else(
-                    NextValue(step, step + 1),
-                    NextState("WR_LAUNCH"),
-                ),
-            ),
-        )
-        main.act("POLL_LAUNCH",
-            self.state.status.eq(5),
-            self.busy.status.eq(1),
-            rd_addr.eq(self.BASE_OFDM_TX + self.AP_CTRL),
-            rd_launch.eq(1),
-            NextState("POLL_WAIT"),
-        )
-        main.act("POLL_WAIT",
-            self.state.status.eq(5),
-            self.busy.status.eq(1),
-            rd_addr.eq(self.BASE_OFDM_TX + self.AP_CTRL),
-            If(rd_done,
-                If(rd_data[1],  # ap_done bit
-                    NextState("FRAME_END"),
-                ).Else(
-                    NextState("POLL_LAUNCH"),
-                ),
-            ),
-        )
-        main.act("FRAME_END",
-            self.state.status.eq(6),
-            self.busy.status.eq(1),
-            NextValue(self.frame_count.status, self.frame_count.status + 1),
-            If(bytes_remain <= bytes_per_fr,
-                NextValue(bytes_remain, 0),
-            ).Else(
-                NextValue(bytes_remain, bytes_remain - bytes_per_fr),
-            ),
-            NextState("FRAME_CHECK"),
-        )
-        main.act("BURST_DONE",
-            # busy=0 here signals the driver "done".  We park in this state
-            # until the driver writes enable=0, then → IDLE to rearm.
-            self.state.status.eq(8),
-            self.busy.status.eq(0),
-            If(~self.enable.storage, NextState("IDLE")),
-        )
-
-
-# =============================================================================
-# CRG — sys (125 MHz) + idelay (200 MHz) + ofdm (100 MHz) + usb (60 MHz)
+# CRG — sys (125 MHz) + idelay (200 MHz) + ofdm (100 MHz) + ofdm_fec (200 MHz) + usb (60 MHz)
 # =============================================================================
 #
-# Re-implemented locally (rather than reusing hallycon_m2sdr_target_v2._CRG) so
-# we can add the 100 MHz `ofdm` clkout that drives the OFDM BD wrapper.  The
-# rfic domain is driven inside AD9364PHY by the AD9364 DATA_CLK input buffer,
-# so we don't declare it here.
+# `ofdm`     (100 MHz) drives the OFDM BD wrapper's `clk` port.
+# `ofdm_fec` (200 MHz) drives the BD wrapper's `clk_fec` port for fec_rx
+#            (viterbi v3 runs at 5 ns to keep up with 16-QAM rate-2/3).
 
 class _CRG(Module):
     def __init__(self, platform, sys_clk_freq, ulpi_pads):
         from migen.genlib.resetsync import AsyncResetSynchronizer
         self.rst = Signal()
-        self.clock_domains.cd_sys    = ClockDomain()
-        self.clock_domains.cd_rfic   = ClockDomain()
-        self.clock_domains.cd_idelay = ClockDomain()
-        self.clock_domains.cd_ofdm   = ClockDomain()
-        self.clock_domains.cd_usb    = ClockDomain()
+        self.clock_domains.cd_sys     = ClockDomain()
+        self.clock_domains.cd_rfic    = ClockDomain()
+        self.clock_domains.cd_idelay  = ClockDomain()
+        self.clock_domains.cd_ofdm    = ClockDomain()
+        self.clock_domains.cd_ofdm_fec = ClockDomain()
+        self.clock_domains.cd_usb     = ClockDomain()
 
         clk40 = platform.request("clk40")
         self.submodules.pll = pll = S7PLL(speedgrade=-2)
         self.comb += pll.reset.eq(self.rst)
         pll.register_clkin(clk40, 40e6)
-        pll.create_clkout(self.cd_sys,    sys_clk_freq)
-        pll.create_clkout(self.cd_idelay, 200e6)
-        pll.create_clkout(self.cd_ofdm,   100e6)          # matches ofdm_chain BD
+        pll.create_clkout(self.cd_sys,      sys_clk_freq)
+        pll.create_clkout(self.cd_idelay,   200e6)
+        pll.create_clkout(self.cd_ofdm,     100e6)  # ofdm_chain BD clk
+        pll.create_clkout(self.cd_ofdm_fec, 200e6)  # ofdm_chain BD clk_fec (fec_rx)
         self.submodules.idelayctrl = S7IDELAYCTRL(self.cd_idelay)
 
         # USB 60 MHz (same as v2 CRG)
@@ -601,6 +323,10 @@ class BaseSoC(SoCCore):
             "PCIE_DMA0_WRITER": self.pcie_dma0.writer.irq,
             "PCIE_DMA0_READER": self.pcie_dma0.reader.irq,
         }
+        if with_ofdm:
+            # MAC TX/RX interrupts surfaced by OFDMChainWrapper (already CDC'd to sys).
+            self.interrupts["OFDM_MAC_TX_DONE"] = self.ofdm_mac_tx_irq
+            self.interrupts["OFDM_MAC_RX_PKT"]  = self.ofdm_mac_rx_irq
         for i, (name, irq) in enumerate(sorted(self.interrupts.items())):
             self.comb += self.pcie_msi.irqs[i].eq(irq)
             self.add_constant(name + "_INTERRUPT", i)
@@ -652,24 +378,34 @@ class BaseSoC(SoCCore):
         # ── Instantiate OFDM chain (in the 100 MHz `ofdm` domain) ──
         self.submodules.ofdm = ofdm = OFDMChainWrapper()
 
-        # ── Lower MAC — autonomous per-frame CSR sequencer ──
-        # Lives in the ofdm domain so its AXI-Lite master directly drives
-        # ofdm_chain_wrapper.ctrl_axi (also ofdm-clocked via the BD's
-        # smartconnect NUM_CLKS=1 config).  LiteX handles CSR CDC for the
-        # CSRStorage/CSRStatus registers exposed to the sys-domain CSR bus.
-        self.submodules.ofdm_mac = ClockDomainsRenamer("ofdm")(OFDMLowerMAC(ofdm))
-        self.add_csr("ofdm_mac")
+        # Combined MAC lives inside the BD as ofdm_mac HLS IP.  Its CSRs are
+        # reached by the host driver through ctrl_axi (PCIe-mapped BAR slave
+        # at ofdm_chain's 0x5000 offset).  No gateware MAC FSM here.
+
+        # ── MAC interrupts → MSI ──
+        # Two new IRQ lines from the HLS ofdm_mac block are pulse-synchronised
+        # into `sys` for the PCIe MSI aggregator (which is sys-domain).
+        from migen.genlib.cdc import PulseSynchronizer
+        self.submodules.mac_tx_done_ps = ps_tx = PulseSynchronizer("ofdm", "sys")
+        self.submodules.mac_rx_pkt_ps  = ps_rx = PulseSynchronizer("ofdm", "sys")
+        self.comb += [
+            ps_tx.i.eq(ofdm.mac_tx_done_pulse),
+            ps_rx.i.eq(ofdm.mac_rx_pkt_pulse),
+        ]
+        self.ofdm_mac_tx_irq = ps_tx.o
+        self.ofdm_mac_rx_irq = ps_rx.o
 
         # ── Host side:  sys (125 MHz) ↔ ofdm (100 MHz) ──
         # DMA is 64-bit @ sys; OFDM chain is 8-bit @ ofdm.  Width-convert
         # first (sys-domain Converter), then cross clocks via AsyncFIFO.
+        # Both directions preserve TLAST (packet framing) end-to-end.
         self.submodules.dma_to_byte = stream.Converter(64, 8)
         self.submodules.byte_to_dma = stream.Converter( 8, 64)
 
         self.submodules.host_tx_cdc = stream.ClockDomainCrossing(
-            layout=[("data", 8)], cd_from="sys", cd_to="ofdm", depth=32)
+            layout=[("data", 8), ("last", 1)], cd_from="sys", cd_to="ofdm", depth=32)
         self.submodules.host_rx_cdc = stream.ClockDomainCrossing(
-            layout=[("data", 8)], cd_from="ofdm", cd_to="sys", depth=32)
+            layout=[("data", 8), ("last", 1)], cd_from="ofdm", cd_to="sys", depth=32)
 
         self.comb += [
             # Host → RFIC: DMA(64) → Conv(8) → CDC(sys→ofdm) → ofdm.host_tx

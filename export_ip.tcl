@@ -8,14 +8,12 @@ set IP_DIR "$ROOT/ip_repo"
 file mkdir $IP_DIR
 
 set BLOCKS {
+    tx_chain_proj
     ofdm_tx_proj
-    ofdm_rx_proj
     sync_detect_proj
-    cfo_correct_proj
-    scrambler_proj
-    interleaver_proj
-    conv_enc_proj
-    viterbi_proj
+    ofdm_rx_proj
+    fec_rx_proj
+    ofdm_mac_proj
 }
 
 foreach proj $BLOCKS {

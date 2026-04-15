@@ -391,6 +391,30 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_rx.tcl 2>&1 | tee vitis_rx_synth.log
             echo "[run] Log saved to vitis_rx_synth.log"
             ;;
+        tx_chain_synth)
+            echo "[run] Running tx_chain C synthesis (scrambler+conv_enc+interleaver, 10 ns)..."
+            cd "$SCRIPT_DIR"
+            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_tx_chain.tcl 2>&1 | tee vitis_tx_chain_synth.log
+            echo "[run] Log saved to vitis_tx_chain_synth.log"
+            ;;
+        sync_detect_synth)
+            echo "[run] Running sync_detect C synthesis (free-running gate + inline CFO, 10 ns)..."
+            cd "$SCRIPT_DIR"
+            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_sync_detect.tcl 2>&1 | tee vitis_sync_detect_synth.log
+            echo "[run] Log saved to vitis_sync_detect_synth.log"
+            ;;
+        fec_rx_synth)
+            echo "[run] Running fec_rx C synthesis (interleaver+viterbi+scrambler, 5 ns / 200 MHz)..."
+            cd "$SCRIPT_DIR"
+            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_fec_rx.tcl 2>&1 | tee vitis_fec_rx_synth.log
+            echo "[run] Log saved to vitis_fec_rx_synth.log"
+            ;;
+        ofdm_mac_synth)
+            echo "[run] Running ofdm_mac C synthesis (MAC + PHY sequencer, 10 ns)..."
+            cd "$SCRIPT_DIR"
+            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_ofdm_mac.tcl 2>&1 | tee vitis_ofdm_mac_synth.log
+            echo "[run] Log saved to vitis_ofdm_mac_synth.log"
+            ;;
         conv_enc_synth)
             echo "[run] Running conv_enc C synthesis..."
             cd "$SCRIPT_DIR"
@@ -481,14 +505,12 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             echo "  ./setup_vitis.sh rx_cosim [mod]    # RX RTL cosim: verifies ofdm_rx RTL vs C-sim"
             echo ""
             echo "  C Synthesis (resource + timing reports):"
-            echo "  ./setup_vitis.sh synth             # TX (ofdm_tx) synthesis"
-            echo "  ./setup_vitis.sh rx_synth          # RX (ofdm_rx) synthesis"
-            echo "  ./setup_vitis.sh conv_enc_synth    # conv_enc synthesis"
-            echo "  ./setup_vitis.sh viterbi_synth     # viterbi_dec synthesis"
-            echo "  ./setup_vitis.sh sync_detect_synth # sync_detect synthesis"
-            echo "  ./setup_vitis.sh cfo_correct_synth # cfo_correct synthesis"
-            echo "  ./setup_vitis.sh scrambler_synth   # scrambler synthesis"
-            echo "  ./setup_vitis.sh interleaver_synth # interleaver synthesis"
+            echo "  ./setup_vitis.sh synth             # ofdm_tx synthesis (10 ns)"
+            echo "  ./setup_vitis.sh rx_synth          # ofdm_rx synthesis (10 ns)"
+            echo "  ./setup_vitis.sh tx_chain_synth    # tx_chain (scram+enc+intlv, 10 ns)"
+            echo "  ./setup_vitis.sh sync_cfo_synth    # sync_cfo (sync+cfo, 10 ns)"
+            echo "  ./setup_vitis.sh fec_rx_synth      # fec_rx (intlv+vitv3+descram, 5 ns / 200 MHz)"
+            echo "  ./setup_vitis.sh export_ip         # package 5 IPs → ip_repo/"
             echo "  ./setup_vitis.sh all               # TX csim + synth + report"
             ;;
     esac

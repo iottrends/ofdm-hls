@@ -1,24 +1,46 @@
 // ============================================================
-// viterbi_dec.cpp v2 — Sliding-Window Hard-Decision Viterbi Decoder
+// viterbi_dec.cpp v3 — Sliding-Window Hard-Decision Viterbi Decoder
 //
-// v2 optimisations over v1 (target: ~4,000 LUT, was 13,388 LUT):
-//   • ACS:     PIPELINE II=1 + UNROLL factor=16
-//               → 16 butterflies in parallel, 4 cycles/stage.
-//   • pm/pm_new: keep complete partition (registers, unlimited read ports).
-//   • circ_wr_idx counter: replaces fwd % CIRC_SIZE throughout.
-//               CIRC_SIZE=192 is non-power-of-2 → eliminates 3 sequential
-//               integer dividers (35-36 cycles each) that caused 23 ns
-//               critical path and 37 cycles/iter in FLUSH_TB/WIN_TB.
-//   • win_bits: ap_uint<1>[96]+complete replaced by ap_uint<WIN_LEN>
-//               packed register → eliminates ~1,500 LUT mux.
-//   • branch_outputs: INLINE.
-//   • COPY_PM: PIPELINE II=1 + UNROLL factor=16 (4 cycles/copy).
-//   • BEST_S:  PIPELINE II=1 sequential scan.
+// v3 throughput upgrade for 16-QAM rate-2/3 real-time decoding.
 //
-// Throughput (16-QAM r2/3, 200 data SCs → 536 data bits):
-//   total_fwd = 672 stages × ~10 cycles ≈ 6,720 cycles
-//   Traceback  7 windows   × ~350 cycles ≈ 2,450 cycles
-//   Total                               ≈ 9,170 cycles < 14,400 ✓
+// Problem with v2 (unroll=16 @ 100 MHz)
+// ─────────────────────────────────────
+//   ACS ran 4 cycles/stage → ~10 cycles/trellis stage at 100 MHz.
+//   16-QAM r2/3, 255 syms → 135,915 data bits × 10 cycles = 1.36 M cy
+//   = 13.6 ms on 100 MHz clock, vs. 3.67 ms real-time budget.
+//   → v2 is ~3.7× too slow.  Cannot keep up with 16-QAM r1/2 or r2/3.
+//
+// v3 fixes
+// ────────
+//   • ACS:     UNROLL factor=64 → 1 cycle/stage (64 parallel butterflies).
+//   • COPY_PM: UNROLL full      → 1 cycle (64 parallel FF-to-FF copies).
+//   • FLUSH_TB / WIN_TB: PIPELINE II=1 explicit.
+//   • Solution clock period must be set to 5 ns (200 MHz) in the HLS
+//     solution (create_clock -period 5).  That is the only "knob" that
+//     actually lifts Fmax — pragmas alone don't.
+//
+// Expected throughput at 200 MHz (16-QAM r2/3, 255 syms):
+//   Forward : 136k stages × 2 cy       ≈ 272k cy
+//   Traceback: 1,060 wins × 256 cy II=1 ≈ 272k cy
+//   Total    ≈ 544k cy / 200 MHz       ≈ 2.7 ms  <  3.67 ms ✓
+//
+// Timing-closure note (5 ns is tight)
+// ──────────────────────────────────
+//   Each butterfly's critical path is:
+//     pm[] FF read → 16-bit add (bm) → 16-bit compare cost0/cost1 → mux
+//     → pm_new[] FF write.
+//   On Artix-7 -1 that is ~4.0-4.5 ns — fits 5 ns but with little slack.
+//   If 200 MHz closure fails in P&R, the correct next move is to split
+//   the ACS into two pipeline stages (II=2 across the add/compare
+//   boundary) — NOT to reduce unroll.  II=2 at 200 MHz still beats
+//   II=4 at 100 MHz.
+//
+// Resource cost
+// ─────────────
+//   ACS logic grows ~4× (16 → 64 parallel adders/compares), roughly
+//   4,000 LUT for the ACS itself.  pm/pm_new remain complete-partitioned
+//   (64 × 16 = 1024 FF each).  On Artix-50T (32,600 LUT) this leaves
+//   ample headroom.
 // ============================================================
 #include "conv_fec.h"
 
@@ -128,7 +150,7 @@ void viterbi_dec(
 
         ACS: for (int sp = 0; sp < N_STATES; sp++) {
 #pragma HLS PIPELINE II=1
-#pragma HLS unroll factor=16
+#pragma HLS unroll factor=64
             ap_uint<1> b = (ap_uint<1>)((sp >> 5) & 1);
             int p0       = (sp & 0x1F) << 1;
             int p1       = p0 | 1;
@@ -163,10 +185,9 @@ void viterbi_dec(
         circ[circ_wr_idx] = pred_word;
         circ_wr_idx = (circ_wr_idx == CIRC_SIZE - 1) ? 0 : circ_wr_idx + 1;
 
-        // Copy pm_new → pm (4 cycles with unroll=16)
+        // Copy pm_new → pm (1 cycle, fully unrolled — 64 parallel FF copies)
         COPY_PM: for (int s = 0; s < N_STATES; s++) {
-#pragma HLS PIPELINE II=1
-#pragma HLS unroll factor=16
+#pragma HLS unroll
             pm[s] = pm_new[s];
         }
 
@@ -194,6 +215,7 @@ void viterbi_dec(
                 // Flush traceback: FLUSH_LEN steps — discard (resolves start
                 // state uncertainty; no integer division needed).
                 FLUSH_TB: for (int k = 0; k < FLUSH_LEN; k++) {
+#pragma HLS PIPELINE II=1
                     ap_uint<1> p = circ[tb_idx][state];
                     state  = ((state & 0x1F) << 1) | (int)p;
                     tb_idx = (tb_idx == 0) ? CIRC_SIZE - 1 : tb_idx - 1;
@@ -201,6 +223,7 @@ void viterbi_dec(
 
                 // Output traceback → packed register (chronological order).
                 WIN_TB: for (int k = 0; k < WIN_LEN; k++) {
+#pragma HLS PIPELINE II=1
                     win_packed[WIN_LEN - 1 - k] = (ap_uint<1>)((state >> 5) & 1);
                     ap_uint<1> p = circ[tb_idx][state];
                     state  = ((state & 0x1F) << 1) | (int)p;

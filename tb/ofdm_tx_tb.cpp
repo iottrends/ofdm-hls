@@ -101,8 +101,9 @@ int main(int argc, char* argv[]) {
                 /*is_rx=*/ap_uint<1>(0));
 
     // ── Run OFDM TX ───────────────────────────────────────────
-    hls::stream<iq_t> ifft_in_s("ifft_in"), ifft_out_s("ifft_out");
-    ofdm_tx(interleaved, iq_out, ifft_in_s, ifft_out_s, (mod_t)TB_MOD, (ap_uint<8>)TB_N_SYMS);
+    hls::stream<iq32_t> ifft_in_s("ifft_in"), ifft_out_s("ifft_out");
+    modcod_t tb_modcod = ((modcod_t)(TB_MOD & 1) << 1) | (modcod_t)(TB_FEC_RATE & 1);
+    ofdm_tx(interleaved, iq_out, ifft_in_s, ifft_out_s, tb_modcod, (ap_uint<8>)TB_N_SYMS);
 
     // ── Dump output ───────────────────────────────────────────
     // Format: one "I Q\n" pair per sample, floating-point.

@@ -233,10 +233,10 @@ static void fill_freq_buffer(
 // 256 time-domain samples.  The xfft core is configured for 256-pt IFFT
 // with scale_sch=0xAA (÷256 total) via its s_axis_config port in the BD.
 static void run_ifft(
-    csample_t          in[FFT_SIZE],
-    csample_t          out[FFT_SIZE],
-    hls::stream<iq_t> &ifft_in,
-    hls::stream<iq_t> &ifft_out
+    csample_t            in[FFT_SIZE],
+    csample_t            out[FFT_SIZE],
+    hls::stream<iq32_t> &ifft_in,
+    hls::stream<iq32_t> &ifft_out
 ) {
     #pragma HLS INLINE off
 
@@ -279,18 +279,20 @@ static void run_ifft(
         out[i] = csample_t((sample_t)(re[i] / FFT_SIZE), (sample_t)(im[i] / FFT_SIZE));
     (void)ifft_in; (void)ifft_out;
 #else
+    // No TLAST driven to xfft: frame length is fixed at IP-build time
+    // (FFT_SIZE=256), so the xfft generates its own output TLAST and
+    // ignores s_axis_data_tlast on its input port.
     IFFT_TX: for (int i = 0; i < FFT_SIZE; i++) {
         #pragma HLS PIPELINE II=1
-        iq_t s;
-        s.i    = in[i].real();
-        s.q    = in[i].imag();
-        s.last = (i == FFT_SIZE - 1) ? ap_uint<1>(1) : ap_uint<1>(0);
+        iq32_t s;
+        s.i = in[i].real();
+        s.q = in[i].imag();
         ifft_in.write(s);
     }
 
     IFFT_RX: for (int i = 0; i < FFT_SIZE; i++) {
         #pragma HLS PIPELINE II=1
-        iq_t s = ifft_out.read();
+        iq32_t s = ifft_out.read();
         out[i] = csample_t(s.i, s.q);
     }
 #endif
@@ -349,8 +351,8 @@ static void insert_cp_and_send(
 static void process_symbol(
     hls::stream<ap_uint<8>> &bits_in,
     hls::stream<iq_t>        &iq_out,
-    hls::stream<iq_t>        &ifft_in,
-    hls::stream<iq_t>        &ifft_out,
+    hls::stream<iq32_t>      &ifft_in,
+    hls::stream<iq32_t>      &ifft_out,
     mod_t                     mod,
     bool                      is_last
 ) {
@@ -379,11 +381,11 @@ static void process_symbol(
 // INLINE off → one RTL module; both callers share it.
 // ============================================================
 static void send_freq_symbol(
-    csample_t          freq[FFT_SIZE],
-    hls::stream<iq_t> &out,
-    hls::stream<iq_t> &ifft_in,
-    hls::stream<iq_t> &ifft_out,
-    bool               is_last
+    csample_t             freq[FFT_SIZE],
+    hls::stream<iq_t>    &out,
+    hls::stream<iq32_t>  &ifft_in,
+    hls::stream<iq32_t>  &ifft_out,
+    bool                  is_last
 ) {
     #pragma HLS INLINE off
     csample_t time_buf[FFT_SIZE];
@@ -404,9 +406,9 @@ static void send_freq_symbol(
 // consistency; data bins carry the precomputed ZC LUT values.
 // ============================================================
 static void send_preamble(
-    hls::stream<iq_t> &out,
-    hls::stream<iq_t> &ifft_in,
-    hls::stream<iq_t> &ifft_out
+    hls::stream<iq_t>    &out,
+    hls::stream<iq32_t>  &ifft_in,
+    hls::stream<iq32_t>  &ifft_out
 ) {
     #pragma HLS INLINE  // inlined into ofdm_tx so send_freq_symbol can be shared
 
@@ -470,16 +472,17 @@ static ap_uint<16> crc16_hdr(ap_uint<10> data) {
 // Header is never the last symbol (data follows).
 // ============================================================
 static void send_header(
-    hls::stream<iq_t> &out,
-    hls::stream<iq_t> &ifft_in,
-    hls::stream<iq_t> &ifft_out,
-    mod_t              mod,
-    ap_uint<8>         n_syms
+    hls::stream<iq_t>    &out,
+    hls::stream<iq32_t>  &ifft_in,
+    hls::stream<iq32_t>  &ifft_out,
+    modcod_t              modcod,
+    ap_uint<8>            n_syms
 ) {
     #pragma HLS INLINE  // inlined into ofdm_tx so send_freq_symbol can be shared
 
-    // Build 26-bit header word
-    ap_uint<10> payload = ((ap_uint<10>)n_syms << 2) | ap_uint<10>(mod & 1);
+    // Build 26-bit header word.
+    // payload layout: [ n_syms(8) : modcod(2) ]  →  modcod = {mod, rate}
+    ap_uint<10> payload = ((ap_uint<10>)n_syms << 2) | ap_uint<10>(modcod & 0x3);
     ap_uint<16> crc     = crc16_hdr(payload);
     ap_uint<26> hdr     = ((ap_uint<26>)crc << 10) | (ap_uint<26>)payload;
 
@@ -516,18 +519,21 @@ static void send_header(
 void ofdm_tx(
     hls::stream<ap_uint<8>> &bits_in,
     hls::stream<iq_t>        &iq_out,
-    hls::stream<iq_t>        &ifft_in,
-    hls::stream<iq_t>        &ifft_out,
-    mod_t                     mod,
+    hls::stream<iq32_t>      &ifft_in,
+    hls::stream<iq32_t>      &ifft_out,
+    modcod_t                  modcod,    // 2-bit: modcod[1]=mod, modcod[0]=rate
     ap_uint<8>                n_syms
 ) {
     #pragma HLS INTERFACE axis      port=bits_in
     #pragma HLS INTERFACE axis      port=iq_out
     #pragma HLS INTERFACE axis      port=ifft_in
     #pragma HLS INTERFACE axis      port=ifft_out
-    #pragma HLS INTERFACE s_axilite port=mod     bundle=ctrl
+    #pragma HLS INTERFACE s_axilite port=modcod  bundle=ctrl
     #pragma HLS INTERFACE s_axilite port=n_syms  bundle=ctrl
     #pragma HLS INTERFACE s_axilite port=return  bundle=ctrl
+
+    // Decode modcod: mod drives the QAM mapper in unpack_bits / process_symbol.
+    mod_t mod = (mod_t)modcod[1];
 
     // C2 fix: send FFT_SIZE+CP_LEN (288) null samples before the ZC preamble.
     // sync_detect's search window is designed for best_t = 288 samples,
@@ -544,7 +550,7 @@ void ofdm_tx(
     }
 
     send_preamble(iq_out, ifft_in, ifft_out);
-    send_header(iq_out, ifft_in, ifft_out, mod, n_syms);
+    send_header(iq_out, ifft_in, ifft_out, modcod, n_syms);
 
     SYMBOL_LOOP: for (ap_uint<8> s = 0; s < n_syms; s++) {
         bool is_last = (s == (ap_uint<8>)(n_syms - 1));
