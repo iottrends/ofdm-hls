@@ -1,6 +1,6 @@
 `timescale 1 ns / 1 ps
 
-module ofdm_tx_hls_deadlock_idx2_monitor ( // for module ofdm_tx_ofdm_tx_inst.grp_send_freq_symbol_fu_432
+module ofdm_tx_hls_deadlock_idx2_monitor ( // for module ofdm_tx_ofdm_tx_inst.grp_send_freq_symbol_fu_434
     input wire clock,
     input wire reset,
     input wire [10:0] axis_block_sigs,

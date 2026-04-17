@@ -11,23 +11,30 @@
 #              → fec_cc1 (100→200MHz) → fec_rx
 #              → fec_cc2 (200→100MHz) → ofdm_mac → rx_output_fifo → host_rx_out
 #
-#   Control:
-#     ctrl_xbar: 2 SI × 6 MI smartconnect
-#       S00  = external ctrl_axi (host)
-#       S01  = ofdm_mac.m_axi_csr_master (MAC → PHY CSRs)
-#       M00..M04 = tx_chain, ofdm_tx, sync_cfo, ofdm_rx, fec_rx
-#       M05  = ofdm_mac.s_axi_ctrl (host reaches MAC's own CSR)
+#   Control (no xbar inside BD):
+#     Each block's s_axi_ctrl / s_axi_stat is exposed as an external port
+#     on the wrapper. LiteX's shell.py instantiates an
+#     AXILiteInterconnectShared (pure Verilog, 2 masters × 5 slaves) to route:
+#       Host (via PCIe BAR)              → all 5 CSR ports
+#       ofdm_mac.m_axi_csr_master        → tx_chain + ofdm_tx (autonomous)
+#     External CSR ports on wrapper:
+#       ctrl_tx_chain, ctrl_ofdm_tx, ctrl_sync_det, ctrl_ofdm_rx, ctrl_ofdm_mac
+#       mac_csr_master (MAC's m_axi output, routed back by LiteX)
+#
+# Why no BD xbar: LiteX's `synth_ip` in project mode can't recurse into
+# sub-BD IPs (smartconnect, axi_interconnect), producing stub-only DCPs
+# that fail opt_design's INBB-3 DRC. LiteX-native RTL routing sidesteps it.
 #
 # Clock domains:
 #   clk     (100 MHz): tx_chain, ofdm_tx, sync_cfo, ofdm_rx, ofdm_mac,
-#                      xfft pair, adc_fifo, fec_cc2 master, smartconnect
+#                      xfft pair, adc_fifo, rx_output_fifo, fec_cc2 master
 #   clk_fec (200 MHz): fec_rx, fec_cc1 master, fec_cc2 slave
 # ============================================================
 
 set ROOT     [file normalize [file dirname [file dirname [info script]]]]
 set PROJ_DIR "$ROOT/vivado/ofdm_bd"
 set IP_REPO  "$ROOT/ip_repo"
-set PART     "xc7a50tcsg325-2"
+set PART     "xc7a50tcsg325-1"
 
 set_param general.maxThreads 2
 
@@ -134,18 +141,19 @@ connect_bd_net [get_bd_pins ofdm_rx_0/modcod_out] [get_bd_pins fec_rx_0/modcod]
 connect_bd_net [get_bd_pins ofdm_rx_0/modcod_out] [get_bd_pins ofdm_mac_0/rx_modcod_in]
 connect_bd_net [get_bd_pins ofdm_rx_0/n_syms_out] [get_bd_pins fec_rx_0/n_syms]
 connect_bd_net [get_bd_pins ofdm_rx_0/n_syms_out] [get_bd_pins ofdm_mac_0/rx_n_syms_in]
-connect_bd_net [get_bd_pins ofdm_rx_0/header_err] [get_bd_pins ofdm_mac_0/rx_header_err]
+# header_err is inside ofdm_rx's s_axi_stat bundle (CSR register),
+# not a standalone wire.  Tie ofdm_mac rx_header_err to 0.
+create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 hdr_err_const
+set_property -dict [list CONFIG.CONST_WIDTH {1} CONFIG.CONST_VAL {0}] [get_bd_cells hdr_err_const]
+connect_bd_net [get_bd_pins hdr_err_const/dout] [get_bd_pins ofdm_mac_0/rx_header_err]
 
 # Feedback from ofdm_rx → sync_cfo: n_syms_fb tells the gate how many data
 # symbols to forward after the preamble+header.  Bridges the RX chain's
 # header-decode output back to the gatekeeper at the front.
 connect_bd_net [get_bd_pins ofdm_rx_0/n_syms_fb] [get_bd_pins sync_detect_0/n_syms_fb]
 
-# ── ofdm_mac ap_start tied high (self-retrigger per packet) ────
-# sync_detect, ofdm_rx, fec_rx are ap_ctrl_none — no ap_start pin to wire.
-create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 mac_ap_start_hi
-set_property -dict [list CONFIG.CONST_WIDTH {1} CONFIG.CONST_VAL {1}] [get_bd_cells mac_ap_start_hi]
-connect_bd_net [get_bd_pins mac_ap_start_hi/dout] [get_bd_pins ofdm_mac_0/ap_start]
+# ofdm_mac uses ap_ctrl_hs via s_axi_ctrl — ap_start is a CSR register
+# bit (offset 0x00), not a standalone wire.  Host/driver sets it via CSR.
 
 # ── ofdm_tx ↔ xfft IFFT ───────────────────────────────────
 connect_bd_intf_net [get_bd_intf_pins ofdm_tx_0/ifft_in]        [get_bd_intf_pins ofdm_tx_ifft/S_AXIS_DATA]
@@ -173,79 +181,54 @@ connect_bd_net [get_bd_ports clk]   [get_bd_pins rx_output_fifo/s_axis_aclk]
 connect_bd_net [get_bd_ports rst_n] [get_bd_pins rx_output_fifo/s_axis_aresetn]
 connect_bd_intf_net [get_bd_intf_pins ofdm_mac_0/host_rx_out] [get_bd_intf_pins rx_output_fifo/S_AXIS]
 
-# ── AXI smartconnect: 2 SI × 6 MI ─────────────────────────
-# S00 = host (external), S01 = ofdm_mac m_axi CSR master
-# M00..M04 = PHY blocks; M05 = ofdm_mac own s_axi_ctrl
-set csr_cells {
-    tx_chain_0
-    ofdm_tx_0
-    sync_detect_0
-    ofdm_rx_0
-    fec_rx_0
-    ofdm_mac_0
-}
+# ── Per-block CSR ports (no xbar inside BD) ────────────────
+# Smartconnect/axi_interconnect removed: LiteX's flat `synth_ip` in project
+# mode can't recurse into sub-BD IPs — smartconnect has ~15 sub-IPs,
+# axi_interconnect has ~3 — so it produces stub-only DCPs that fail
+# opt_design's INBB-3 black-box DRC.
+#
+# Instead, each HLS block's CSR slave is exposed as an external port on the
+# wrapper. LiteX's shell.py instantiates AXILiteInterconnectShared (pure
+# Verilog, no Xilinx IP) with 2 masters (host PCIe BAR + MAC m_axi_csr_master)
+# and 5 slaves (one per block). Address map now lives in LiteX, not the BD.
 
-create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 ctrl_xbar
-set_property -dict [list \
-    CONFIG.NUM_SI   {2}  \
-    CONFIG.NUM_MI   {6}  \
-    CONFIG.NUM_CLKS {2}  \
-] [get_bd_cells ctrl_xbar]
-
-connect_bd_net [get_bd_ports clk]     [get_bd_pins ctrl_xbar/aclk]
-connect_bd_net [get_bd_ports clk_fec] [get_bd_pins ctrl_xbar/aclk1]
-connect_bd_net [get_bd_ports rst_n]   [get_bd_pins ctrl_xbar/aresetn]
-
-# Attach MAC's m_axi master to S01
-connect_bd_intf_net [get_bd_intf_pins ctrl_xbar/S01_AXI] \
-                    [get_bd_intf_pins ofdm_mac_0/m_axi_csr_master]
-
-# M00..M05 to PHY + MAC s_axilite slaves
-set i 0
-foreach cell $csr_cells {
-    set mi [format "M%02d_AXI" $i]
-    connect_bd_intf_net [get_bd_intf_pins ctrl_xbar/$mi] \
-                        [get_bd_intf_pins $cell/s_axi_ctrl]
-    incr i
-}
-
-# ── External ports ────────────────────────────────────────
+# ── External ports: data paths (unchanged from before) ─────
 make_bd_intf_pins_external [get_bd_intf_pins ofdm_mac_0/host_tx_in] -name host_tx_in
 make_bd_intf_pins_external [get_bd_intf_pins ofdm_tx_0/iq_out]      -name rf_tx_out
 make_bd_intf_pins_external [get_bd_intf_pins adc_input_fifo/S_AXIS] -name rf_rx_in
 make_bd_intf_pins_external [get_bd_intf_pins rx_output_fifo/M_AXIS] -name host_rx_out
-make_bd_intf_pins_external [get_bd_intf_pins ctrl_xbar/S00_AXI]     -name ctrl_axi
-set_property CONFIG.PROTOCOL   AXI4LITE [get_bd_intf_ports ctrl_axi]
-set_property CONFIG.DATA_WIDTH 32       [get_bd_intf_ports ctrl_axi]
-set_property CONFIG.ADDR_WIDTH 16       [get_bd_intf_ports ctrl_axi]
+
+# ── External ports: per-block CSR slaves (5) + MAC master (1) ─
+# Each block's s_axi_ctrl / s_axi_stat becomes a wrapper port.
+# Shell.py routes to these via an AXILiteInterconnectShared.
+make_bd_intf_pins_external [get_bd_intf_pins tx_chain_0/s_axi_ctrl]     -name ctrl_tx_chain
+make_bd_intf_pins_external [get_bd_intf_pins ofdm_tx_0/s_axi_ctrl]      -name ctrl_ofdm_tx
+make_bd_intf_pins_external [get_bd_intf_pins sync_detect_0/s_axi_stat]  -name ctrl_sync_det
+make_bd_intf_pins_external [get_bd_intf_pins ofdm_rx_0/s_axi_stat]      -name ctrl_ofdm_rx
+make_bd_intf_pins_external [get_bd_intf_pins ofdm_mac_0/s_axi_ctrl]     -name ctrl_ofdm_mac
+
+# MAC's m_axi master (HLS-emitted AXI; LiteX adapts to AXI-Lite in shell.py)
+make_bd_intf_pins_external [get_bd_intf_pins ofdm_mac_0/m_axi_csr_master] -name mac_csr_master
+
+# AXI-Lite properties for the 5 slaves — 4 KB window each (12-bit addr).
+foreach p {ctrl_tx_chain ctrl_ofdm_tx ctrl_sync_det ctrl_ofdm_rx ctrl_ofdm_mac} {
+    set_property CONFIG.PROTOCOL   AXI4LITE [get_bd_intf_ports $p]
+    set_property CONFIG.DATA_WIDTH 32       [get_bd_intf_ports $p]
+    set_property CONFIG.ADDR_WIDTH 12       [get_bd_intf_ports $p]
+    set_property CONFIG.ID_WIDTH   0        [get_bd_intf_ports $p]
+}
+# MAC master: 16-bit addr (same as host had — lets LiteX use the same
+# offsets as driver code expects: tx_chain=0x0000, ofdm_tx=0x1000).
+set_property CONFIG.DATA_WIDTH 32       [get_bd_intf_ports mac_csr_master]
+set_property CONFIG.ADDR_WIDTH 16       [get_bd_intf_ports mac_csr_master]
 
 # Expose MAC interrupt pulses at the wrapper boundary
 make_bd_pins_external [get_bd_pins ofdm_mac_0/tx_done_pulse] -name mac_tx_done_pulse
 make_bd_pins_external [get_bd_pins ofdm_mac_0/rx_pkt_pulse]  -name mac_rx_pkt_pulse
 
-# ── AXI-Lite address map (host S00 sees all 6 slaves) ─────
-# Keep this ordering in sync with shell.py MAC CSR constants.
-set off 0
-foreach cell $csr_cells {
-    assign_bd_address \
-        -target_address_space [get_bd_addr_spaces /ctrl_axi] \
-        -offset [expr {$off}] \
-        -range  4K \
-        [get_bd_addr_segs "$cell/s_axi_ctrl/Reg"]
-    set off [expr {$off + 0x1000}]
-}
-
-# MAC m_axi master reaches ONLY the TX chain blocks (tx_chain, ofdm_tx).
-# RX blocks are free-running — MAC does not touch their CSRs.  Host still
-# has full 6-slot access via S00 for stats/diagnostics.
-assign_bd_address \
-    -target_address_space [get_bd_addr_spaces ofdm_mac_0/Data_m_axi_csr_master] \
-    -offset 0x0000 -range 4K \
-    [get_bd_addr_segs "tx_chain_0/s_axi_ctrl/Reg"]
-assign_bd_address \
-    -target_address_space [get_bd_addr_spaces ofdm_mac_0/Data_m_axi_csr_master] \
-    -offset 0x1000 -range 4K \
-    [get_bd_addr_segs "ofdm_tx_0/s_axi_ctrl/Reg"]
+# NOTE: No `assign_bd_address` calls here. The BD has no internal routing now;
+# every CSR slave is a direct external port. Address decoding lives in LiteX's
+# AXILiteInterconnectShared.
 
 # ── Validate, save, wrap ──────────────────────────────────
 validate_bd_design
@@ -266,9 +249,10 @@ puts $fl "# Auto-generated by create_ofdm_bd.tcl — do not edit."
 puts $fl $wrapper_v
 set gen_dir "$PROJ_DIR/ofdm_bd.gen/sources_1/bd/ofdm_chain"
 foreach ext {.v .sv .vh .svh} {
-    foreach f [glob -nocomplain -directory $gen_dir -types f -- "*/*$ext"]     { puts $fl $f }
-    foreach f [glob -nocomplain -directory $gen_dir -types f -- "*/*/*$ext"]   { puts $fl $f }
-    foreach f [glob -nocomplain -directory $gen_dir -types f -- "*/*/*/*$ext"] { puts $fl $f }
+    foreach f [glob -nocomplain -directory $gen_dir -types f -- "*/*$ext"]       { puts $fl $f }
+    foreach f [glob -nocomplain -directory $gen_dir -types f -- "*/*/*$ext"]     { puts $fl $f }
+    foreach f [glob -nocomplain -directory $gen_dir -types f -- "*/*/*/*$ext"]   { puts $fl $f }
+    foreach f [glob -nocomplain -directory $gen_dir -types f -- "*/*/*/*/*$ext"] { puts $fl $f }
 }
 close $fl
 

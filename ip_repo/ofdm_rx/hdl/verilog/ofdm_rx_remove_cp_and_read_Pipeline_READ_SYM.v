@@ -56,7 +56,7 @@ wire    ap_enable_reg_pp0_iter0;
 reg    ap_enable_reg_pp0_iter1;
 reg    ap_idle_pp0;
 reg    ap_block_pp0_stage0_subdone;
-wire   [0:0] icmp_ln364_fu_88_p2;
+wire   [0:0] icmp_ln365_fu_88_p2;
 reg    ap_condition_exit_pp0_iter0_stage0;
 wire    ap_loop_exit_ready;
 reg    ap_ready_int;
@@ -64,9 +64,9 @@ reg    iq_in_TDATA_blk_n;
 wire    ap_block_pp0_stage0_grp1;
 reg   [8:0] i_reg_131;
 reg    ap_block_pp0_stage0_11001;
-wire   [63:0] zext_ln364_fu_105_p1;
+wire   [63:0] zext_ln365_fu_105_p1;
 reg   [8:0] i_3_fu_44;
-wire   [8:0] add_ln364_fu_94_p2;
+wire   [8:0] add_ln365_fu_94_p2;
 wire    ap_loop_init;
 reg   [8:0] ap_sig_allocacmp_i;
 wire    ap_block_pp0_stage0;
@@ -143,8 +143,8 @@ end
 
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        if (((icmp_ln364_fu_88_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
-            i_3_fu_44 <= add_ln364_fu_94_p2;
+        if (((icmp_ln365_fu_88_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
+            i_3_fu_44 <= add_ln365_fu_94_p2;
         end else if ((ap_loop_init == 1'b1)) begin
             i_3_fu_44 <= 9'd0;
         end
@@ -158,7 +158,7 @@ always @ (posedge ap_clk) begin
 end
 
 always @ (*) begin
-    if (((icmp_ln364_fu_88_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+    if (((icmp_ln365_fu_88_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b1;
     end else begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b0;
@@ -264,7 +264,7 @@ always @ (*) begin
     endcase
 end
 
-assign add_ln364_fu_94_p2 = (ap_sig_allocacmp_i + 9'd1);
+assign add_ln365_fu_94_p2 = (ap_sig_allocacmp_i + 9'd1);
 
 assign ap_CS_fsm_pp0_stage0 = ap_CS_fsm[32'd0];
 
@@ -294,7 +294,7 @@ assign ap_loop_exit_ready = ap_condition_exit_pp0_iter0_stage0;
 
 assign ap_ready = ap_ready_sig;
 
-assign buf_M_imag_address0 = zext_ln364_fu_105_p1;
+assign buf_M_imag_address0 = zext_ln365_fu_105_p1;
 
 assign buf_M_imag_ce0 = buf_M_imag_ce0_local;
 
@@ -302,7 +302,7 @@ assign buf_M_imag_d0 = {{iq_in_TDATA[31:16]}};
 
 assign buf_M_imag_we0 = buf_M_imag_we0_local;
 
-assign buf_M_real_address0 = zext_ln364_fu_105_p1;
+assign buf_M_real_address0 = zext_ln365_fu_105_p1;
 
 assign buf_M_real_ce0 = buf_M_real_ce0_local;
 
@@ -310,10 +310,10 @@ assign buf_M_real_d0 = s_i_fu_110_p1;
 
 assign buf_M_real_we0 = buf_M_real_we0_local;
 
-assign icmp_ln364_fu_88_p2 = ((ap_sig_allocacmp_i == 9'd256) ? 1'b1 : 1'b0);
+assign icmp_ln365_fu_88_p2 = ((ap_sig_allocacmp_i == 9'd256) ? 1'b1 : 1'b0);
 
 assign s_i_fu_110_p1 = iq_in_TDATA[15:0];
 
-assign zext_ln364_fu_105_p1 = i_reg_131;
+assign zext_ln365_fu_105_p1 = i_reg_131;
 
 endmodule //ofdm_rx_remove_cp_and_read_Pipeline_READ_SYM

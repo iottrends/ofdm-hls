@@ -18,7 +18,4 @@ config:
 required:
     - compatible
     - reg
-additionalProperties:
-   - interrupts
-   - interrupt-parent
 

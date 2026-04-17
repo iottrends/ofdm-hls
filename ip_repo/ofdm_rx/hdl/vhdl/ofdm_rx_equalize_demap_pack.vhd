@@ -34,30 +34,30 @@ port (
     bits_out_TDATA : OUT STD_LOGIC_VECTOR (7 downto 0);
     bits_out_TVALID : OUT STD_LOGIC;
     bits_out_TREADY : IN STD_LOGIC;
-    grp_fu_1595_p_din0 : OUT STD_LOGIC_VECTOR (22 downto 0);
-    grp_fu_1595_p_din1 : OUT STD_LOGIC_VECTOR (31 downto 0);
-    grp_fu_1595_p_dout0 : IN STD_LOGIC_VECTOR (53 downto 0);
-    grp_fu_1595_p_ce : OUT STD_LOGIC;
-    grp_fu_1599_p_din0 : OUT STD_LOGIC_VECTOR (31 downto 0);
-    grp_fu_1599_p_din1 : OUT STD_LOGIC_VECTOR (22 downto 0);
-    grp_fu_1599_p_dout0 : IN STD_LOGIC_VECTOR (53 downto 0);
-    grp_fu_1599_p_ce : OUT STD_LOGIC;
-    grp_fu_1603_p_din0 : OUT STD_LOGIC_VECTOR (31 downto 0);
-    grp_fu_1603_p_din1 : OUT STD_LOGIC_VECTOR (22 downto 0);
-    grp_fu_1603_p_dout0 : IN STD_LOGIC_VECTOR (53 downto 0);
-    grp_fu_1603_p_ce : OUT STD_LOGIC;
-    grp_fu_1607_p_din0 : OUT STD_LOGIC_VECTOR (31 downto 0);
-    grp_fu_1607_p_din1 : OUT STD_LOGIC_VECTOR (22 downto 0);
-    grp_fu_1607_p_dout0 : IN STD_LOGIC_VECTOR (53 downto 0);
-    grp_fu_1607_p_ce : OUT STD_LOGIC;
-    grp_fu_1611_p_din0 : OUT STD_LOGIC_VECTOR (31 downto 0);
-    grp_fu_1611_p_din1 : OUT STD_LOGIC_VECTOR (22 downto 0);
-    grp_fu_1611_p_dout0 : IN STD_LOGIC_VECTOR (53 downto 0);
-    grp_fu_1611_p_ce : OUT STD_LOGIC;
-    grp_fu_1615_p_din0 : OUT STD_LOGIC_VECTOR (31 downto 0);
-    grp_fu_1615_p_din1 : OUT STD_LOGIC_VECTOR (22 downto 0);
-    grp_fu_1615_p_dout0 : IN STD_LOGIC_VECTOR (53 downto 0);
-    grp_fu_1615_p_ce : OUT STD_LOGIC );
+    grp_fu_1557_p_din0 : OUT STD_LOGIC_VECTOR (22 downto 0);
+    grp_fu_1557_p_din1 : OUT STD_LOGIC_VECTOR (31 downto 0);
+    grp_fu_1557_p_dout0 : IN STD_LOGIC_VECTOR (53 downto 0);
+    grp_fu_1557_p_ce : OUT STD_LOGIC;
+    grp_fu_1561_p_din0 : OUT STD_LOGIC_VECTOR (31 downto 0);
+    grp_fu_1561_p_din1 : OUT STD_LOGIC_VECTOR (22 downto 0);
+    grp_fu_1561_p_dout0 : IN STD_LOGIC_VECTOR (53 downto 0);
+    grp_fu_1561_p_ce : OUT STD_LOGIC;
+    grp_fu_1565_p_din0 : OUT STD_LOGIC_VECTOR (31 downto 0);
+    grp_fu_1565_p_din1 : OUT STD_LOGIC_VECTOR (22 downto 0);
+    grp_fu_1565_p_dout0 : IN STD_LOGIC_VECTOR (53 downto 0);
+    grp_fu_1565_p_ce : OUT STD_LOGIC;
+    grp_fu_1569_p_din0 : OUT STD_LOGIC_VECTOR (31 downto 0);
+    grp_fu_1569_p_din1 : OUT STD_LOGIC_VECTOR (22 downto 0);
+    grp_fu_1569_p_dout0 : IN STD_LOGIC_VECTOR (53 downto 0);
+    grp_fu_1569_p_ce : OUT STD_LOGIC;
+    grp_fu_1573_p_din0 : OUT STD_LOGIC_VECTOR (31 downto 0);
+    grp_fu_1573_p_din1 : OUT STD_LOGIC_VECTOR (22 downto 0);
+    grp_fu_1573_p_dout0 : IN STD_LOGIC_VECTOR (53 downto 0);
+    grp_fu_1573_p_ce : OUT STD_LOGIC;
+    grp_fu_1577_p_din0 : OUT STD_LOGIC_VECTOR (31 downto 0);
+    grp_fu_1577_p_din1 : OUT STD_LOGIC_VECTOR (22 downto 0);
+    grp_fu_1577_p_dout0 : IN STD_LOGIC_VECTOR (53 downto 0);
+    grp_fu_1577_p_ce : OUT STD_LOGIC );
 end;
 
 
@@ -167,8 +167,8 @@ attribute shreg_extract : string;
         G_eq_M_imag_address0 : OUT STD_LOGIC_VECTOR (7 downto 0);
         G_eq_M_imag_ce0 : OUT STD_LOGIC;
         G_eq_M_imag_q0 : IN STD_LOGIC_VECTOR (31 downto 0);
-        sext_ln514 : IN STD_LOGIC_VECTOR (22 downto 0);
-        sext_ln641 : IN STD_LOGIC_VECTOR (22 downto 0);
+        sext_ln515 : IN STD_LOGIC_VECTOR (22 downto 0);
+        sext_ln642 : IN STD_LOGIC_VECTOR (22 downto 0);
         bits_out_TDATA : OUT STD_LOGIC_VECTOR (7 downto 0);
         bits_out_TVALID : OUT STD_LOGIC );
     end component;
@@ -195,8 +195,8 @@ attribute shreg_extract : string;
         G_eq_M_imag_address0 : OUT STD_LOGIC_VECTOR (7 downto 0);
         G_eq_M_imag_ce0 : OUT STD_LOGIC;
         G_eq_M_imag_q0 : IN STD_LOGIC_VECTOR (31 downto 0);
-        sext_ln514 : IN STD_LOGIC_VECTOR (22 downto 0);
-        sext_ln641 : IN STD_LOGIC_VECTOR (22 downto 0);
+        sext_ln515 : IN STD_LOGIC_VECTOR (22 downto 0);
+        sext_ln642 : IN STD_LOGIC_VECTOR (22 downto 0);
         bits_out_TDATA : OUT STD_LOGIC_VECTOR (7 downto 0);
         bits_out_TVALID : OUT STD_LOGIC;
         grp_fu_112_p_din0 : OUT STD_LOGIC_VECTOR (22 downto 0);
@@ -283,8 +283,8 @@ begin
         G_eq_M_imag_address0 => grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_G_eq_M_imag_address0,
         G_eq_M_imag_ce0 => grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_G_eq_M_imag_ce0,
         G_eq_M_imag_q0 => G_eq_M_imag_q0,
-        sext_ln514 => cpe_cos,
-        sext_ln641 => cpe_sin,
+        sext_ln515 => cpe_cos,
+        sext_ln642 => cpe_sin,
         bits_out_TDATA => grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_bits_out_TDATA,
         bits_out_TVALID => grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_bits_out_TVALID);
 
@@ -309,33 +309,33 @@ begin
         G_eq_M_imag_address0 => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_G_eq_M_imag_address0,
         G_eq_M_imag_ce0 => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_G_eq_M_imag_ce0,
         G_eq_M_imag_q0 => G_eq_M_imag_q0,
-        sext_ln514 => cpe_cos,
-        sext_ln641 => cpe_sin,
+        sext_ln515 => cpe_cos,
+        sext_ln642 => cpe_sin,
         bits_out_TDATA => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_bits_out_TDATA,
         bits_out_TVALID => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_bits_out_TVALID,
         grp_fu_112_p_din0 => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_112_p_din0,
         grp_fu_112_p_din1 => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_112_p_din1,
-        grp_fu_112_p_dout0 => grp_fu_1595_p_dout0,
+        grp_fu_112_p_dout0 => grp_fu_1557_p_dout0,
         grp_fu_112_p_ce => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_112_p_ce,
         grp_fu_116_p_din0 => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_116_p_din0,
         grp_fu_116_p_din1 => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_116_p_din1,
-        grp_fu_116_p_dout0 => grp_fu_1599_p_dout0,
+        grp_fu_116_p_dout0 => grp_fu_1561_p_dout0,
         grp_fu_116_p_ce => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_116_p_ce,
         grp_fu_120_p_din0 => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_120_p_din0,
         grp_fu_120_p_din1 => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_120_p_din1,
-        grp_fu_120_p_dout0 => grp_fu_1603_p_dout0,
+        grp_fu_120_p_dout0 => grp_fu_1565_p_dout0,
         grp_fu_120_p_ce => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_120_p_ce,
         grp_fu_124_p_din0 => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_124_p_din0,
         grp_fu_124_p_din1 => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_124_p_din1,
-        grp_fu_124_p_dout0 => grp_fu_1607_p_dout0,
+        grp_fu_124_p_dout0 => grp_fu_1569_p_dout0,
         grp_fu_124_p_ce => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_124_p_ce,
         grp_fu_128_p_din0 => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_128_p_din0,
         grp_fu_128_p_din1 => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_128_p_din1,
-        grp_fu_128_p_dout0 => grp_fu_1611_p_dout0,
+        grp_fu_128_p_dout0 => grp_fu_1573_p_dout0,
         grp_fu_128_p_ce => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_128_p_ce,
         grp_fu_132_p_din0 => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_132_p_din0,
         grp_fu_132_p_din1 => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_132_p_din1,
-        grp_fu_132_p_dout0 => grp_fu_1615_p_dout0,
+        grp_fu_132_p_dout0 => grp_fu_1577_p_dout0,
         grp_fu_132_p_ce => grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_132_p_ce);
 
 
@@ -700,22 +700,22 @@ begin
         end if; 
     end process;
 
-    grp_fu_1595_p_ce <= grp_fu_112_ce;
-    grp_fu_1595_p_din0 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_112_p_din0;
-    grp_fu_1595_p_din1 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_112_p_din1;
-    grp_fu_1599_p_ce <= grp_fu_116_ce;
-    grp_fu_1599_p_din0 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_116_p_din0;
-    grp_fu_1599_p_din1 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_116_p_din1;
-    grp_fu_1603_p_ce <= grp_fu_120_ce;
-    grp_fu_1603_p_din0 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_120_p_din0;
-    grp_fu_1603_p_din1 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_120_p_din1;
-    grp_fu_1607_p_ce <= grp_fu_124_ce;
-    grp_fu_1607_p_din0 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_124_p_din0;
-    grp_fu_1607_p_din1 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_124_p_din1;
-    grp_fu_1611_p_ce <= grp_fu_128_ce;
-    grp_fu_1611_p_din0 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_128_p_din0;
-    grp_fu_1611_p_din1 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_128_p_din1;
-    grp_fu_1615_p_ce <= grp_fu_132_ce;
-    grp_fu_1615_p_din0 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_132_p_din0;
-    grp_fu_1615_p_din1 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_132_p_din1;
+    grp_fu_1557_p_ce <= grp_fu_112_ce;
+    grp_fu_1557_p_din0 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_112_p_din0;
+    grp_fu_1557_p_din1 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_112_p_din1;
+    grp_fu_1561_p_ce <= grp_fu_116_ce;
+    grp_fu_1561_p_din0 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_116_p_din0;
+    grp_fu_1561_p_din1 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_116_p_din1;
+    grp_fu_1565_p_ce <= grp_fu_120_ce;
+    grp_fu_1565_p_din0 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_120_p_din0;
+    grp_fu_1565_p_din1 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_120_p_din1;
+    grp_fu_1569_p_ce <= grp_fu_124_ce;
+    grp_fu_1569_p_din0 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_124_p_din0;
+    grp_fu_1569_p_din1 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_124_p_din1;
+    grp_fu_1573_p_ce <= grp_fu_128_ce;
+    grp_fu_1573_p_din0 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_128_p_din0;
+    grp_fu_1573_p_din1 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_128_p_din1;
+    grp_fu_1577_p_ce <= grp_fu_132_ce;
+    grp_fu_1577_p_din0 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_132_p_din0;
+    grp_fu_1577_p_din1 <= grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_132_p_din1;
 end behav;

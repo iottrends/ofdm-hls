@@ -25,9 +25,9 @@
 //        bit 0 - ap_done (Read/TOW)
 //        bit 1 - ap_ready (Read/TOW)
 //        others - reserved
-// 0x10 : Data signal of mod_r
-//        bit 0  - mod_r[0] (Read/Write)
-//        others - reserved
+// 0x10 : Data signal of modcod
+//        bit 1~0 - modcod[1:0] (Read/Write)
+//        others  - reserved
 // 0x14 : reserved
 // 0x18 : Data signal of n_syms
 //        bit 7~0 - n_syms[7:0] (Read/Write)
@@ -39,8 +39,8 @@
 #define XOFDM_TX_CTRL_ADDR_GIE         0x04
 #define XOFDM_TX_CTRL_ADDR_IER         0x08
 #define XOFDM_TX_CTRL_ADDR_ISR         0x0c
-#define XOFDM_TX_CTRL_ADDR_MOD_R_DATA  0x10
-#define XOFDM_TX_CTRL_BITS_MOD_R_DATA  1
+#define XOFDM_TX_CTRL_ADDR_MODCOD_DATA 0x10
+#define XOFDM_TX_CTRL_BITS_MODCOD_DATA 2
 #define XOFDM_TX_CTRL_ADDR_N_SYMS_DATA 0x18
 #define XOFDM_TX_CTRL_BITS_N_SYMS_DATA 8
 

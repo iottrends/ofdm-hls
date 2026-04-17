@@ -416,10 +416,10 @@ class AD9364Core(LiteXModule):
 class _CRG(Module):
     def __init__(self, platform, sys_clk_freq, ulpi_pads):
         self.rst = Signal()
-        self.clock_domains.cd_sys    = ClockDomain()
-        self.clock_domains.cd_rfic   = ClockDomain()
-        self.clock_domains.cd_idelay = ClockDomain()
-        self.clock_domains.cd_usb    = ClockDomain()
+        self.clock_domains.cd_sys    = ClockDomain("sys")
+        self.clock_domains.cd_rfic   = ClockDomain("rfic")
+        self.clock_domains.cd_idelay = ClockDomain("idelay")
+        self.clock_domains.cd_usb    = ClockDomain("usb")
 
         # 40 MHz TCXO → PLL → cd_sys (125 MHz) + cd_idelay (200 MHz)
         clk40 = platform.request("clk40")

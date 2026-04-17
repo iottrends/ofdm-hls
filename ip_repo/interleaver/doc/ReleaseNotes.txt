@@ -1,6 +1,0 @@
-
-Family       : artix7
-Device       : xc7a50t
-Package      : -csg325
-Speed Grade  : -1
-Clock Period : 10

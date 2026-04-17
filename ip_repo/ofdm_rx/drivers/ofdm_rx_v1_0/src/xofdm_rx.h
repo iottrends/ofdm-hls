@@ -45,12 +45,12 @@ typedef struct {
 #else
     u16 DeviceId;
 #endif
-    u64 Ctrl_BaseAddress;
+    u64 Stat_BaseAddress;
 } XOfdm_rx_Config;
 #endif
 
 typedef struct {
-    u64 Ctrl_BaseAddress;
+    u64 Stat_BaseAddress;
     u32 IsReady;
 } XOfdm_rx;
 
@@ -92,23 +92,9 @@ int XOfdm_rx_Initialize(XOfdm_rx *InstancePtr, const char* InstanceName);
 int XOfdm_rx_Release(XOfdm_rx *InstancePtr);
 #endif
 
-void XOfdm_rx_Start(XOfdm_rx *InstancePtr);
-u32 XOfdm_rx_IsDone(XOfdm_rx *InstancePtr);
-u32 XOfdm_rx_IsIdle(XOfdm_rx *InstancePtr);
-u32 XOfdm_rx_IsReady(XOfdm_rx *InstancePtr);
-void XOfdm_rx_EnableAutoRestart(XOfdm_rx *InstancePtr);
-void XOfdm_rx_DisableAutoRestart(XOfdm_rx *InstancePtr);
 
 u32 XOfdm_rx_Get_header_err(XOfdm_rx *InstancePtr);
 u32 XOfdm_rx_Get_header_err_vld(XOfdm_rx *InstancePtr);
-
-void XOfdm_rx_InterruptGlobalEnable(XOfdm_rx *InstancePtr);
-void XOfdm_rx_InterruptGlobalDisable(XOfdm_rx *InstancePtr);
-void XOfdm_rx_InterruptEnable(XOfdm_rx *InstancePtr, u32 Mask);
-void XOfdm_rx_InterruptDisable(XOfdm_rx *InstancePtr, u32 Mask);
-void XOfdm_rx_InterruptClear(XOfdm_rx *InstancePtr, u32 Mask);
-u32 XOfdm_rx_InterruptGetEnabled(XOfdm_rx *InstancePtr);
-u32 XOfdm_rx_InterruptGetStatus(XOfdm_rx *InstancePtr);
 
 #ifdef __cplusplus
 }

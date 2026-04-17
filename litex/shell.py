@@ -34,6 +34,11 @@ from litex.soc.integration.builder  import Builder, builder_args, builder_argdic
 from litex.soc.integration.soc      import SoCRegion
 from litex.soc.interconnect         import stream
 from litex.soc.interconnect.csr     import CSRStorage, CSRStatus, AutoCSR
+from litex.soc.interconnect.axi     import (
+    AXILiteInterface, AXIInterface, AXI2AXILite, AXILiteInterconnectShared,
+    AXILiteClockDomainCrossing,
+)
+from litex.compat.soc_core          import mem_decoder
 from litex.soc.cores.hyperbus       import HyperRAM as LiteHyperBus
 from litex.soc.cores.icap           import ICAP
 from litex.soc.cores.xadc           import XADC
@@ -55,14 +60,15 @@ from litepcie.software              import generate_litepcie_software
 #
 #   host_tx_in    AXI-Stream,  8-bit + TLAST  (host payload → ofdm_mac)
 #   host_rx_out   AXI-Stream,  8-bit + TLAST  (ofdm_mac → host)
-#   rf_tx_out     AXI-Stream, 40-bit          (ofdm_tx iq_out → RFIC; HLS iq_t)
-#   rf_rx_in      AXI-Stream, 40-bit          (RFIC → adc_fifo → sync_cfo)
-#   ctrl_axi      AXI4-Lite slave (host reaches MAC + PHY CSRs)
+#   rf_tx_out     AXI-Stream, 48-bit          (ofdm_tx iq_out → RFIC; HLS iq_t)
+#   rf_rx_in      AXI-Stream, 40-bit          (RFIC → adc_fifo → sync_detect)
+#   ctrl_tx_chain / ctrl_ofdm_tx / ctrl_sync_det / ctrl_ofdm_rx / ctrl_ofdm_mac
+#       AXI4-Lite slaves (one per HLS block; 4 KB addr space each)
+#   mac_csr_master   AXI3 full-AXI master (ofdm_mac.m_axi_csr_master)
 #   mac_tx_done_pulse / mac_rx_pkt_pulse  (MSI interrupt strobes, ofdm domain)
 #
 # The combined ofdm_mac HLS block handles MAC framing (header/FCS/filter)
-# AND per-frame PHY CSR sequencing (via its m_axi master into the smartconnect).
-# No gateware MAC FSM remains in LiteX — all MAC logic is in HLS C++.
+# AND per-frame PHY CSR sequencing (via its m_axi master, routed by LiteX).
 
 class OFDMChainWrapper(Module):
     """Opaque Instance() of ofdm_chain_wrapper.v.
@@ -74,43 +80,126 @@ class OFDMChainWrapper(Module):
     Host-facing AXIS byte endpoints carry TLAST (packet framing).  RF-side
     48-bit IQ streams do not (continuous sample streams).
 
-    `ctrl_axi` is the BD's smartconnect S00_AXI — host-visible AXI4-Lite
-    slave for reaching MAC + PHY CSRs.  The host driver pokes this via
-    PCIe; no gateware FSM drives it (the combined MAC handles per-frame
-    PHY sequencing in HLS via its own m_axi master S01)."""
+    Control plane (post-2026-04-17 architecture — see mac.md §Phase 1.5):
+    the BD exposes each HLS block's s_axi_ctrl / s_axi_stat as a separate
+    AXI-Lite slave on the wrapper, plus ofdm_mac's m_axi_csr_master as a
+    full-AXI master.  shell.py's BaseSoC instantiates an
+    AXILiteInterconnectShared (pure Verilog; no Xilinx xbar IP) to route
+    2 masters (host PCIe BAR + MAC m_axi) to the 5 CSR slaves."""
     def __init__(self):
-        # Host byte streams (ofdm domain, 8-bit + TLAST)
-        self.host_tx  = stream.Endpoint([("data",  8), ("last", 1)])
-        self.host_rx  = stream.Endpoint([("data",  8), ("last", 1)])
-        # RF IQ streams (ofdm domain, 48-bit HLS iq_t; no TLAST sideband)
+        # Host byte streams (ofdm domain, 8-bit; TLAST via built-in `last` field)
+        self.host_tx  = stream.Endpoint([("data",  8)])
+        self.host_rx  = stream.Endpoint([("data",  8)])
+        # RF IQ streams (ofdm domain; no TLAST sideband)
+        # TX: 48-bit (ofdm_tx iq_t, to be reduced to 40-bit)
+        # RX: 40-bit (sync_detect iq_in via 5-byte adc_input_fifo)
         self.rf_tx    = stream.Endpoint([("data", 48)])
-        self.rf_rx    = stream.Endpoint([("data", 48)])
+        self.rf_rx    = stream.Endpoint([("data", 40)])
 
         # MAC interrupt pulses out of the BD (ofdm domain)
         self.mac_tx_done_pulse = Signal()
         self.mac_rx_pkt_pulse  = Signal()
 
-        # AXI-Lite slave bundle for host CSR access — 16-bit address space
-        # covers six 4 KB slaves (5 PHY + MAC) from create_ofdm_bd.tcl.
-        self.ctrl_axi_awaddr  = Signal(16)
-        self.ctrl_axi_awprot  = Signal(3)
-        self.ctrl_axi_awvalid = Signal()
-        self.ctrl_axi_awready = Signal()
-        self.ctrl_axi_wdata   = Signal(32)
-        self.ctrl_axi_wstrb   = Signal(4)
-        self.ctrl_axi_wvalid  = Signal()
-        self.ctrl_axi_wready  = Signal()
-        self.ctrl_axi_bresp   = Signal(2)
-        self.ctrl_axi_bvalid  = Signal()
-        self.ctrl_axi_bready  = Signal()
-        self.ctrl_axi_araddr  = Signal(16)
-        self.ctrl_axi_arprot  = Signal(3)
-        self.ctrl_axi_arvalid = Signal()
-        self.ctrl_axi_arready = Signal()
-        self.ctrl_axi_rdata   = Signal(32)
-        self.ctrl_axi_rresp   = Signal(2)
-        self.ctrl_axi_rvalid  = Signal()
-        self.ctrl_axi_rready  = Signal()
+        # Per-block CSR ports (post-2026-04-17 architecture — BD has no xbar).
+        # Each HLS block's s_axi_ctrl/s_axi_stat is a 4 KB AXI-Lite slave on
+        # the wrapper.  shell.py's AXILiteInterconnectShared routes host +
+        # MAC traffic to these slaves; see mac.md §Phase 1.5.
+        #
+        # clock_domain="ofdm" — all wrapper CSR ports run on the wrapper's
+        # `clk` input = 100 MHz ofdm clock. Matters for LiteX bus CDC inference.
+        self.ctrl_tx_chain  = AXILiteInterface(data_width=32, address_width=12, clock_domain="ofdm")
+        self.ctrl_ofdm_tx   = AXILiteInterface(data_width=32, address_width=12, clock_domain="ofdm")
+        self.ctrl_sync_det  = AXILiteInterface(data_width=32, address_width=12, clock_domain="ofdm")
+        self.ctrl_ofdm_rx   = AXILiteInterface(data_width=32, address_width=12, clock_domain="ofdm")
+        self.ctrl_ofdm_mac  = AXILiteInterface(data_width=32, address_width=12, clock_domain="ofdm")
+
+        # MAC's m_axi_csr_master — full AXI (aximm), version=axi3 to match the
+        # 2-bit AWLOCK we saw in the earlier BD validation. id_width=1 is the
+        # HLS default. MAC lives in ofdm domain. Shell.py wraps this with
+        # AXI2AXILite for the xbar.
+        self.mac_csr_master = AXIInterface(
+            data_width=32, address_width=16, id_width=1, version="axi3",
+            clock_domain="ofdm")
+
+        # Helper: Instance() port map for an AXI-Lite SLAVE on the wrapper.
+        # Wrapper receives aw/w/ar (inputs) and sends b/r + per-channel ready
+        # back to the master. Covers all 19 AXI-Lite signals.
+        def _axil_slave_ports(prefix, iface):
+            # HLS-generated s_axi_ctrl slaves do NOT expose awprot/arprot —
+            # Vivado strips them at make_bd_intf_pins_external time. We keep
+            # iface.aw.prot internally in LiteX for protocol compliance, but
+            # don't wire it through the Instance.
+            return {
+                f"i_{prefix}_awaddr":  iface.aw.addr,
+                f"i_{prefix}_awvalid": iface.aw.valid,
+                f"o_{prefix}_awready": iface.aw.ready,
+                f"i_{prefix}_wdata":   iface.w.data,
+                f"i_{prefix}_wstrb":   iface.w.strb,
+                f"i_{prefix}_wvalid":  iface.w.valid,
+                f"o_{prefix}_wready":  iface.w.ready,
+                f"o_{prefix}_bresp":   iface.b.resp,
+                f"o_{prefix}_bvalid":  iface.b.valid,
+                f"i_{prefix}_bready":  iface.b.ready,
+                f"i_{prefix}_araddr":  iface.ar.addr,
+                f"i_{prefix}_arvalid": iface.ar.valid,
+                f"o_{prefix}_arready": iface.ar.ready,
+                f"o_{prefix}_rdata":   iface.r.data,
+                f"o_{prefix}_rresp":   iface.r.resp,
+                f"o_{prefix}_rvalid":  iface.r.valid,
+                f"i_{prefix}_rready":  iface.r.ready,
+            }
+
+        # Helper: Instance() port map for an AXI3 full-AXI MASTER on the wrapper.
+        # Wrapper drives aw/w/ar (outputs) and receives b/r (inputs).
+        # AXI3 has WID (dropped on AXI4); AWLOCK/ARLOCK are 2-bit (vs 1-bit on AXI4).
+        def _axi_master_ports(prefix, iface):
+            return {
+                # aw (outputs)
+                f"o_{prefix}_awid":    iface.aw.id,
+                f"o_{prefix}_awaddr":  iface.aw.addr,
+                f"o_{prefix}_awlen":   iface.aw.len,
+                f"o_{prefix}_awsize":  iface.aw.size,
+                f"o_{prefix}_awburst": iface.aw.burst,
+                f"o_{prefix}_awlock":  iface.aw.lock,
+                f"o_{prefix}_awcache":  iface.aw.cache,
+                f"o_{prefix}_awprot":   iface.aw.prot,
+                f"o_{prefix}_awqos":    iface.aw.qos,
+                f"o_{prefix}_awregion": iface.aw.region,
+                f"o_{prefix}_awvalid":  iface.aw.valid,
+                f"i_{prefix}_awready":  iface.aw.ready,
+                # w (outputs)
+                f"o_{prefix}_wid":     iface.w.id,       # AXI3 only; HLS emits it
+                f"o_{prefix}_wdata":   iface.w.data,
+                f"o_{prefix}_wstrb":   iface.w.strb,
+                f"o_{prefix}_wlast":   iface.w.last,
+                f"o_{prefix}_wvalid":  iface.w.valid,
+                f"i_{prefix}_wready":  iface.w.ready,
+                # b (inputs)
+                f"i_{prefix}_bid":     iface.b.id,
+                f"i_{prefix}_bresp":   iface.b.resp,
+                f"i_{prefix}_bvalid":  iface.b.valid,
+                f"o_{prefix}_bready":  iface.b.ready,
+                # ar (outputs)
+                f"o_{prefix}_arid":    iface.ar.id,
+                f"o_{prefix}_araddr":  iface.ar.addr,
+                f"o_{prefix}_arlen":   iface.ar.len,
+                f"o_{prefix}_arsize":  iface.ar.size,
+                f"o_{prefix}_arburst": iface.ar.burst,
+                f"o_{prefix}_arlock":  iface.ar.lock,
+                f"o_{prefix}_arcache":  iface.ar.cache,
+                f"o_{prefix}_arprot":   iface.ar.prot,
+                f"o_{prefix}_arqos":    iface.ar.qos,
+                f"o_{prefix}_arregion": iface.ar.region,
+                f"o_{prefix}_arvalid":  iface.ar.valid,
+                f"i_{prefix}_arready":  iface.ar.ready,
+                # r (inputs)
+                f"i_{prefix}_rid":     iface.r.id,
+                f"i_{prefix}_rdata":   iface.r.data,
+                f"i_{prefix}_rresp":   iface.r.resp,
+                f"i_{prefix}_rlast":   iface.r.last,
+                f"i_{prefix}_rvalid":  iface.r.valid,
+                f"o_{prefix}_rready":  iface.r.ready,
+            }
 
         self.specials += Instance("ofdm_chain_wrapper",
             i_clk       = ClockSignal("ofdm"),
@@ -118,15 +207,21 @@ class OFDMChainWrapper(Module):
             i_rst_n     = ~ResetSignal("ofdm"),
             i_rst_fec_n = ~ResetSignal("ofdm_fec"),
 
-            # host_tx_in  (slave, with TLAST)
+            # host_tx_in  (slave, with TLAST + TKEEP/TSTRB)
             i_host_tx_in_tdata  = self.host_tx.data,
             i_host_tx_in_tlast  = self.host_tx.last,
+            i_host_tx_in_tkeep  = self.host_tx.valid,  # byte valid when stream valid
+            i_host_tx_in_tstrb  = self.host_tx.valid,   # data (not position) byte
             i_host_tx_in_tvalid = self.host_tx.valid,
             o_host_tx_in_tready = self.host_tx.ready,
 
-            # host_rx_out (master, with TLAST)
+            # host_rx_out (master, with TLAST). HLS ties tkeep/tstrb high whenever
+            # tvalid is asserted; we receive them into unused Signals so Vivado
+            # doesn't warn about unconnected wrapper outputs.
             o_host_rx_out_tdata  = self.host_rx.data,
             o_host_rx_out_tlast  = self.host_rx.last,
+            o_host_rx_out_tkeep  = Signal(),
+            o_host_rx_out_tstrb  = Signal(),
             o_host_rx_out_tvalid = self.host_rx.valid,
             i_host_rx_out_tready = self.host_rx.ready,
 
@@ -144,26 +239,15 @@ class OFDMChainWrapper(Module):
             o_mac_tx_done_pulse = self.mac_tx_done_pulse,
             o_mac_rx_pkt_pulse  = self.mac_rx_pkt_pulse,
 
-            # ctrl_axi (AXI4-Lite slave, driven by host via PCIe BAR)
-            i_ctrl_axi_awaddr  = self.ctrl_axi_awaddr,
-            i_ctrl_axi_awprot  = self.ctrl_axi_awprot,
-            i_ctrl_axi_awvalid = self.ctrl_axi_awvalid,
-            o_ctrl_axi_awready = self.ctrl_axi_awready,
-            i_ctrl_axi_wdata   = self.ctrl_axi_wdata,
-            i_ctrl_axi_wstrb   = self.ctrl_axi_wstrb,
-            i_ctrl_axi_wvalid  = self.ctrl_axi_wvalid,
-            o_ctrl_axi_wready  = self.ctrl_axi_wready,
-            o_ctrl_axi_bresp   = self.ctrl_axi_bresp,
-            o_ctrl_axi_bvalid  = self.ctrl_axi_bvalid,
-            i_ctrl_axi_bready  = self.ctrl_axi_bready,
-            i_ctrl_axi_araddr  = self.ctrl_axi_araddr,
-            i_ctrl_axi_arprot  = self.ctrl_axi_arprot,
-            i_ctrl_axi_arvalid = self.ctrl_axi_arvalid,
-            o_ctrl_axi_arready = self.ctrl_axi_arready,
-            o_ctrl_axi_rdata   = self.ctrl_axi_rdata,
-            o_ctrl_axi_rresp   = self.ctrl_axi_rresp,
-            o_ctrl_axi_rvalid  = self.ctrl_axi_rvalid,
-            i_ctrl_axi_rready  = self.ctrl_axi_rready,
+            # 5 AXI-Lite CSR slaves (driven by shell.py's AXILiteInterconnectShared)
+            **_axil_slave_ports("ctrl_tx_chain", self.ctrl_tx_chain),
+            **_axil_slave_ports("ctrl_ofdm_tx",  self.ctrl_ofdm_tx),
+            **_axil_slave_ports("ctrl_sync_det", self.ctrl_sync_det),
+            **_axil_slave_ports("ctrl_ofdm_rx",  self.ctrl_ofdm_rx),
+            **_axil_slave_ports("ctrl_ofdm_mac", self.ctrl_ofdm_mac),
+
+            # MAC's m_axi master (AXI3 full AXI; shell.py adapts to AXI-Lite)
+            **_axi_master_ports("mac_csr_master", self.mac_csr_master),
         )
 
 
@@ -184,26 +268,18 @@ class OFDMChainWrapper(Module):
 #
 # iq_t is 48-bit because HLS pads `struct iq_t {i:16, q:16, last:1}` up to the
 # next byte boundary (6 bytes).  AD9364 is 64-bit because dma_layout carries
-# both RF lanes (2R2T).  We're 1R1T and TLAST is meaningless for a continuous
-# RFIC stream, so both "extras" are dropped — by omission on the read side
-# (bits we just never wire up) and explicit zero on the write side.
-#
-# This wastes ~3 BRAM18 on adc_input_fifo (4096 × 48b vs 32b) and triggers
-# Vivado "upper bits unused" warnings at BD boundary.  Cosmetic, not a
-# correctness issue.  The proper fix is to change HLS iq_t from a packed
-# struct to `ap_axiu<32,0,0,0>` so HLS emits clean 32-bit TDATA + sideband
-# TLAST pins — deferred until after Phase 1 bring-up.
+# both RF lanes (2R2T).  We're 1R1T so lane B is dropped/zeroed.
 
 class _RFRxBridge(Module):
-    """AD9364 (64b dma_layout) → ofdm_chain.rf_rx_in (48b HLS iq_t). 1R1T → lane A."""
+    """AD9364 (64b dma_layout) → ofdm_chain.rf_rx_in (40b). 1R1T → lane A."""
     def __init__(self):
         self.sink   = stream.Endpoint(dma_layout(64))           # ia|qa|ib|qb
-        self.source = stream.Endpoint([("data", 48)])           # iq_t {i,q,last+pad}
+        self.source = stream.Endpoint([("data", 40)])           # {i:16, q:16, pad:8}
         self.comb += [
             self.source.valid.eq(self.sink.valid),
             self.source.data[ 0:16].eq(self.sink.data[ 0:16]),  # i ← ia
             self.source.data[16:32].eq(self.sink.data[16:32]),  # q ← qa
-            self.source.data[32:48].eq(0),                      # iq_t.last + HLS pad: tied 0
+            self.source.data[32:40].eq(0),                      # pad byte: tied 0
             # sink.data[63:32] (lane B ib|qb) dropped — 1R1T
             self.sink.ready.eq(self.source.ready),
         ]
@@ -235,12 +311,12 @@ class _CRG(Module):
     def __init__(self, platform, sys_clk_freq, ulpi_pads):
         from migen.genlib.resetsync import AsyncResetSynchronizer
         self.rst = Signal()
-        self.clock_domains.cd_sys     = ClockDomain()
-        self.clock_domains.cd_rfic    = ClockDomain()
-        self.clock_domains.cd_idelay  = ClockDomain()
-        self.clock_domains.cd_ofdm    = ClockDomain()
-        self.clock_domains.cd_ofdm_fec = ClockDomain()
-        self.clock_domains.cd_usb     = ClockDomain()
+        self.clock_domains.cd_sys      = ClockDomain("sys")
+        self.clock_domains.cd_rfic     = ClockDomain("rfic")
+        self.clock_domains.cd_idelay   = ClockDomain("idelay")
+        self.clock_domains.cd_ofdm     = ClockDomain("ofdm")
+        self.clock_domains.cd_ofdm_fec = ClockDomain("ofdm_fec")
+        self.clock_domains.cd_usb      = ClockDomain("usb")
 
         clk40 = platform.request("clk40")
         self.submodules.pll = pll = S7PLL(speedgrade=-2)
@@ -348,12 +424,17 @@ class BaseSoC(SoCCore):
                 "Run `vivado -mode batch -source vivado/create_ofdm_bd.tcl` "
                 "first to generate the BD wrapper and file list.")
         # IPs handled via read_ip/synth_ip — skip their flat Verilog stubs.
-        ip_flow_ips = ["ofdm_rx_fft", "ofdm_tx_ifft", "ctrl_xbar"]
+        # (ctrl_xbar removed 2026-04-17 — BD no longer contains a smartconnect;
+        # LiteX routes CSRs natively via AXILiteInterconnectShared. See mac.md
+        # §Phase 1.5 and create_ofdm_bd.tcl for the post-pivot architecture.)
+        ip_flow_ips = ["ofdm_rx_fft", "ofdm_tx_ifft"]
         with open(filelist) as f:
             for line in f:
                 src = line.strip()
                 if src and not src.startswith("#"):
                     if any(name in src for name in ip_flow_ips):
+                        continue
+                    if "/sim/" in src:
                         continue
                     platform.add_source(src)
 
@@ -366,9 +447,9 @@ class BaseSoC(SoCCore):
             for src in sorted(_glob.glob(os.path.join(ip_repo, "*", "hdl", "verilog", ext))):
                 platform.add_source(src)
 
-        # Xilinx xfft and smartconnect are VHDL / encrypted — they must go
-        # through the Vivado IP flow (read_ip + synth_ip).  Other BD sub-IPs
-        # (HLS blocks, xlconstant, axis_data_fifo) work as flat Verilog.
+        # Xilinx xfft IPs are encrypted — they must go through the Vivado
+        # IP flow (read_ip + synth_ip).  Other BD sub-IPs (HLS blocks,
+        # xlconstant, axis_data_fifo, smartconnect) work as flat Verilog.
         bd_ip_dir = os.path.join(repo_root, "vivado", "ofdm_bd",
             "ofdm_bd.srcs", "sources_1", "bd", "ofdm_chain", "ip")
         for xci in sorted(_glob.glob(os.path.join(bd_ip_dir, "*", "*.xci"))):
@@ -378,9 +459,60 @@ class BaseSoC(SoCCore):
         # ── Instantiate OFDM chain (in the 100 MHz `ofdm` domain) ──
         self.submodules.ofdm = ofdm = OFDMChainWrapper()
 
-        # Combined MAC lives inside the BD as ofdm_mac HLS IP.  Its CSRs are
-        # reached by the host driver through ctrl_axi (PCIe-mapped BAR slave
-        # at ofdm_chain's 0x5000 offset).  No gateware MAC FSM here.
+        # ── PHY CSR interconnect (LiteX-native, replaces the BD smartconnect) ──
+        # Routes 2 masters → 5 slaves over AXI-Lite:
+        #   Master 0: host (PCIe BAR → LiteX wb bus → auto Wishbone2AXILite)
+        #   Master 1: ofdm_mac.m_axi_csr_master (AXI3 full → AXI2AXILite adapted)
+        #   Slave N : ctrl_<block>  at   0x_N000  (4 KB each)
+        # See mac.md §Phase 1.5 for architecture rationale.
+
+        # Interconnect lives in ofdm domain (same as MAC + all CSR slaves).
+        # Host path crosses sys→ofdm via an explicit AXILiteClockDomainCrossing.
+
+        # (a) Adapt MAC's full AXI3 to AXI-Lite for the interconnect.
+        # Both sides in ofdm domain — no CDC needed here.
+        # AXILiteInterface is a signal bundle — plain attribute, NOT submodule.
+        mac_csr_axil = AXILiteInterface(
+            data_width=32, address_width=16, clock_domain="ofdm")
+        self.mac_csr_axil = mac_csr_axil
+        self.submodules.mac_axi2axil = AXI2AXILite(ofdm.mac_csr_master, mac_csr_axil)
+
+        # (b) Host-side AXI-Lite endpoint (sys domain — from wishbone).
+        # `self.bus.add_slave` auto-inserts Wishbone2AXILite in sys.
+        # address_width=32 matches the wishbone bus; strip_origin=True
+        # subtracts 0x5000_0000 so local 0x0000..0x7FFF offsets work.
+        phy_csr_host_sys = AXILiteInterface(
+            data_width=32, address_width=32, clock_domain="sys")
+        self.phy_csr_host_sys = phy_csr_host_sys
+        self.bus.add_slave("phy_csr", phy_csr_host_sys,
+            SoCRegion(origin=0x5000_0000, size=0x8000),
+            strip_origin=True)
+
+        # (c) Cross the host path from sys (125 MHz) → ofdm (100 MHz) so both
+        # masters feed the interconnect in the same clock domain. Async FIFO
+        # depth is LiteX's default (safe for occasional CPU-triggered writes).
+        phy_csr_host_ofdm = AXILiteInterface(
+            data_width=32, address_width=32, clock_domain="ofdm")
+        self.phy_csr_host_ofdm = phy_csr_host_ofdm
+        self.submodules.phy_csr_host_cdc = AXILiteClockDomainCrossing(
+            master=phy_csr_host_sys, slave=phy_csr_host_ofdm,
+            cd_from="sys", cd_to="ofdm")
+
+        # (d) 2×5 shared interconnect, all in ofdm domain.
+        # Address map mirrors the old BD smartconnect layout:
+        #   0x0000 tx_chain   0x3000 ofdm_rx
+        #   0x1000 ofdm_tx    0x4000 ofdm_mac
+        #   0x2000 sync_det
+        self.submodules.phy_csr_xbar = AXILiteInterconnectShared(
+            masters = [phy_csr_host_ofdm, mac_csr_axil],
+            slaves  = [
+                (mem_decoder(0x0000, size=0x1000), ofdm.ctrl_tx_chain),
+                (mem_decoder(0x1000, size=0x1000), ofdm.ctrl_ofdm_tx),
+                (mem_decoder(0x2000, size=0x1000), ofdm.ctrl_sync_det),
+                (mem_decoder(0x3000, size=0x1000), ofdm.ctrl_ofdm_rx),
+                (mem_decoder(0x4000, size=0x1000), ofdm.ctrl_ofdm_mac),
+            ],
+        )
 
         # ── MAC interrupts → MSI ──
         # Two new IRQ lines from the HLS ofdm_mac block are pulse-synchronised
@@ -403,9 +535,9 @@ class BaseSoC(SoCCore):
         self.submodules.byte_to_dma = stream.Converter( 8, 64)
 
         self.submodules.host_tx_cdc = stream.ClockDomainCrossing(
-            layout=[("data", 8), ("last", 1)], cd_from="sys", cd_to="ofdm", depth=32)
+            layout=[("data", 8)], cd_from="sys", cd_to="ofdm", depth=32)
         self.submodules.host_rx_cdc = stream.ClockDomainCrossing(
-            layout=[("data", 8), ("last", 1)], cd_from="ofdm", cd_to="sys", depth=32)
+            layout=[("data", 8)], cd_from="ofdm", cd_to="sys", depth=32)
 
         self.comb += [
             # Host → RFIC: DMA(64) → Conv(8) → CDC(sys→ofdm) → ofdm.host_tx
@@ -426,7 +558,7 @@ class BaseSoC(SoCCore):
         self.submodules.rf_tx_br = tx_br = _RFTxBridge()
 
         self.submodules.rf_rx_cdc = stream.ClockDomainCrossing(
-            layout=[("data", 48)], cd_from="sys", cd_to="ofdm", depth=2048)
+            layout=[("data", 40)], cd_from="sys", cd_to="ofdm", depth=2048)
         self.submodules.rf_tx_cdc = stream.ClockDomainCrossing(
             layout=[("data", 48)], cd_from="ofdm", cd_to="sys", depth=2048)
 
@@ -444,12 +576,22 @@ class BaseSoC(SoCCore):
         # ── sys ↔ ofdm false paths (AsyncFIFO gray pointers are safe) ──
         platform.toolchain.pre_placement_commands.add(
             "set_max_delay -datapath_only 8.0 "
-            "-from [get_clocks main_crg_clkout0] "
-            "-to   [get_clocks main_crg_clkout2]")
+            "-from [get_clocks main_crg_s7pll0] "
+            "-to   [get_clocks main_crg_s7pll4]")
         platform.toolchain.pre_placement_commands.add(
             "set_max_delay -datapath_only 8.0 "
-            "-from [get_clocks main_crg_clkout2] "
-            "-to   [get_clocks main_crg_clkout0]")
+            "-from [get_clocks main_crg_s7pll4] "
+            "-to   [get_clocks main_crg_s7pll0]")
+
+        # ── ofdm ↔ ofdm_fec: fully async (axis_clock_converter pair) ──
+        # fec_cc1 (100→200) and fec_cc2 (200→100) are the only crossings; their
+        # xpm_fifo_axis internals already scope CDC exceptions via ASYNC_REG,
+        # but a top-level clock group prevents phys_opt_design from retiming
+        # across the boundary and covers any paths the XPM scope misses.
+        platform.toolchain.pre_placement_commands.add(
+            "set_clock_groups -asynchronous "
+            "-group [get_clocks main_crg_s7pll4] "
+            "-group [get_clocks main_crg_s7pll6]")
 
 
 # =============================================================================

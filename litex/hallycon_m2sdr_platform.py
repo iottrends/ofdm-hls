@@ -186,28 +186,28 @@ class Platform(Xilinx7SeriesPlatform):
         # sys (125 MHz) <-> rfic (245.76 MHz)
         self.toolchain.pre_placement_commands.add(
             "set_max_delay -datapath_only 4.0 "
-            "-from [get_clocks main_crg_clkout0] "
+            "-from [get_clocks main_crg_s7pll0] "
             "-to   [get_clocks ad9364_rfic_rx_clk_p]"
         )
         self.toolchain.pre_placement_commands.add(
             "set_max_delay -datapath_only 8.0 "
             "-from [get_clocks ad9364_rfic_rx_clk_p] "
-            "-to   [get_clocks main_crg_clkout0]"
+            "-to   [get_clocks main_crg_s7pll0]"
         )
         # sys (125 MHz) <-> usb (60 MHz) — AsyncFIFO gray pointer CDC paths.
         self.toolchain.pre_placement_commands.add(
             "set_max_delay -datapath_only 8.0 "
-            "-from [get_clocks main_crg_clkout0] "
+            "-from [get_clocks main_crg_s7pll0] "
             "-to   [get_clocks ulpi0_clk]"
         )
         self.toolchain.pre_placement_commands.add(
             "set_max_delay -datapath_only 8.0 "
             "-from [get_clocks ulpi0_clk] "
-            "-to   [get_clocks main_crg_clkout0]"
+            "-to   [get_clocks main_crg_s7pll0]"
         )
         # clk40 input → sys: suppress false path from PLL feedback analysis.
         self.toolchain.pre_placement_commands.add(
             "set_false_path "
-            "-from [get_clocks main_crg_clkout0] "
+            "-from [get_clocks main_crg_s7pll0] "
             "-to   [get_clocks clk40]"
         )

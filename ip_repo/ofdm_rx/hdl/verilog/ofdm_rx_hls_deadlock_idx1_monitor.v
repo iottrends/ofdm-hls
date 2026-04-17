@@ -1,10 +1,10 @@
 `timescale 1 ns / 1 ps
 
-module ofdm_rx_hls_deadlock_idx1_monitor ( // for module ofdm_rx_ofdm_rx_inst.grp_remove_cp_and_read_fu_356
+module ofdm_rx_hls_deadlock_idx1_monitor ( // for module ofdm_rx_ofdm_rx_inst.grp_remove_cp_and_read_fu_463
     input wire clock,
     input wire reset,
-    input wire [6:0] axis_block_sigs,
-    input wire [10:0] inst_idle_sigs,
+    input wire [5:0] axis_block_sigs,
+    input wire [9:0] inst_idle_sigs,
     input wire [0:0] inst_block_sigs,
     output wire block
 );

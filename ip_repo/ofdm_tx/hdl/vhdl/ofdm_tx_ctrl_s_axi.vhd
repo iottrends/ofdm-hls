@@ -35,7 +35,7 @@ port (
     RVALID                :out  STD_LOGIC;
     RREADY                :in   STD_LOGIC;
     interrupt             :out  STD_LOGIC;
-    mod_r                 :out  STD_LOGIC_VECTOR(0 downto 0);
+    modcod                :out  STD_LOGIC_VECTOR(1 downto 0);
     n_syms                :out  STD_LOGIC_VECTOR(7 downto 0);
     ap_start              :out  STD_LOGIC;
     ap_done               :in   STD_LOGIC;
@@ -66,9 +66,9 @@ end entity ofdm_tx_ctrl_s_axi;
 --        bit 0 - ap_done (Read/TOW)
 --        bit 1 - ap_ready (Read/TOW)
 --        others - reserved
--- 0x10 : Data signal of mod_r
---        bit 0  - mod_r[0] (Read/Write)
---        others - reserved
+-- 0x10 : Data signal of modcod
+--        bit 1~0 - modcod[1:0] (Read/Write)
+--        others  - reserved
 -- 0x14 : reserved
 -- 0x18 : Data signal of n_syms
 --        bit 7~0 - n_syms[7:0] (Read/Write)
@@ -87,8 +87,8 @@ attribute DowngradeIPIdentifiedWarnings of behave : architecture is "yes";
     constant ADDR_GIE           : INTEGER := 16#04#;
     constant ADDR_IER           : INTEGER := 16#08#;
     constant ADDR_ISR           : INTEGER := 16#0c#;
-    constant ADDR_MOD_R_DATA_0  : INTEGER := 16#10#;
-    constant ADDR_MOD_R_CTRL    : INTEGER := 16#14#;
+    constant ADDR_MODCOD_DATA_0 : INTEGER := 16#10#;
+    constant ADDR_MODCOD_CTRL   : INTEGER := 16#14#;
     constant ADDR_N_SYMS_DATA_0 : INTEGER := 16#18#;
     constant ADDR_N_SYMS_CTRL   : INTEGER := 16#1c#;
     constant ADDR_BITS         : INTEGER := 5;
@@ -120,7 +120,7 @@ attribute DowngradeIPIdentifiedWarnings of behave : architecture is "yes";
     signal int_gie             : STD_LOGIC := '0';
     signal int_ier             : UNSIGNED(1 downto 0) := (others => '0');
     signal int_isr             : UNSIGNED(1 downto 0) := (others => '0');
-    signal int_mod_r           : UNSIGNED(0 downto 0) := (others => '0');
+    signal int_modcod          : UNSIGNED(1 downto 0) := (others => '0');
     signal int_n_syms          : UNSIGNED(7 downto 0) := (others => '0');
 
 
@@ -251,8 +251,8 @@ begin
                         rdata_data(1 downto 0) <= int_ier;
                     when ADDR_ISR =>
                         rdata_data(1 downto 0) <= int_isr;
-                    when ADDR_MOD_R_DATA_0 =>
-                        rdata_data <= RESIZE(int_mod_r(0 downto 0), 32);
+                    when ADDR_MODCOD_DATA_0 =>
+                        rdata_data <= RESIZE(int_modcod(1 downto 0), 32);
                     when ADDR_N_SYMS_DATA_0 =>
                         rdata_data <= RESIZE(int_n_syms(7 downto 0), 32);
                     when others =>
@@ -269,7 +269,7 @@ begin
     task_ap_done         <= (ap_done and not auto_restart_status) or auto_restart_done;
     task_ap_ready        <= ap_ready and not int_auto_restart;
     auto_restart_done    <= auto_restart_status and (ap_idle and not int_ap_idle);
-    mod_r                <= STD_LOGIC_VECTOR(int_mod_r);
+    modcod               <= STD_LOGIC_VECTOR(int_modcod);
     n_syms               <= STD_LOGIC_VECTOR(int_n_syms);
 
     process (ACLK)
@@ -446,10 +446,10 @@ begin
     begin
         if (ACLK'event and ACLK = '1') then
             if (ARESET = '1') then
-                int_mod_r(0 downto 0) <= (others => '0');
+                int_modcod(1 downto 0) <= (others => '0');
             elsif (ACLK_EN = '1') then
-                if (w_hs = '1' and waddr = ADDR_MOD_R_DATA_0) then
-                    int_mod_r(0 downto 0) <= (UNSIGNED(WDATA(0 downto 0)) and wmask(0 downto 0)) or ((not wmask(0 downto 0)) and int_mod_r(0 downto 0));
+                if (w_hs = '1' and waddr = ADDR_MODCOD_DATA_0) then
+                    int_modcod(1 downto 0) <= (UNSIGNED(WDATA(1 downto 0)) and wmask(1 downto 0)) or ((not wmask(1 downto 0)) and int_modcod(1 downto 0));
                 end if;
             end if;
         end if;

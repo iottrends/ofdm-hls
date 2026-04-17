@@ -12,6 +12,7 @@ set_top ofdm_mac
 
 add_files src/ofdm_mac.cpp
 add_files src/ofdm_mac.h
+add_files src/ofdm_tx.h
 
 open_solution sol1 -reset
 set_part xc7a50tcsg325-1

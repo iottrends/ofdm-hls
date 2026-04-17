@@ -46,13 +46,13 @@ reg ap_idle;
 (* fsm_encoding = "none" *) reg   [0:0] ap_CS_fsm;
 wire    ap_CS_fsm_state1;
 reg    ap_block_state1_pp0_stage0_iter0;
-wire   [0:0] icmp_ln490_fu_82_p2;
+wire   [0:0] icmp_ln493_fu_82_p2;
 reg    ap_condition_exit_pp0_iter0_stage0;
 wire    ap_loop_exit_ready;
 reg    ap_ready_int;
-wire   [63:0] zext_ln490_fu_94_p1;
+wire   [63:0] zext_ln493_fu_94_p1;
 reg   [8:0] i_fu_42;
-wire   [8:0] add_ln490_fu_88_p2;
+wire   [8:0] add_ln493_fu_88_p2;
 wire    ap_loop_init;
 reg   [8:0] ap_sig_allocacmp_i_6;
 reg    freq_M_real_1_we0_local;
@@ -113,8 +113,8 @@ end
 
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_state1_pp0_stage0_iter0) & (1'b1 == ap_CS_fsm_state1))) begin
-        if ((icmp_ln490_fu_82_p2 == 1'd0)) begin
-            i_fu_42 <= add_ln490_fu_88_p2;
+        if ((icmp_ln493_fu_82_p2 == 1'd0)) begin
+            i_fu_42 <= add_ln493_fu_88_p2;
         end else if ((ap_loop_init == 1'b1)) begin
             i_fu_42 <= 9'd0;
         end
@@ -130,7 +130,7 @@ always @ (*) begin
 end
 
 always @ (*) begin
-    if (((icmp_ln490_fu_82_p2 == 1'd1) & (1'b0 == ap_block_state1_pp0_stage0_iter0) & (1'b1 == ap_CS_fsm_state1))) begin
+    if (((icmp_ln493_fu_82_p2 == 1'd1) & (1'b0 == ap_block_state1_pp0_stage0_iter0) & (1'b1 == ap_CS_fsm_state1))) begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b1;
     end else begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b0;
@@ -178,7 +178,7 @@ always @ (*) begin
 end
 
 always @ (*) begin
-    if (((icmp_ln490_fu_82_p2 == 1'd0) & (1'b0 == ap_block_state1_pp0_stage0_iter0) & (1'b1 == ap_CS_fsm_state1))) begin
+    if (((icmp_ln493_fu_82_p2 == 1'd0) & (1'b0 == ap_block_state1_pp0_stage0_iter0) & (1'b1 == ap_CS_fsm_state1))) begin
         freq_M_imag_1_we0_local = 1'b1;
     end else begin
         freq_M_imag_1_we0_local = 1'b0;
@@ -194,7 +194,7 @@ always @ (*) begin
 end
 
 always @ (*) begin
-    if (((icmp_ln490_fu_82_p2 == 1'd0) & (1'b0 == ap_block_state1_pp0_stage0_iter0) & (1'b1 == ap_CS_fsm_state1))) begin
+    if (((icmp_ln493_fu_82_p2 == 1'd0) & (1'b0 == ap_block_state1_pp0_stage0_iter0) & (1'b1 == ap_CS_fsm_state1))) begin
         freq_M_real_1_we0_local = 1'b1;
     end else begin
         freq_M_real_1_we0_local = 1'b0;
@@ -212,7 +212,7 @@ always @ (*) begin
     endcase
 end
 
-assign add_ln490_fu_88_p2 = (ap_sig_allocacmp_i_6 + 9'd1);
+assign add_ln493_fu_88_p2 = (ap_sig_allocacmp_i_6 + 9'd1);
 
 assign ap_CS_fsm_state1 = ap_CS_fsm[32'd0];
 
@@ -226,7 +226,7 @@ assign ap_loop_exit_ready = ap_condition_exit_pp0_iter0_stage0;
 
 assign ap_ready = ap_ready_sig;
 
-assign freq_M_imag_1_address0 = zext_ln490_fu_94_p1;
+assign freq_M_imag_1_address0 = zext_ln493_fu_94_p1;
 
 assign freq_M_imag_1_ce0 = freq_M_imag_1_ce0_local;
 
@@ -234,7 +234,7 @@ assign freq_M_imag_1_d0 = 16'd0;
 
 assign freq_M_imag_1_we0 = freq_M_imag_1_we0_local;
 
-assign freq_M_real_1_address0 = zext_ln490_fu_94_p1;
+assign freq_M_real_1_address0 = zext_ln493_fu_94_p1;
 
 assign freq_M_real_1_ce0 = freq_M_real_1_ce0_local;
 
@@ -242,8 +242,8 @@ assign freq_M_real_1_d0 = 16'd0;
 
 assign freq_M_real_1_we0 = freq_M_real_1_we0_local;
 
-assign icmp_ln490_fu_82_p2 = ((ap_sig_allocacmp_i_6 == 9'd256) ? 1'b1 : 1'b0);
+assign icmp_ln493_fu_82_p2 = ((ap_sig_allocacmp_i_6 == 9'd256) ? 1'b1 : 1'b0);
 
-assign zext_ln490_fu_94_p1 = ap_sig_allocacmp_i_6;
+assign zext_ln493_fu_94_p1 = ap_sig_allocacmp_i_6;
 
 endmodule //ofdm_tx_ofdm_tx_Pipeline_HDR_ZERO

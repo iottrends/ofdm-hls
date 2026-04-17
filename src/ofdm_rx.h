@@ -39,7 +39,7 @@ void ofdm_rx(
     hls::stream<iq32_t>     &fft_in,
     hls::stream<iq32_t>     &fft_out,
     ap_uint<1>              &header_err,
-    modcod_t                &modcod_out,
-    ap_uint<8>              &n_syms_out,
-    ap_uint<8>              &n_syms_fb
+    volatile modcod_t       &modcod_out,
+    volatile ap_uint<8>     &n_syms_out,
+    volatile ap_uint<8>     &n_syms_fb
 );

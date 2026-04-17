@@ -40,7 +40,7 @@ wire    ap_enable_reg_pp0_iter0;
 reg    ap_enable_reg_pp0_iter1;
 reg    ap_idle_pp0;
 reg    ap_block_pp0_stage0_subdone;
-wire   [0:0] icmp_ln357_fu_52_p2;
+wire   [0:0] icmp_ln358_fu_52_p2;
 reg    ap_condition_exit_pp0_iter0_stage0;
 wire    ap_loop_exit_ready;
 reg    ap_ready_int;
@@ -120,7 +120,7 @@ end
 
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        if (((icmp_ln357_fu_52_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
+        if (((icmp_ln358_fu_52_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
             i_fu_34 <= i_3_fu_58_p2;
         end else if ((ap_loop_init == 1'b1)) begin
             i_fu_34 <= 6'd0;
@@ -129,7 +129,7 @@ always @ (posedge ap_clk) begin
 end
 
 always @ (*) begin
-    if (((icmp_ln357_fu_52_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+    if (((icmp_ln358_fu_52_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b1;
     end else begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b0;
@@ -233,6 +233,6 @@ assign ap_ready = ap_ready_sig;
 
 assign i_3_fu_58_p2 = (ap_sig_allocacmp_i_2 + 6'd1);
 
-assign icmp_ln357_fu_52_p2 = ((ap_sig_allocacmp_i_2 == 6'd32) ? 1'b1 : 1'b0);
+assign icmp_ln358_fu_52_p2 = ((ap_sig_allocacmp_i_2 == 6'd32) ? 1'b1 : 1'b0);
 
 endmodule //ofdm_rx_remove_cp_and_read_Pipeline_SKIP_CP

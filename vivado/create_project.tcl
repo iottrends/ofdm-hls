@@ -9,7 +9,7 @@
 set ROOT     [file normalize [file dirname [file dirname [info script]]]]
 set PROJ_DIR "$ROOT/vivado/ofdm_impl"
 set IP_REPO  "$ROOT/ip_repo"
-set PART     "xc7a50tcsg325-2"
+set PART     "xc7a50tcsg325-1"
 
 set_param general.maxThreads 2
 
@@ -97,15 +97,18 @@ connect_bd_net [get_bd_pins ofdm_rx_0/modcod_out] [get_bd_pins fec_rx_0/modcod]
 connect_bd_net [get_bd_pins ofdm_rx_0/modcod_out] [get_bd_pins ofdm_mac_0/rx_modcod_in]
 connect_bd_net [get_bd_pins ofdm_rx_0/n_syms_out] [get_bd_pins fec_rx_0/n_syms]
 connect_bd_net [get_bd_pins ofdm_rx_0/n_syms_out] [get_bd_pins ofdm_mac_0/rx_n_syms_in]
-connect_bd_net [get_bd_pins ofdm_rx_0/header_err] [get_bd_pins ofdm_mac_0/rx_header_err]
+# header_err is inside ofdm_rx's s_axi_stat bundle (CSR register),
+# not a standalone wire.  MAC reads it via smartconnect.  Tie the
+# ofdm_mac rx_header_err input to 0 (MAC uses CSR readback instead).
+create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 hdr_err_const
+set_property -dict [list CONFIG.CONST_WIDTH {1} CONFIG.CONST_VAL {0}] [get_bd_cells hdr_err_const]
+connect_bd_net [get_bd_pins hdr_err_const/dout] [get_bd_pins ofdm_mac_0/rx_header_err]
 
 # n_syms feedback from ofdm_rx → sync_cfo (gate close signal)
 connect_bd_net [get_bd_pins ofdm_rx_0/n_syms_fb] [get_bd_pins sync_detect_0/n_syms_fb]
 
-# ofdm_mac ap_start tied high — sync_detect/ofdm_rx/fec_rx are ap_ctrl_none
-create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 mac_ap_start_hi
-set_property -dict [list CONFIG.CONST_WIDTH {1} CONFIG.CONST_VAL {1}] [get_bd_cells mac_ap_start_hi]
-connect_bd_net [get_bd_pins mac_ap_start_hi/dout] [get_bd_pins ofdm_mac_0/ap_start]
+# ofdm_mac uses ap_ctrl_hs via s_axi_ctrl — ap_start is a CSR register
+# bit (offset 0x00), not a standalone wire.  Host/driver sets it via CSR.
 
 # xfft
 connect_bd_intf_net [get_bd_intf_pins ofdm_tx_0/ifft_in]        [get_bd_intf_pins ofdm_tx_ifft/S_AXIS_DATA]
@@ -130,23 +133,32 @@ connect_bd_net [get_bd_ports clk]   [get_bd_pins rx_output_fifo/s_axis_aclk]
 connect_bd_net [get_bd_ports rst_n] [get_bd_pins rx_output_fifo/s_axis_aresetn]
 connect_bd_intf_net [get_bd_intf_pins ofdm_mac_0/host_rx_out] [get_bd_intf_pins rx_output_fifo/S_AXIS]
 
-# Smartconnect 2:6
-set csr_cells {tx_chain_0 ofdm_tx_0 sync_detect_0 ofdm_rx_0 fec_rx_0 ofdm_mac_0}
+# Smartconnect — 2 masters, 5 slaves (fec_rx has no AXI-Lite)
+# Actual AXI-Lite interface names per IP:
+#   tx_chain_0    : s_axi_ctrl
+#   ofdm_tx_0     : s_axi_ctrl
+#   sync_detect_0 : s_axi_stat   (not s_axi_ctrl!)
+#   ofdm_rx_0     : s_axi_stat   (not s_axi_ctrl!)
+#   fec_rx_0      : NONE          (ap_ctrl_none, no AXI-Lite)
+#   ofdm_mac_0    : s_axi_ctrl + s_axi_control (ap_ctrl_hs)
 create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 ctrl_xbar
-set_property -dict [list CONFIG.NUM_SI {2} CONFIG.NUM_MI {6} CONFIG.NUM_CLKS {2}] [get_bd_cells ctrl_xbar]
-connect_bd_net [get_bd_ports clk]     [get_bd_pins ctrl_xbar/aclk]
-connect_bd_net [get_bd_ports clk_fec] [get_bd_pins ctrl_xbar/aclk1]
-connect_bd_net [get_bd_ports rst_n]   [get_bd_pins ctrl_xbar/aresetn]
+set_property -dict [list CONFIG.NUM_SI {2} CONFIG.NUM_MI {5} CONFIG.NUM_CLKS {1}] [get_bd_cells ctrl_xbar]
+connect_bd_net [get_bd_ports clk]   [get_bd_pins ctrl_xbar/aclk]
+connect_bd_net [get_bd_ports rst_n] [get_bd_pins ctrl_xbar/aresetn]
 
 connect_bd_intf_net [get_bd_intf_pins ctrl_xbar/S01_AXI] \
                     [get_bd_intf_pins ofdm_mac_0/m_axi_csr_master]
 
-set i 0
-foreach cell $csr_cells {
-    set mi [format "M%02d_AXI" $i]
-    connect_bd_intf_net [get_bd_intf_pins ctrl_xbar/$mi] [get_bd_intf_pins $cell/s_axi_ctrl]
-    incr i
-}
+# M00 → tx_chain_0/s_axi_ctrl
+connect_bd_intf_net [get_bd_intf_pins ctrl_xbar/M00_AXI] [get_bd_intf_pins tx_chain_0/s_axi_ctrl]
+# M01 → ofdm_tx_0/s_axi_ctrl
+connect_bd_intf_net [get_bd_intf_pins ctrl_xbar/M01_AXI] [get_bd_intf_pins ofdm_tx_0/s_axi_ctrl]
+# M02 → sync_detect_0/s_axi_stat
+connect_bd_intf_net [get_bd_intf_pins ctrl_xbar/M02_AXI] [get_bd_intf_pins sync_detect_0/s_axi_stat]
+# M03 → ofdm_rx_0/s_axi_stat
+connect_bd_intf_net [get_bd_intf_pins ctrl_xbar/M03_AXI] [get_bd_intf_pins ofdm_rx_0/s_axi_stat]
+# M04 → ofdm_mac_0/s_axi_ctrl
+connect_bd_intf_net [get_bd_intf_pins ctrl_xbar/M04_AXI] [get_bd_intf_pins ofdm_mac_0/s_axi_ctrl]
 
 # External ports
 make_bd_intf_pins_external [get_bd_intf_pins ofdm_mac_0/host_tx_in] -name host_tx_in
@@ -161,25 +173,25 @@ set_property CONFIG.ADDR_WIDTH 16       [get_bd_intf_ports ctrl_axi]
 make_bd_pins_external [get_bd_pins ofdm_mac_0/tx_done_pulse] -name mac_tx_done_pulse
 make_bd_pins_external [get_bd_pins ofdm_mac_0/rx_pkt_pulse]  -name mac_rx_pkt_pulse
 
-# Address maps
-set off 0
-foreach cell $csr_cells {
-    assign_bd_address \
-        -target_address_space [get_bd_addr_spaces /ctrl_axi] \
-        -offset [expr {$off}] -range 4K \
-        [get_bd_addr_segs "$cell/s_axi_ctrl/Reg"]
-    set off [expr {$off + 0x1000}]
-}
-# MAC m_axi master reaches only TX blocks (tx_chain, ofdm_tx).
-# RX blocks are free-running — no MAC access needed.
+# Address maps — host ctrl_axi reaches all 5 slaves
+assign_bd_address -target_address_space [get_bd_addr_spaces /ctrl_axi] \
+    -offset 0x0000 -range 4K [get_bd_addr_segs "tx_chain_0/s_axi_ctrl/Reg"]
+assign_bd_address -target_address_space [get_bd_addr_spaces /ctrl_axi] \
+    -offset 0x1000 -range 4K [get_bd_addr_segs "ofdm_tx_0/s_axi_ctrl/Reg"]
+assign_bd_address -target_address_space [get_bd_addr_spaces /ctrl_axi] \
+    -offset 0x2000 -range 4K [get_bd_addr_segs "sync_detect_0/s_axi_stat/Reg"]
+assign_bd_address -target_address_space [get_bd_addr_spaces /ctrl_axi] \
+    -offset 0x3000 -range 4K [get_bd_addr_segs "ofdm_rx_0/s_axi_stat/Reg"]
+assign_bd_address -target_address_space [get_bd_addr_spaces /ctrl_axi] \
+    -offset 0x4000 -range 4K [get_bd_addr_segs "ofdm_mac_0/s_axi_ctrl/Reg"]
+
+# MAC m_axi master reaches only TX blocks (tx_chain, ofdm_tx)
 assign_bd_address \
     -target_address_space [get_bd_addr_spaces ofdm_mac_0/Data_m_axi_csr_master] \
-    -offset 0x0000 -range 4K \
-    [get_bd_addr_segs "tx_chain_0/s_axi_ctrl/Reg"]
+    -offset 0x0000 -range 4K [get_bd_addr_segs "tx_chain_0/s_axi_ctrl/Reg"]
 assign_bd_address \
     -target_address_space [get_bd_addr_spaces ofdm_mac_0/Data_m_axi_csr_master] \
-    -offset 0x1000 -range 4K \
-    [get_bd_addr_segs "ofdm_tx_0/s_axi_ctrl/Reg"]
+    -offset 0x1000 -range 4K [get_bd_addr_segs "ofdm_tx_0/s_axi_ctrl/Reg"]
 
 validate_bd_design
 save_bd_design

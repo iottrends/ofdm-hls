@@ -56,5 +56,5 @@ foreach item $BLOCKS {
 }
 
 puts "============================================"
-puts " All 5 IPs exported to: $IP_DIR/"
+puts " All 6 IPs exported to: $IP_DIR/"
 puts "============================================"

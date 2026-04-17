@@ -361,7 +361,7 @@
         </spirit:parameter>
         <spirit:parameter>
           <spirit:name>TDATA_NUM_BYTES</spirit:name>
-          <spirit:value spirit:id="BUSIFPARAM_VALUE.IFFT_IN.TDATA_NUM_BYTES">6</spirit:value>
+          <spirit:value spirit:id="BUSIFPARAM_VALUE.IFFT_IN.TDATA_NUM_BYTES">4</spirit:value>
         </spirit:parameter>
       </spirit:parameters>
     </spirit:busInterface>
@@ -403,7 +403,7 @@
         </spirit:parameter>
         <spirit:parameter>
           <spirit:name>TDATA_NUM_BYTES</spirit:name>
-          <spirit:value spirit:id="BUSIFPARAM_VALUE.IFFT_OUT.TDATA_NUM_BYTES">6</spirit:value>
+          <spirit:value spirit:id="BUSIFPARAM_VALUE.IFFT_OUT.TDATA_NUM_BYTES">4</spirit:value>
         </spirit:parameter>
       </spirit:parameters>
     </spirit:busInterface>
@@ -696,9 +696,9 @@
           </spirit:field>
         </spirit:register>
         <spirit:register>
-          <spirit:name>mod_r</spirit:name>
-          <spirit:displayName>mod_r</spirit:displayName>
-          <spirit:description>Data signal of mod_r</spirit:description>
+          <spirit:name>modcod</spirit:name>
+          <spirit:displayName>modcod</spirit:displayName>
+          <spirit:description>Data signal of modcod</spirit:description>
           <spirit:addressOffset>16</spirit:addressOffset>
           <spirit:size spirit:format="long">32</spirit:size>
           <spirit:access>write-only</spirit:access>
@@ -706,10 +706,10 @@
             <spirit:value spirit:format="long">0</spirit:value>
           </spirit:reset>
           <spirit:field>
-            <spirit:name>mod_r</spirit:name>
-            <spirit:description>Bit 0 to 0 of mod_r</spirit:description>
+            <spirit:name>modcod</spirit:name>
+            <spirit:description>Bit 1 to 0 of modcod</spirit:description>
             <spirit:bitOffset>0</spirit:bitOffset>
-            <spirit:bitWidth spirit:format="long">1</spirit:bitWidth>
+            <spirit:bitWidth spirit:format="long">2</spirit:bitWidth>
             <spirit:access>write-only</spirit:access>
             <spirit:writeValueConstraint>
               <spirit:minimum>0</spirit:minimum>
@@ -720,8 +720,8 @@
           <spirit:field>
             <spirit:name>RESERVED</spirit:name>
             <spirit:description>Reserved.  0s on read.</spirit:description>
-            <spirit:bitOffset>1</spirit:bitOffset>
-            <spirit:bitWidth spirit:format="long">31</spirit:bitWidth>
+            <spirit:bitOffset>2</spirit:bitOffset>
+            <spirit:bitWidth spirit:format="long">30</spirit:bitWidth>
             <spirit:access>read-only</spirit:access>
             <spirit:writeValueConstraint>
               <spirit:minimum>0</spirit:minimum>
@@ -784,7 +784,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>6bde165c</spirit:value>
+            <spirit:value>23e31f73</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -800,7 +800,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>4d1f4ebe</spirit:value>
+            <spirit:value>a90062bf</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -816,7 +816,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>fcbfe472</spirit:value>
+            <spirit:value>76fc11cb</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -832,7 +832,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>1d60f1f0</spirit:value>
+            <spirit:value>e1960b7e</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -846,7 +846,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>abef3442</spirit:value>
+            <spirit:value>9d5a109d</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -1281,7 +1281,7 @@
         <spirit:wire>
           <spirit:direction>out</spirit:direction>
           <spirit:vector>
-            <spirit:left spirit:format="long">47</spirit:left>
+            <spirit:left spirit:format="long">31</spirit:left>
             <spirit:right spirit:format="long">0</spirit:right>
           </spirit:vector>
           <spirit:wireTypeDefs>
@@ -1324,7 +1324,7 @@
         <spirit:wire>
           <spirit:direction>in</spirit:direction>
           <spirit:vector>
-            <spirit:left spirit:format="long">47</spirit:left>
+            <spirit:left spirit:format="long">31</spirit:left>
             <spirit:right spirit:format="long">0</spirit:right>
           </spirit:vector>
           <spirit:wireTypeDefs>
@@ -1900,7 +1900,7 @@
       <spirit:file>
         <spirit:name>hdl/vhdl/ofdm_tx.vhd</spirit:name>
         <spirit:fileType>vhdlSource</spirit:fileType>
-        <spirit:userFileType>CHECKSUM_70fd7d5f</spirit:userFileType>
+        <spirit:userFileType>CHECKSUM_c2b5940d</spirit:userFileType>
       </spirit:file>
     </spirit:fileSet>
     <spirit:fileSet>
@@ -2173,8 +2173,8 @@
       </xilinx:taxonomies>
       <xilinx:displayName>Hallycon OFDM ofdm_tx</xilinx:displayName>
       <xilinx:definitionSource>HLS</xilinx:definitionSource>
-      <xilinx:coreRevision>2114560633</xilinx:coreRevision>
-      <xilinx:coreCreationDateTime>2026-04-11T07:13:39Z</xilinx:coreCreationDateTime>
+      <xilinx:coreRevision>2114567946</xilinx:coreRevision>
+      <xilinx:coreCreationDateTime>2026-04-16T09:08:15Z</xilinx:coreCreationDateTime>
       <xilinx:sdxKernelAttributes>
         <xilinx:sdx_kernel>true</xilinx:sdx_kernel>
         <xilinx:sdx_kernel_type>hls</xilinx:sdx_kernel_type>
@@ -2182,10 +2182,10 @@
     </xilinx:coreExtensions>
     <xilinx:packagingInfo>
       <xilinx:xilinxVersion>2025.2</xilinx:xilinxVersion>
-      <xilinx:checksum xilinx:scope="busInterfaces" xilinx:value="3a6c749f"/>
-      <xilinx:checksum xilinx:scope="memoryMaps" xilinx:value="50c5041b"/>
-      <xilinx:checksum xilinx:scope="fileGroups" xilinx:value="806a65d9"/>
-      <xilinx:checksum xilinx:scope="ports" xilinx:value="c4cac89e"/>
+      <xilinx:checksum xilinx:scope="busInterfaces" xilinx:value="f74a235d"/>
+      <xilinx:checksum xilinx:scope="memoryMaps" xilinx:value="5bebcb9d"/>
+      <xilinx:checksum xilinx:scope="fileGroups" xilinx:value="594e293f"/>
+      <xilinx:checksum xilinx:scope="ports" xilinx:value="f89ae076"/>
       <xilinx:checksum xilinx:scope="hdlParameters" xilinx:value="e76f1e5a"/>
       <xilinx:checksum xilinx:scope="parameters" xilinx:value="964fa453"/>
     </xilinx:packagingInfo>

@@ -45,12 +45,12 @@ typedef struct {
 #else
     u16 DeviceId;
 #endif
-    u64 Ctrl_BaseAddress;
+    u64 Stat_BaseAddress;
 } XSync_detect_Config;
 #endif
 
 typedef struct {
-    u64 Ctrl_BaseAddress;
+    u64 Stat_BaseAddress;
     u32 IsReady;
 } XSync_detect;
 
@@ -92,23 +92,15 @@ int XSync_detect_Initialize(XSync_detect *InstancePtr, const char* InstanceName)
 int XSync_detect_Release(XSync_detect *InstancePtr);
 #endif
 
-void XSync_detect_Start(XSync_detect *InstancePtr);
-u32 XSync_detect_IsDone(XSync_detect *InstancePtr);
-u32 XSync_detect_IsIdle(XSync_detect *InstancePtr);
-u32 XSync_detect_IsReady(XSync_detect *InstancePtr);
-void XSync_detect_EnableAutoRestart(XSync_detect *InstancePtr);
-void XSync_detect_DisableAutoRestart(XSync_detect *InstancePtr);
 
-void XSync_detect_Set_n_syms(XSync_detect *InstancePtr, u32 Data);
-u32 XSync_detect_Get_n_syms(XSync_detect *InstancePtr);
-
-void XSync_detect_InterruptGlobalEnable(XSync_detect *InstancePtr);
-void XSync_detect_InterruptGlobalDisable(XSync_detect *InstancePtr);
-void XSync_detect_InterruptEnable(XSync_detect *InstancePtr, u32 Mask);
-void XSync_detect_InterruptDisable(XSync_detect *InstancePtr, u32 Mask);
-void XSync_detect_InterruptClear(XSync_detect *InstancePtr, u32 Mask);
-u32 XSync_detect_InterruptGetEnabled(XSync_detect *InstancePtr);
-u32 XSync_detect_InterruptGetStatus(XSync_detect *InstancePtr);
+void XSync_detect_Set_pow_threshold(XSync_detect *InstancePtr, u32 Data);
+u32 XSync_detect_Get_pow_threshold(XSync_detect *InstancePtr);
+void XSync_detect_Set_stat_preamble_count(XSync_detect *InstancePtr, u32 Data);
+u32 XSync_detect_Get_stat_preamble_count(XSync_detect *InstancePtr);
+void XSync_detect_Set_stat_header_bad_count(XSync_detect *InstancePtr, u32 Data);
+u32 XSync_detect_Get_stat_header_bad_count(XSync_detect *InstancePtr);
+void XSync_detect_Set_stat_pow_env(XSync_detect *InstancePtr, u32 Data);
+u32 XSync_detect_Get_stat_pow_env(XSync_detect *InstancePtr);
 
 #ifdef __cplusplus
 }

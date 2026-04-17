@@ -9,13 +9,18 @@
 // anyone — block auto-starts after reset.
 //
 // Resource budget (target Artix-50T at 10 ns):
-//   BRAM18: 4 (circular buffer 4096 × 32 bit, split into buf_i/buf_q each
-//              2-port)
+//   BRAM18: ~9 (circular buffer 4096 × 32 bit for FWD replay + SIN_LUT)
 //   DSP48 : ~18 (running sums + CFO complex mult + threshold cross-mult)
-//   LUT   : ~3k
+//   SRL   : ~544 LUTs (delay lines for sliding-window reads)
+//   LUT   : ~3k (excluding SRLs)
 //
-// Target II: 1 for the main loop.  If BRAM port pressure forces it to 2
-// or 4, still easily clears the 20 MSPS input rate at 100 MHz.
+// Sliding-window reads at fixed offsets from wr_ptr (idx_new_N, idx_old,
+// idx_old_N) are implemented as SRL shift-register delay lines, leaving
+// the BRAM with only 1 write (wr_ptr) + 1 read (rd_ptr in FWD states)
+// — fits RAM_2P with no cyclic partitioning or urem overhead.
+//
+// Target II: 1 for SEARCH; may relax to 2-4 in FWD states due to
+// rd_ptr loop-carry — still easily clears 20 MSPS at 100 MHz.
 // ============================================================
 #include "sync_detect.h"
 #include "free_run.h"
@@ -164,6 +169,23 @@ static ap_fixed<16,4> sync_atan2(acc_t y, acc_t x) {
 #endif
 }
 
+// ── SRL delay-line helper ────────────────────────────────────
+// Shift-register delay: returns the sample pushed D iterations ago,
+// and pushes 'in' at the head.  With ARRAY_PARTITION complete the
+// inner shift loop synthesises to an SRL32 chain on Xilinx — ~1 LUT
+// per bit per 32 entries of depth.
+template<int D>
+static sample_t sr_delay(sample_t sr[D], sample_t in) {
+#pragma HLS INLINE
+    sample_t out = sr[D - 1];
+    SR_SHIFT: for (int k = D - 1; k > 0; k--) {
+#pragma HLS UNROLL
+        sr[k] = sr[k - 1];
+    }
+    sr[0] = in;
+    return out;
+}
+
 // ── Top ─────────────────────────────────────────────────────
 void sync_detect(
     hls::stream<iq_t>&  iq_in,
@@ -194,6 +216,20 @@ void sync_detect(
     // Power-envelope delay line (64-deep FF register file)
     static acc_t pow_delay[POW_WIN_LEN];
 #pragma HLS ARRAY_PARTITION variable=pow_delay complete
+
+    // ── SRL delay lines (replace 3 fixed-offset BRAM reads) ──
+    // Total depth: CP_LEN(32) + FFT_SIZE(256) + FFT_SIZE(256) = 544
+    // per I/Q component.  ~544 SRL32 LUTs total.
+    static sample_t dly_L_i[CP_LEN],    dly_L_q[CP_LEN];     // CP_LEN ago
+    static sample_t dly_N_i[FFT_SIZE],  dly_N_q[FFT_SIZE];   // FFT_SIZE ago
+    static sample_t dly_LN_i[FFT_SIZE], dly_LN_q[FFT_SIZE];  // CP_LEN+FFT_SIZE ago
+#pragma HLS ARRAY_PARTITION variable=dly_L_i   complete
+#pragma HLS ARRAY_PARTITION variable=dly_L_q   complete
+#pragma HLS ARRAY_PARTITION variable=dly_N_i   complete
+#pragma HLS ARRAY_PARTITION variable=dly_N_q   complete
+#pragma HLS ARRAY_PARTITION variable=dly_LN_i  complete
+#pragma HLS ARRAY_PARTITION variable=dly_LN_q  complete
+
     ap_uint<6> pow_idx = 0;
 
     // Running accumulators (persist across loop iterations via `static`)
@@ -215,6 +251,11 @@ void sync_detect(
     static ap_uint<32> phase_acc  = 0;
     static ap_int<32>  phase_step = 0;
 
+    // Registered speculative CFO estimate — computed one iteration
+    // ahead so the FSM can grab it as a register-to-register copy
+    // without a long combinational chain through atan2+multiply.
+    static ap_int<32>  reg_cand_ps = 0;
+
     // Feedback latch (sticky across WAIT_NSYMS)
     static ap_uint<1>  got_fb        = 0;
     static ap_uint<8>  latched_nsyms = 0;
@@ -226,27 +267,53 @@ void sync_detect(
     enum { S_SEARCH = 0, S_FWD_PREHDR = 1, S_WAIT_NSYMS = 2, S_FWD_DATA = 3 };
 
     FREE_RUN_LOOP_BEGIN
-#pragma HLS PIPELINE II=1
+#pragma HLS PIPELINE II=5
 
         // ── 1. Mandatory sample intake (never back-pressures iq_in) ──
         iq_t in_s = iq_in.read();
         sample_t s_i = in_s.i;
         sample_t s_q = in_s.q;
 
-        // ── 2. Addresses of samples entering / leaving each running window ──
-        ap_uint<12> idx_new_N = (ap_uint<12>)(wr_ptr - FFT_SIZE);
-        ap_uint<12> idx_old   = (ap_uint<12>)(wr_ptr - CP_LEN);
-        ap_uint<12> idx_old_N = (ap_uint<12>)(wr_ptr - CP_LEN - FFT_SIZE);
+        // ── 2. Delay-line reads (SRL shift registers) ────────
+        //    Replace the old BRAM reads at 3 fixed offsets from wr_ptr.
+        //    dly_L  → CP_LEN ago;   dly_N  → FFT_SIZE ago;
+        //    dly_LN → CP_LEN+FFT_SIZE ago (chained from dly_L output).
+        sample_t rO_i  = sr_delay<CP_LEN>(dly_L_i,  s_i);
+        sample_t rO_q  = sr_delay<CP_LEN>(dly_L_q,  s_q);
+        sample_t rN_i  = sr_delay<FFT_SIZE>(dly_N_i,  s_i);
+        sample_t rN_q  = sr_delay<FFT_SIZE>(dly_N_q,  s_q);
+        sample_t rON_i = sr_delay<FFT_SIZE>(dly_LN_i, rO_i);
+        sample_t rON_q = sr_delay<FFT_SIZE>(dly_LN_q, rO_q);
 
-        sample_t rN_i  = buf_i[idx_new_N], rN_q  = buf_q[idx_new_N];
-        sample_t rO_i  = buf_i[idx_old],   rO_q  = buf_q[idx_old];
-        sample_t rON_i = buf_i[idx_old_N], rON_q = buf_q[idx_old_N];
+        // ── 3. Write the new sample into the circular buffer ──
+        //    BRAM now serves FWD replay reads only (1W + 1R = RAM_2P).
+        buf_i[(int)(ap_uint<12>)wr_ptr] = s_i;
+        buf_q[(int)(ap_uint<12>)wr_ptr] = s_q;
 
-        // ── 3. Write the new sample into the buffer ─────────
-        buf_i[wr_ptr] = s_i;
-        buf_q[wr_ptr] = s_q;
+        // ── 4. Speculative CFO estimate (runs every cycle) ────
+        //   atan2 + multiply run speculatively; the result is stored
+        //   into reg_cand_ps at the END of this iteration.  When the
+        //   FSM fires (step 9), it reads reg_cand_ps which holds the
+        //   PREVIOUS iteration's result — a register, not a 12 ns
+        //   combinational chain.  1-sample staleness is negligible.
+        ap_fixed<16,4> ang = sync_atan2(P_im, P_re);
+        ap_int<16> ang_raw_s = (ap_int<16>)ang.range();
+        ap_int<32> candidate_phase_step = (ap_int<32>)(
+            ((ap_int<40>)ang_raw_s * (ap_int<24>)TWO24_OVER_2PI) >> 12);
 
-        // ── 4. Update running sums only when the metric is "live" ──
+        // ── 5. Dual-threshold detection (on registered accumulators) ──
+        //   Computed BEFORE the accumulator update (step 6) so inputs
+        //   are the registered values from the previous iteration —
+        //   pure register → multiply → compare, no combinational path
+        //   from the accumulator add/sub logic.  1-sample detection
+        //   lag is negligible (1/32 of the CP window).
+        prod_t P_magsq = (prod_t)(P_re * P_re + P_im * P_im);
+        prod_t R_Rl    = (prod_t)R * (prod_t)Rl;
+        prod_t thresh  = (prod_t)(R_Rl * SC_TH_SQ_CONST);
+        bool sc_above  = (P_magsq > thresh) && (Rl > acc_t(0)) && (R > acc_t(0));
+        bool pow_above = pow_env > (acc_t)pow_threshold;
+
+        // ── 6. Update running sums (after threshold snapshot) ───
         //   Live in SEARCH; frozen in FWD_PREHDR / WAIT_NSYMS / FWD_DATA.
         bool metric_live = (state == S_SEARCH);
 
@@ -264,8 +331,8 @@ void sync_detect(
         acc_t old_P_im = (acc_t)(rO_q * rON_i - rO_i * rON_q);
 
         // Power envelope — always live (needed for trigger and readback)
-        acc_t pow_out = pow_delay[pow_idx];
-        pow_delay[pow_idx] = new_pow;
+        acc_t pow_out = pow_delay[(int)pow_idx];
+        pow_delay[(int)pow_idx] = new_pow;
         pow_idx = (pow_idx + 1) & (POW_WIN_LEN - 1);
         pow_env = pow_env + new_pow - pow_out;
 
@@ -278,44 +345,26 @@ void sync_detect(
 
         stat_pow_env = (ap_ufixed<24,8>)pow_env;
 
-        // ── 5. Dual-threshold detection ─────────────────────
-        prod_t P_magsq = (prod_t)(P_re * P_re + P_im * P_im);
-        prod_t R_Rl    = (prod_t)R * (prod_t)Rl;
-        prod_t thresh  = (prod_t)(R_Rl * SC_TH_SQ_CONST);
-        bool sc_above  = (P_magsq > thresh) && (Rl > acc_t(0)) && (R > acc_t(0));
-        bool pow_above = pow_env > (acc_t)pow_threshold;
-
-        // ── 6. Warmup + deaf window ─────────────────────────
+        // ── 7. Warmup + deaf window ─────────────────────────
         if (warmup < BUF_SIZE) warmup++;
         if (deaf_counter > 0)  deaf_counter--;
         bool gate_armed = (warmup >= BUF_SIZE) && (deaf_counter == 0);
 
-        // ── 7. Sticky-latch the n_syms_fb strobe ────────────
+        // ── 8. Sticky-latch the n_syms_fb strobe ────────────
         if (n_syms_fb_vld) {
             latched_nsyms = n_syms_fb;
             got_fb = 1;
         }
 
-        // ── 8. FSM transitions ──────────────────────────────
+        // ── 9. FSM transitions ──────────────────────────────
         iq_t out_s; out_s.i = 0; out_s.q = 0; out_s.last = 0;
         bool want_emit = false;
 
         switch (state) {
         case S_SEARCH:
             if (gate_armed && sc_above && pow_above) {
-                // best_t = first sample of the left window currently being
-                // summed (== wr_ptr − CP_LEN − FFT_SIZE).  rd_ptr starts
-                // slightly earlier so ofdm_rx gets the preamble CP intact.
                 rd_ptr = (ap_uint<12>)(wr_ptr - CP_LEN - FFT_SIZE);
-                // CFO estimate: ε_sc = angle(P) / (2π);
-                //   phase_step (32-bit NCO) = ε_sc × 2^32 / FFT_SIZE
-                //   = angle × 2^32 / (2π × 256) = angle × 2^22 / π
-                ap_fixed<16,4> ang = sync_atan2(P_im, P_re);
-                // phase_step = ang × 2^24 / (2π) — see TWO24_OVER_2PI derivation.
-                // Sign-extend raw bits (ap_fixed<16,4> is signed two's complement).
-                ap_int<16> ang_raw_s = (ap_int<16>)ang.range();
-                phase_step = (ap_int<32>)(
-                    ((ap_int<40>)ang_raw_s * (ap_int<24>)TWO24_OVER_2PI) >> 12);
+                phase_step = reg_cand_ps;   // register → register (no combo chain)
                 phase_acc = 0;
                 fwd_remaining = (int)SYNC_NL * 2;   // 576 = preamble + header
                 state = S_FWD_PREHDR;
@@ -326,8 +375,8 @@ void sync_detect(
 
         case S_FWD_PREHDR:
         case S_FWD_DATA: {
-            sample_t rd_i = buf_i[rd_ptr];
-            sample_t rd_q = buf_q[rd_ptr];
+            sample_t rd_i = buf_i[(int)(ap_uint<12>)rd_ptr];
+            sample_t rd_q = buf_q[(int)(ap_uint<12>)rd_ptr];
             sample_t c, s;
             sincos_lut(phase_acc, s, c);
             // r_out = r_in × e^{-j·phase}  → derotation
@@ -361,7 +410,7 @@ void sync_detect(
             break;
         }
 
-        // ── 9. Back-pressure-safe output emit ───────────────
+        // ── 10. Back-pressure-safe output emit ──────────────
         if (want_emit) {
             bool written = iq_out.write_nb(out_s);
             if (written) {
@@ -389,7 +438,10 @@ void sync_detect(
             // samples continue landing in circ_buf.
         }
 
-        // ── 10. Always advance the write pointer ────────────
+        // ── 11. Register the speculative CFO for next iteration ──
+        reg_cand_ps = candidate_phase_step;
+
+        // ── 12. Always advance the write pointer ────────────
         wr_ptr = (ap_uint<12>)(wr_ptr + 1);
 
     FREE_RUN_LOOP_END

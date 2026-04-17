@@ -221,9 +221,6 @@ static void do_rx(
             o.last = (i == (int)plen - 1) ? 1 : 0;
             o.keep = 1;
             o.strb = 1;
-            o.user = 0;
-            o.id   = 0;
-            o.dest = 0;
             host_rx_out.write(o);
         }
     }

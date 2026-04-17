@@ -32,30 +32,30 @@ module ofdm_rx_equalize_demap_pack (
         bits_out_TDATA,
         bits_out_TVALID,
         bits_out_TREADY,
-        grp_fu_1595_p_din0,
-        grp_fu_1595_p_din1,
-        grp_fu_1595_p_dout0,
-        grp_fu_1595_p_ce,
-        grp_fu_1599_p_din0,
-        grp_fu_1599_p_din1,
-        grp_fu_1599_p_dout0,
-        grp_fu_1599_p_ce,
-        grp_fu_1603_p_din0,
-        grp_fu_1603_p_din1,
-        grp_fu_1603_p_dout0,
-        grp_fu_1603_p_ce,
-        grp_fu_1607_p_din0,
-        grp_fu_1607_p_din1,
-        grp_fu_1607_p_dout0,
-        grp_fu_1607_p_ce,
-        grp_fu_1611_p_din0,
-        grp_fu_1611_p_din1,
-        grp_fu_1611_p_dout0,
-        grp_fu_1611_p_ce,
-        grp_fu_1615_p_din0,
-        grp_fu_1615_p_din1,
-        grp_fu_1615_p_dout0,
-        grp_fu_1615_p_ce
+        grp_fu_1557_p_din0,
+        grp_fu_1557_p_din1,
+        grp_fu_1557_p_dout0,
+        grp_fu_1557_p_ce,
+        grp_fu_1561_p_din0,
+        grp_fu_1561_p_din1,
+        grp_fu_1561_p_dout0,
+        grp_fu_1561_p_ce,
+        grp_fu_1565_p_din0,
+        grp_fu_1565_p_din1,
+        grp_fu_1565_p_dout0,
+        grp_fu_1565_p_ce,
+        grp_fu_1569_p_din0,
+        grp_fu_1569_p_din1,
+        grp_fu_1569_p_dout0,
+        grp_fu_1569_p_ce,
+        grp_fu_1573_p_din0,
+        grp_fu_1573_p_din1,
+        grp_fu_1573_p_dout0,
+        grp_fu_1573_p_ce,
+        grp_fu_1577_p_din0,
+        grp_fu_1577_p_din1,
+        grp_fu_1577_p_dout0,
+        grp_fu_1577_p_ce
 );
 
 parameter    ap_ST_fsm_state1 = 2'd1;
@@ -85,30 +85,30 @@ input  [22:0] cpe_sin;
 output  [7:0] bits_out_TDATA;
 output   bits_out_TVALID;
 input   bits_out_TREADY;
-output  [22:0] grp_fu_1595_p_din0;
-output  [31:0] grp_fu_1595_p_din1;
-input  [53:0] grp_fu_1595_p_dout0;
-output   grp_fu_1595_p_ce;
-output  [31:0] grp_fu_1599_p_din0;
-output  [22:0] grp_fu_1599_p_din1;
-input  [53:0] grp_fu_1599_p_dout0;
-output   grp_fu_1599_p_ce;
-output  [31:0] grp_fu_1603_p_din0;
-output  [22:0] grp_fu_1603_p_din1;
-input  [53:0] grp_fu_1603_p_dout0;
-output   grp_fu_1603_p_ce;
-output  [31:0] grp_fu_1607_p_din0;
-output  [22:0] grp_fu_1607_p_din1;
-input  [53:0] grp_fu_1607_p_dout0;
-output   grp_fu_1607_p_ce;
-output  [31:0] grp_fu_1611_p_din0;
-output  [22:0] grp_fu_1611_p_din1;
-input  [53:0] grp_fu_1611_p_dout0;
-output   grp_fu_1611_p_ce;
-output  [31:0] grp_fu_1615_p_din0;
-output  [22:0] grp_fu_1615_p_din1;
-input  [53:0] grp_fu_1615_p_dout0;
-output   grp_fu_1615_p_ce;
+output  [22:0] grp_fu_1557_p_din0;
+output  [31:0] grp_fu_1557_p_din1;
+input  [53:0] grp_fu_1557_p_dout0;
+output   grp_fu_1557_p_ce;
+output  [31:0] grp_fu_1561_p_din0;
+output  [22:0] grp_fu_1561_p_din1;
+input  [53:0] grp_fu_1561_p_dout0;
+output   grp_fu_1561_p_ce;
+output  [31:0] grp_fu_1565_p_din0;
+output  [22:0] grp_fu_1565_p_din1;
+input  [53:0] grp_fu_1565_p_dout0;
+output   grp_fu_1565_p_ce;
+output  [31:0] grp_fu_1569_p_din0;
+output  [22:0] grp_fu_1569_p_din1;
+input  [53:0] grp_fu_1569_p_dout0;
+output   grp_fu_1569_p_ce;
+output  [31:0] grp_fu_1573_p_din0;
+output  [22:0] grp_fu_1573_p_din1;
+input  [53:0] grp_fu_1573_p_dout0;
+output   grp_fu_1573_p_ce;
+output  [31:0] grp_fu_1577_p_din0;
+output  [22:0] grp_fu_1577_p_din1;
+input  [53:0] grp_fu_1577_p_dout0;
+output   grp_fu_1577_p_ce;
 
 reg ap_done;
 reg ap_idle;
@@ -217,8 +217,8 @@ ofdm_rx_equalize_demap_pack_Pipeline_QPSK_PACK grp_equalize_demap_pack_Pipeline_
     .G_eq_M_imag_address0(grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_G_eq_M_imag_address0),
     .G_eq_M_imag_ce0(grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_G_eq_M_imag_ce0),
     .G_eq_M_imag_q0(G_eq_M_imag_q0),
-    .sext_ln514(cpe_cos),
-    .sext_ln641(cpe_sin),
+    .sext_ln515(cpe_cos),
+    .sext_ln642(cpe_sin),
     .bits_out_TDATA(grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_bits_out_TDATA),
     .bits_out_TVALID(grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_bits_out_TVALID)
 );
@@ -243,33 +243,33 @@ ofdm_rx_equalize_demap_pack_Pipeline_QAM16_PACK grp_equalize_demap_pack_Pipeline
     .G_eq_M_imag_address0(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_G_eq_M_imag_address0),
     .G_eq_M_imag_ce0(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_G_eq_M_imag_ce0),
     .G_eq_M_imag_q0(G_eq_M_imag_q0),
-    .sext_ln514(cpe_cos),
-    .sext_ln641(cpe_sin),
+    .sext_ln515(cpe_cos),
+    .sext_ln642(cpe_sin),
     .bits_out_TDATA(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_bits_out_TDATA),
     .bits_out_TVALID(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_bits_out_TVALID),
     .grp_fu_112_p_din0(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_112_p_din0),
     .grp_fu_112_p_din1(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_112_p_din1),
-    .grp_fu_112_p_dout0(grp_fu_1595_p_dout0),
+    .grp_fu_112_p_dout0(grp_fu_1557_p_dout0),
     .grp_fu_112_p_ce(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_112_p_ce),
     .grp_fu_116_p_din0(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_116_p_din0),
     .grp_fu_116_p_din1(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_116_p_din1),
-    .grp_fu_116_p_dout0(grp_fu_1599_p_dout0),
+    .grp_fu_116_p_dout0(grp_fu_1561_p_dout0),
     .grp_fu_116_p_ce(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_116_p_ce),
     .grp_fu_120_p_din0(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_120_p_din0),
     .grp_fu_120_p_din1(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_120_p_din1),
-    .grp_fu_120_p_dout0(grp_fu_1603_p_dout0),
+    .grp_fu_120_p_dout0(grp_fu_1565_p_dout0),
     .grp_fu_120_p_ce(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_120_p_ce),
     .grp_fu_124_p_din0(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_124_p_din0),
     .grp_fu_124_p_din1(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_124_p_din1),
-    .grp_fu_124_p_dout0(grp_fu_1607_p_dout0),
+    .grp_fu_124_p_dout0(grp_fu_1569_p_dout0),
     .grp_fu_124_p_ce(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_124_p_ce),
     .grp_fu_128_p_din0(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_128_p_din0),
     .grp_fu_128_p_din1(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_128_p_din1),
-    .grp_fu_128_p_dout0(grp_fu_1611_p_dout0),
+    .grp_fu_128_p_dout0(grp_fu_1573_p_dout0),
     .grp_fu_128_p_ce(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_128_p_ce),
     .grp_fu_132_p_din0(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_132_p_din0),
     .grp_fu_132_p_din1(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_132_p_din1),
-    .grp_fu_132_p_dout0(grp_fu_1615_p_dout0),
+    .grp_fu_132_p_dout0(grp_fu_1577_p_dout0),
     .grp_fu_132_p_ce(grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_132_p_ce)
 );
 
@@ -581,40 +581,40 @@ assign grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_ap_start = grp_equalize_
 
 assign grp_equalize_demap_pack_Pipeline_QPSK_PACK_fu_56_bits_out_TREADY = (bits_out_TREADY & ap_CS_fsm_state2);
 
-assign grp_fu_1595_p_ce = grp_fu_112_ce;
+assign grp_fu_1557_p_ce = grp_fu_112_ce;
 
-assign grp_fu_1595_p_din0 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_112_p_din0;
+assign grp_fu_1557_p_din0 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_112_p_din0;
 
-assign grp_fu_1595_p_din1 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_112_p_din1;
+assign grp_fu_1557_p_din1 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_112_p_din1;
 
-assign grp_fu_1599_p_ce = grp_fu_116_ce;
+assign grp_fu_1561_p_ce = grp_fu_116_ce;
 
-assign grp_fu_1599_p_din0 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_116_p_din0;
+assign grp_fu_1561_p_din0 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_116_p_din0;
 
-assign grp_fu_1599_p_din1 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_116_p_din1;
+assign grp_fu_1561_p_din1 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_116_p_din1;
 
-assign grp_fu_1603_p_ce = grp_fu_120_ce;
+assign grp_fu_1565_p_ce = grp_fu_120_ce;
 
-assign grp_fu_1603_p_din0 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_120_p_din0;
+assign grp_fu_1565_p_din0 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_120_p_din0;
 
-assign grp_fu_1603_p_din1 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_120_p_din1;
+assign grp_fu_1565_p_din1 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_120_p_din1;
 
-assign grp_fu_1607_p_ce = grp_fu_124_ce;
+assign grp_fu_1569_p_ce = grp_fu_124_ce;
 
-assign grp_fu_1607_p_din0 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_124_p_din0;
+assign grp_fu_1569_p_din0 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_124_p_din0;
 
-assign grp_fu_1607_p_din1 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_124_p_din1;
+assign grp_fu_1569_p_din1 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_124_p_din1;
 
-assign grp_fu_1611_p_ce = grp_fu_128_ce;
+assign grp_fu_1573_p_ce = grp_fu_128_ce;
 
-assign grp_fu_1611_p_din0 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_128_p_din0;
+assign grp_fu_1573_p_din0 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_128_p_din0;
 
-assign grp_fu_1611_p_din1 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_128_p_din1;
+assign grp_fu_1573_p_din1 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_128_p_din1;
 
-assign grp_fu_1615_p_ce = grp_fu_132_ce;
+assign grp_fu_1577_p_ce = grp_fu_132_ce;
 
-assign grp_fu_1615_p_din0 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_132_p_din0;
+assign grp_fu_1577_p_din0 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_132_p_din0;
 
-assign grp_fu_1615_p_din1 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_132_p_din1;
+assign grp_fu_1577_p_din1 = grp_equalize_demap_pack_Pipeline_QAM16_PACK_fu_76_grp_fu_132_p_din1;
 
 endmodule //ofdm_rx_equalize_demap_pack

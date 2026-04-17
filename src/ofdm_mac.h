@@ -46,6 +46,7 @@
 #include <ap_int.h>
 #include <ap_axi_sdata.h>
 #include <hls_stream.h>
+#include "ofdm_tx.h"    // modcod_t
 
 #define MAC_HDR_LEN         14
 #define MAC_FCS_LEN          4

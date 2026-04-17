@@ -32,7 +32,7 @@
     output wire                          RVALID,
     input  wire                          RREADY,
     output wire                          interrupt,
-    output wire [0:0]                    mod_r,
+    output wire [1:0]                    modcod,
     output wire [7:0]                    n_syms,
     output wire                          ap_start,
     input  wire                          ap_done,
@@ -61,9 +61,9 @@
 //        bit 0 - ap_done (Read/TOW)
 //        bit 1 - ap_ready (Read/TOW)
 //        others - reserved
-// 0x10 : Data signal of mod_r
-//        bit 0  - mod_r[0] (Read/Write)
-//        others - reserved
+// 0x10 : Data signal of modcod
+//        bit 1~0 - modcod[1:0] (Read/Write)
+//        others  - reserved
 // 0x14 : reserved
 // 0x18 : Data signal of n_syms
 //        bit 7~0 - n_syms[7:0] (Read/Write)
@@ -77,8 +77,8 @@ localparam
     ADDR_GIE           = 5'h04,
     ADDR_IER           = 5'h08,
     ADDR_ISR           = 5'h0c,
-    ADDR_MOD_R_DATA_0  = 5'h10,
-    ADDR_MOD_R_CTRL    = 5'h14,
+    ADDR_MODCOD_DATA_0 = 5'h10,
+    ADDR_MODCOD_CTRL   = 5'h14,
     ADDR_N_SYMS_DATA_0 = 5'h18,
     ADDR_N_SYMS_CTRL   = 5'h1c,
     WRIDLE             = 2'd0,
@@ -117,7 +117,7 @@ localparam
     reg                           int_gie = 1'b0;
     reg  [1:0]                    int_ier = 2'b0;
     reg  [1:0]                    int_isr = 2'b0;
-    reg  [0:0]                    int_mod_r = 'b0;
+    reg  [1:0]                    int_modcod = 'b0;
     reg  [7:0]                    int_n_syms = 'b0;
 
 //------------------------Instantiation------------------
@@ -228,8 +228,8 @@ always @(posedge ACLK) begin
                 ADDR_ISR: begin
                     rdata <= int_isr;
                 end
-                ADDR_MOD_R_DATA_0: begin
-                    rdata <= int_mod_r[0:0];
+                ADDR_MODCOD_DATA_0: begin
+                    rdata <= int_modcod[1:0];
                 end
                 ADDR_N_SYMS_DATA_0: begin
                     rdata <= int_n_syms[7:0];
@@ -246,7 +246,7 @@ assign ap_start          = int_ap_start;
 assign task_ap_done      = (ap_done && !auto_restart_status) || auto_restart_done;
 assign task_ap_ready     = ap_ready && !int_auto_restart;
 assign auto_restart_done = auto_restart_status && (ap_idle && !int_ap_idle);
-assign mod_r             = int_mod_r;
+assign modcod            = int_modcod;
 assign n_syms            = int_n_syms;
 // int_interrupt
 always @(posedge ACLK) begin
@@ -380,13 +380,13 @@ always @(posedge ACLK) begin
     end
 end
 
-// int_mod_r[0:0]
+// int_modcod[1:0]
 always @(posedge ACLK) begin
     if (ARESET)
-        int_mod_r[0:0] <= 0;
+        int_modcod[1:0] <= 0;
     else if (ACLK_EN) begin
-        if (w_hs && waddr == ADDR_MOD_R_DATA_0)
-            int_mod_r[0:0] <= (WDATA[31:0] & wmask) | (int_mod_r[0:0] & ~wmask);
+        if (w_hs && waddr == ADDR_MODCOD_DATA_0)
+            int_modcod[1:0] <= (WDATA[31:0] & wmask) | (int_modcod[1:0] & ~wmask);
     end
 end
 

@@ -40,7 +40,7 @@ wire    ap_enable_reg_pp0_iter0;
 reg    ap_enable_reg_pp0_iter1;
 reg    ap_idle_pp0;
 reg    ap_block_pp0_stage0_subdone;
-wire   [0:0] icmp_ln537_fu_56_p2;
+wire   [0:0] icmp_ln543_fu_56_p2;
 reg    ap_condition_exit_pp0_iter0_stage0;
 wire    ap_loop_exit_ready;
 reg    ap_ready_int;
@@ -121,7 +121,7 @@ end
 
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        if (((icmp_ln537_fu_56_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
+        if (((icmp_ln543_fu_56_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
             i_fu_36 <= i_8_fu_62_p2;
         end else if ((ap_loop_init == 1'b1)) begin
             i_fu_36 <= 9'd0;
@@ -130,7 +130,7 @@ always @ (posedge ap_clk) begin
 end
 
 always @ (*) begin
-    if (((icmp_ln537_fu_56_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+    if (((icmp_ln543_fu_56_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b1;
     end else begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b0;
@@ -238,7 +238,7 @@ assign ap_ready = ap_ready_sig;
 
 assign i_8_fu_62_p2 = (ap_sig_allocacmp_i_7 + 9'd1);
 
-assign icmp_ln537_fu_56_p2 = ((ap_sig_allocacmp_i_7 == 9'd288) ? 1'b1 : 1'b0);
+assign icmp_ln543_fu_56_p2 = ((ap_sig_allocacmp_i_7 == 9'd288) ? 1'b1 : 1'b0);
 
 assign iq_out_TDATA = 48'd0;
 

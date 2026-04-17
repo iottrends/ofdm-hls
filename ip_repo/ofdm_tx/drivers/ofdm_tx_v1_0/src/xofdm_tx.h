@@ -99,8 +99,8 @@ u32 XOfdm_tx_IsReady(XOfdm_tx *InstancePtr);
 void XOfdm_tx_EnableAutoRestart(XOfdm_tx *InstancePtr);
 void XOfdm_tx_DisableAutoRestart(XOfdm_tx *InstancePtr);
 
-void XOfdm_tx_Set_mod_r(XOfdm_tx *InstancePtr, u32 Data);
-u32 XOfdm_tx_Get_mod_r(XOfdm_tx *InstancePtr);
+void XOfdm_tx_Set_modcod(XOfdm_tx *InstancePtr, u32 Data);
+u32 XOfdm_tx_Get_modcod(XOfdm_tx *InstancePtr);
 void XOfdm_tx_Set_n_syms(XOfdm_tx *InstancePtr, u32 Data);
 u32 XOfdm_tx_Get_n_syms(XOfdm_tx *InstancePtr);
 

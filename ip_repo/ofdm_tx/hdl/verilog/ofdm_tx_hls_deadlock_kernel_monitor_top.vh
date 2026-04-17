@@ -10,39 +10,39 @@ wire [18:0] inst_idle_sigs;
 wire [0:0] inst_block_sigs;
 wire kernel_block;
 
-assign axis_block_sigs[0] = ~grp_ofdm_tx_Pipeline_GUARD_fu_398.iq_out_TDATA_blk_n;
-assign axis_block_sigs[1] = ~grp_send_freq_symbol_fu_432.grp_run_ifft_fu_46.grp_run_ifft_Pipeline_IFFT_TX_fu_38.ifft_in_TDATA_blk_n;
-assign axis_block_sigs[2] = ~grp_send_freq_symbol_fu_432.grp_run_ifft_fu_46.grp_run_ifft_Pipeline_IFFT_RX_fu_48.ifft_out_TDATA_blk_n;
-assign axis_block_sigs[3] = ~grp_send_freq_symbol_fu_432.grp_insert_cp_and_send_fu_62.grp_insert_cp_and_send_Pipeline_CP_LOOP_fu_42.iq_out_TDATA_blk_n;
-assign axis_block_sigs[4] = ~grp_send_freq_symbol_fu_432.grp_insert_cp_and_send_fu_62.grp_insert_cp_and_send_Pipeline_SYM_LOOP_fu_52.iq_out_TDATA_blk_n;
-assign axis_block_sigs[5] = ~grp_process_symbol_fu_453.grp_unpack_bits_fu_92.grp_unpack_bits_Pipeline_UNPACK_QPSK_fu_32.bits_in_TDATA_blk_n;
-assign axis_block_sigs[6] = ~grp_process_symbol_fu_453.grp_unpack_bits_fu_92.grp_unpack_bits_Pipeline_UNPACK_16QAM_fu_40.bits_in_TDATA_blk_n;
-assign axis_block_sigs[7] = ~grp_process_symbol_fu_453.grp_run_ifft_fu_111.grp_run_ifft_Pipeline_IFFT_TX_fu_38.ifft_in_TDATA_blk_n;
-assign axis_block_sigs[8] = ~grp_process_symbol_fu_453.grp_run_ifft_fu_111.grp_run_ifft_Pipeline_IFFT_RX_fu_48.ifft_out_TDATA_blk_n;
-assign axis_block_sigs[9] = ~grp_process_symbol_fu_453.grp_insert_cp_and_send_fu_123.grp_insert_cp_and_send_Pipeline_CP_LOOP_fu_42.iq_out_TDATA_blk_n;
-assign axis_block_sigs[10] = ~grp_process_symbol_fu_453.grp_insert_cp_and_send_fu_123.grp_insert_cp_and_send_Pipeline_SYM_LOOP_fu_52.iq_out_TDATA_blk_n;
+assign axis_block_sigs[0] = ~grp_ofdm_tx_Pipeline_GUARD_fu_400.iq_out_TDATA_blk_n;
+assign axis_block_sigs[1] = ~grp_send_freq_symbol_fu_434.grp_run_ifft_fu_46.grp_run_ifft_Pipeline_IFFT_TX_fu_38.ifft_in_TDATA_blk_n;
+assign axis_block_sigs[2] = ~grp_send_freq_symbol_fu_434.grp_run_ifft_fu_46.grp_run_ifft_Pipeline_IFFT_RX_fu_48.ifft_out_TDATA_blk_n;
+assign axis_block_sigs[3] = ~grp_send_freq_symbol_fu_434.grp_insert_cp_and_send_fu_62.grp_insert_cp_and_send_Pipeline_CP_LOOP_fu_42.iq_out_TDATA_blk_n;
+assign axis_block_sigs[4] = ~grp_send_freq_symbol_fu_434.grp_insert_cp_and_send_fu_62.grp_insert_cp_and_send_Pipeline_SYM_LOOP_fu_52.iq_out_TDATA_blk_n;
+assign axis_block_sigs[5] = ~grp_process_symbol_fu_455.grp_unpack_bits_fu_92.grp_unpack_bits_Pipeline_UNPACK_QPSK_fu_32.bits_in_TDATA_blk_n;
+assign axis_block_sigs[6] = ~grp_process_symbol_fu_455.grp_unpack_bits_fu_92.grp_unpack_bits_Pipeline_UNPACK_16QAM_fu_40.bits_in_TDATA_blk_n;
+assign axis_block_sigs[7] = ~grp_process_symbol_fu_455.grp_run_ifft_fu_111.grp_run_ifft_Pipeline_IFFT_TX_fu_38.ifft_in_TDATA_blk_n;
+assign axis_block_sigs[8] = ~grp_process_symbol_fu_455.grp_run_ifft_fu_111.grp_run_ifft_Pipeline_IFFT_RX_fu_48.ifft_out_TDATA_blk_n;
+assign axis_block_sigs[9] = ~grp_process_symbol_fu_455.grp_insert_cp_and_send_fu_123.grp_insert_cp_and_send_Pipeline_CP_LOOP_fu_42.iq_out_TDATA_blk_n;
+assign axis_block_sigs[10] = ~grp_process_symbol_fu_455.grp_insert_cp_and_send_fu_123.grp_insert_cp_and_send_Pipeline_SYM_LOOP_fu_52.iq_out_TDATA_blk_n;
 
 assign inst_block_sigs[0] = 1'b0;
 
 assign inst_idle_sigs[0] = 1'b0;
-assign inst_idle_sigs[1] = grp_ofdm_tx_Pipeline_GUARD_fu_398.ap_idle;
-assign inst_idle_sigs[2] = grp_send_freq_symbol_fu_432.ap_idle;
-assign inst_idle_sigs[3] = grp_send_freq_symbol_fu_432.grp_run_ifft_fu_46.ap_idle;
-assign inst_idle_sigs[4] = grp_send_freq_symbol_fu_432.grp_run_ifft_fu_46.grp_run_ifft_Pipeline_IFFT_TX_fu_38.ap_idle;
-assign inst_idle_sigs[5] = grp_send_freq_symbol_fu_432.grp_run_ifft_fu_46.grp_run_ifft_Pipeline_IFFT_RX_fu_48.ap_idle;
-assign inst_idle_sigs[6] = grp_send_freq_symbol_fu_432.grp_insert_cp_and_send_fu_62.ap_idle;
-assign inst_idle_sigs[7] = grp_send_freq_symbol_fu_432.grp_insert_cp_and_send_fu_62.grp_insert_cp_and_send_Pipeline_CP_LOOP_fu_42.ap_idle;
-assign inst_idle_sigs[8] = grp_send_freq_symbol_fu_432.grp_insert_cp_and_send_fu_62.grp_insert_cp_and_send_Pipeline_SYM_LOOP_fu_52.ap_idle;
-assign inst_idle_sigs[9] = grp_process_symbol_fu_453.ap_idle;
-assign inst_idle_sigs[10] = grp_process_symbol_fu_453.grp_unpack_bits_fu_92.ap_idle;
-assign inst_idle_sigs[11] = grp_process_symbol_fu_453.grp_unpack_bits_fu_92.grp_unpack_bits_Pipeline_UNPACK_QPSK_fu_32.ap_idle;
-assign inst_idle_sigs[12] = grp_process_symbol_fu_453.grp_unpack_bits_fu_92.grp_unpack_bits_Pipeline_UNPACK_16QAM_fu_40.ap_idle;
-assign inst_idle_sigs[13] = grp_process_symbol_fu_453.grp_run_ifft_fu_111.ap_idle;
-assign inst_idle_sigs[14] = grp_process_symbol_fu_453.grp_run_ifft_fu_111.grp_run_ifft_Pipeline_IFFT_TX_fu_38.ap_idle;
-assign inst_idle_sigs[15] = grp_process_symbol_fu_453.grp_run_ifft_fu_111.grp_run_ifft_Pipeline_IFFT_RX_fu_48.ap_idle;
-assign inst_idle_sigs[16] = grp_process_symbol_fu_453.grp_insert_cp_and_send_fu_123.ap_idle;
-assign inst_idle_sigs[17] = grp_process_symbol_fu_453.grp_insert_cp_and_send_fu_123.grp_insert_cp_and_send_Pipeline_CP_LOOP_fu_42.ap_idle;
-assign inst_idle_sigs[18] = grp_process_symbol_fu_453.grp_insert_cp_and_send_fu_123.grp_insert_cp_and_send_Pipeline_SYM_LOOP_fu_52.ap_idle;
+assign inst_idle_sigs[1] = grp_ofdm_tx_Pipeline_GUARD_fu_400.ap_idle;
+assign inst_idle_sigs[2] = grp_send_freq_symbol_fu_434.ap_idle;
+assign inst_idle_sigs[3] = grp_send_freq_symbol_fu_434.grp_run_ifft_fu_46.ap_idle;
+assign inst_idle_sigs[4] = grp_send_freq_symbol_fu_434.grp_run_ifft_fu_46.grp_run_ifft_Pipeline_IFFT_TX_fu_38.ap_idle;
+assign inst_idle_sigs[5] = grp_send_freq_symbol_fu_434.grp_run_ifft_fu_46.grp_run_ifft_Pipeline_IFFT_RX_fu_48.ap_idle;
+assign inst_idle_sigs[6] = grp_send_freq_symbol_fu_434.grp_insert_cp_and_send_fu_62.ap_idle;
+assign inst_idle_sigs[7] = grp_send_freq_symbol_fu_434.grp_insert_cp_and_send_fu_62.grp_insert_cp_and_send_Pipeline_CP_LOOP_fu_42.ap_idle;
+assign inst_idle_sigs[8] = grp_send_freq_symbol_fu_434.grp_insert_cp_and_send_fu_62.grp_insert_cp_and_send_Pipeline_SYM_LOOP_fu_52.ap_idle;
+assign inst_idle_sigs[9] = grp_process_symbol_fu_455.ap_idle;
+assign inst_idle_sigs[10] = grp_process_symbol_fu_455.grp_unpack_bits_fu_92.ap_idle;
+assign inst_idle_sigs[11] = grp_process_symbol_fu_455.grp_unpack_bits_fu_92.grp_unpack_bits_Pipeline_UNPACK_QPSK_fu_32.ap_idle;
+assign inst_idle_sigs[12] = grp_process_symbol_fu_455.grp_unpack_bits_fu_92.grp_unpack_bits_Pipeline_UNPACK_16QAM_fu_40.ap_idle;
+assign inst_idle_sigs[13] = grp_process_symbol_fu_455.grp_run_ifft_fu_111.ap_idle;
+assign inst_idle_sigs[14] = grp_process_symbol_fu_455.grp_run_ifft_fu_111.grp_run_ifft_Pipeline_IFFT_TX_fu_38.ap_idle;
+assign inst_idle_sigs[15] = grp_process_symbol_fu_455.grp_run_ifft_fu_111.grp_run_ifft_Pipeline_IFFT_RX_fu_48.ap_idle;
+assign inst_idle_sigs[16] = grp_process_symbol_fu_455.grp_insert_cp_and_send_fu_123.ap_idle;
+assign inst_idle_sigs[17] = grp_process_symbol_fu_455.grp_insert_cp_and_send_fu_123.grp_insert_cp_and_send_Pipeline_CP_LOOP_fu_42.ap_idle;
+assign inst_idle_sigs[18] = grp_process_symbol_fu_455.grp_insert_cp_and_send_fu_123.grp_insert_cp_and_send_Pipeline_SYM_LOOP_fu_52.ap_idle;
 
 ofdm_tx_hls_deadlock_idx0_monitor ofdm_tx_hls_deadlock_idx0_monitor_U (
     .clock(kernel_monitor_clock),

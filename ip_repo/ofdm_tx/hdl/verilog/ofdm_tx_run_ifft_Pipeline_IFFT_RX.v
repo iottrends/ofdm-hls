@@ -36,7 +36,7 @@ output   ap_done;
 output   ap_idle;
 output   ap_ready;
 input   ifft_out_TVALID;
-input  [47:0] ifft_out_TDATA;
+input  [31:0] ifft_out_TDATA;
 output   ifft_out_TREADY;
 output  [7:0] out_M_real_address0;
 output   out_M_real_ce0;
@@ -56,7 +56,7 @@ wire    ap_enable_reg_pp0_iter0;
 reg    ap_enable_reg_pp0_iter1;
 reg    ap_idle_pp0;
 reg    ap_block_pp0_stage0_subdone;
-wire   [0:0] icmp_ln291_fu_98_p2;
+wire   [0:0] icmp_ln293_fu_98_p2;
 reg    ap_condition_exit_pp0_iter0_stage0;
 wire    ap_loop_exit_ready;
 reg    ap_ready_int;
@@ -64,9 +64,9 @@ reg    ifft_out_TDATA_blk_n;
 wire    ap_block_pp0_stage0_grp1;
 reg   [8:0] i_reg_141;
 reg    ap_block_pp0_stage0_11001;
-wire   [63:0] zext_ln291_fu_115_p1;
+wire   [63:0] zext_ln293_fu_115_p1;
 reg   [8:0] i_3_fu_54;
-wire   [8:0] add_ln291_fu_104_p2;
+wire   [8:0] add_ln293_fu_104_p2;
 wire    ap_loop_init;
 reg   [8:0] ap_sig_allocacmp_i;
 wire    ap_block_pp0_stage0;
@@ -143,8 +143,8 @@ end
 
 always @ (posedge ap_clk) begin
     if (((1'b0 == ap_block_pp0_stage0_11001) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
-        if (((icmp_ln291_fu_98_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
-            i_3_fu_54 <= add_ln291_fu_104_p2;
+        if (((icmp_ln293_fu_98_p2 == 1'd0) & (ap_enable_reg_pp0_iter0 == 1'b1))) begin
+            i_3_fu_54 <= add_ln293_fu_104_p2;
         end else if ((ap_loop_init == 1'b1)) begin
             i_3_fu_54 <= 9'd0;
         end
@@ -158,7 +158,7 @@ always @ (posedge ap_clk) begin
 end
 
 always @ (*) begin
-    if (((icmp_ln291_fu_98_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
+    if (((icmp_ln293_fu_98_p2 == 1'd1) & (1'b0 == ap_block_pp0_stage0_subdone) & (ap_enable_reg_pp0_iter0 == 1'b1) & (1'b1 == ap_CS_fsm_pp0_stage0))) begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b1;
     end else begin
         ap_condition_exit_pp0_iter0_stage0 = 1'b0;
@@ -264,7 +264,7 @@ always @ (*) begin
     endcase
 end
 
-assign add_ln291_fu_104_p2 = (ap_sig_allocacmp_i + 9'd1);
+assign add_ln293_fu_104_p2 = (ap_sig_allocacmp_i + 9'd1);
 
 assign ap_CS_fsm_pp0_stage0 = ap_CS_fsm[32'd0];
 
@@ -294,9 +294,9 @@ assign ap_loop_exit_ready = ap_condition_exit_pp0_iter0_stage0;
 
 assign ap_ready = ap_ready_sig;
 
-assign icmp_ln291_fu_98_p2 = ((ap_sig_allocacmp_i == 9'd256) ? 1'b1 : 1'b0);
+assign icmp_ln293_fu_98_p2 = ((ap_sig_allocacmp_i == 9'd256) ? 1'b1 : 1'b0);
 
-assign out_M_imag_address0 = zext_ln291_fu_115_p1;
+assign out_M_imag_address0 = zext_ln293_fu_115_p1;
 
 assign out_M_imag_ce0 = out_M_imag_ce0_local;
 
@@ -304,7 +304,7 @@ assign out_M_imag_d0 = {{ifft_out_TDATA[31:16]}};
 
 assign out_M_imag_we0 = out_M_imag_we0_local;
 
-assign out_M_real_address0 = zext_ln291_fu_115_p1;
+assign out_M_real_address0 = zext_ln293_fu_115_p1;
 
 assign out_M_real_ce0 = out_M_real_ce0_local;
 
@@ -314,6 +314,6 @@ assign out_M_real_we0 = out_M_real_we0_local;
 
 assign s_i_fu_120_p1 = ifft_out_TDATA[15:0];
 
-assign zext_ln291_fu_115_p1 = i_reg_141;
+assign zext_ln293_fu_115_p1 = i_reg_141;
 
 endmodule //ofdm_tx_run_ifft_Pipeline_IFFT_RX

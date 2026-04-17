@@ -1,6 +1,6 @@
 `timescale 1 ns / 1 ps
 
-module ofdm_tx_hls_deadlock_idx6_monitor ( // for module ofdm_tx_ofdm_tx_inst.grp_send_freq_symbol_fu_432.grp_insert_cp_and_send_fu_62
+module ofdm_tx_hls_deadlock_idx6_monitor ( // for module ofdm_tx_ofdm_tx_inst.grp_send_freq_symbol_fu_434.grp_insert_cp_and_send_fu_62
     input wire clock,
     input wire reset,
     input wire [10:0] axis_block_sigs,

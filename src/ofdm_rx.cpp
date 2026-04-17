@@ -709,9 +709,9 @@ void ofdm_rx(
     hls::stream<iq32_t>     &fft_in,
     hls::stream<iq32_t>     &fft_out,
     ap_uint<1>              &header_err,
-    modcod_t                &modcod_out,
-    ap_uint<8>              &n_syms_out,
-    ap_uint<8>              &n_syms_fb
+    volatile modcod_t       &modcod_out,
+    volatile ap_uint<8>     &n_syms_out,
+    volatile ap_uint<8>     &n_syms_fb
 ) {
     #pragma HLS INTERFACE axis        port=iq_in
     #pragma HLS INTERFACE axis        port=bits_out
@@ -719,9 +719,9 @@ void ofdm_rx(
     #pragma HLS INTERFACE axis        port=fft_out
     // Free-running: ap_ctrl_none, body is while(1).  No host/MAC start.
     #pragma HLS INTERFACE s_axilite   port=header_err bundle=stat
-    #pragma HLS INTERFACE ap_vld      register port=modcod_out
-    #pragma HLS INTERFACE ap_vld      register port=n_syms_out
-    #pragma HLS INTERFACE ap_vld      register port=n_syms_fb
+    #pragma HLS INTERFACE ap_none      port=modcod_out
+    #pragma HLS INTERFACE ap_none      port=n_syms_out
+    #pragma HLS INTERFACE ap_none      port=n_syms_fb
     #pragma HLS INTERFACE ap_ctrl_none port=return
 
     csample_t time_buf[FFT_SIZE];
