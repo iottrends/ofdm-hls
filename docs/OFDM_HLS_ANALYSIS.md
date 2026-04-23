@@ -1029,3 +1029,178 @@ Items 1–8 must be completed before any hardware power-on. Items 9–13 before 
 | 11 | S4 | Load raised-cosine coefficients into AD9364 TX FIR | 2 hr firmware | High: spectral compliance |
 | 12 | S3 | Per-symbol pilot channel update in ofdm_rx data loop | 2 days HLS | High: +2 dB at UAV speed |
 | 13 | S2 | Soft-decision LLR Viterbi decoder | 1 week HLS | High: +2–3 dB coding gain |
+
+---
+
+## 10. DSP Utilization Analysis — `ofdm_rx` (post-LiteX-integration)
+
+### 10.1 The question
+
+From the LiteX post-implementation report (`litex/build/hallycon_m2sdr_platform/gateware/hallycon_m2sdr_platform_utilization_place.rpt`):
+
+| Resource | Used | Avail | % |
+|---|---:|---:|---:|
+| DSP48E1 | **110** | 120 | **91.7%** |
+
+Per-block DSP breakdown (full SoC):
+
+| Block | DSP |
+|---|---:|
+| `ofdm_rx` | **63** |
+| `sync_detect` | 29 |
+| `ofdm_rx_fft` (xfft v9.1) | 9 |
+| `ofdm_tx_ifft` (xfft v9.1) | 9 |
+| Everything else (MAC, FEC, tx_chain, PCIe) | 0 |
+| **Total** | **110** |
+
+`sync_detect` using 29 DSP is understood (integer cross-multiply + CORDIC atan2 + deliberate wide arithmetic for reliable correlation). The question is where `ofdm_rx` spends its **63 DSP**, given that FFT is already factored out into a separate IP and Viterbi uses zero DSP.
+
+### 10.2 Hardware constraint: DSP48E1 operand width
+
+DSP48E1 on Artix-7 is a hardware multiplier with fixed operand widths:
+
+```
+       A input: 25 bits (signed)
+       B input: 18 bits (signed)
+    ──────────────────────────
+       product: 43 bits
+```
+
+Any scalar multiply whose operands exceed **25×18** must be decomposed into multiple DSP48E1 tiles by Vivado. For signed `ap_fixed<32,10>` × `ap_fixed<32,10>`:
+
+- A = 32 bits → does not fit in 25-bit A port → split
+- B = 32 bits → does not fit in 18-bit B port → split
+- **Cost: 2 DSP48E1 per scalar multiply**
+
+For a **complex multiply** `(a_re + j·a_im) × (b_re + j·b_im)` = `(a_re·b_re − a_im·b_im) + j·(a_re·b_im + a_im·b_re)`:
+
+- 4 real multiplies × 2 DSP each = **8 DSP per complex multiply** at `<32,10>` precision
+
+This is the single dominant cost driver for `ofdm_rx`.
+
+### 10.3 Per-operation DSP breakdown
+
+From `hallycon_m2sdr_platform_utilization_hierarchical_place.rpt`, filtered to `ofdm_rx` subtree:
+
+| Block | DSP | Source | Operation |
+|---|---:|---|---|
+| `estimate_channel → CH_DATA` | 8 | `ofdm_rx.cpp:410-420` | 200-SC pipelined complex mul `G[d] = Y_pre · conj(ZC)` |
+| `estimate_channel → mul_21s_40s` | 2 | `ofdm_rx.cpp:440-464` | One scalar mul in `inv · g_re` / `inv · g_im` reciprocal path |
+| `estimate_channel` (hidden leaves) | 5 | `ofdm_rx.cpp:440-464` | HLS sequential divide / reciprocal internal mults — not broken out in report |
+| `compute_pilot_cpe → CPE_PILOTS` | 8 | `ofdm_rx.cpp:539-544` | 6-iter pipelined `equalize_sc` complex mul `Y · G_eq` |
+| `equalize_demap_pack → QPSK_PACK` | 16 | `ofdm_rx.cpp:645-656` | Per-SC `equalize_sc` (8) + `apply_cpe` (8) — two complex muls |
+| `equalize_demap_pack → QAM16_PACK` | 4 | `ofdm_rx.cpp:660-672` | Same math as QPSK; HLS shared multipliers across mod-branch mutex |
+| `mul_40s_67ns_106_5_1_U154` (top-level shared) | 8 | `ofdm_rx.cpp:167-169` | `angle × (2³²/2π)` wide scalar mul in `angle_to_phase_acc()` |
+| Cross-hierarchy residual | 12 | — | DSPs registered at parent level after Vivado cross-module sharing |
+| **Total** | **63** | | |
+
+Equivalent view grouped by operation type:
+
+| Operation (algebraic) | Where | DSP |
+|---|---|---:|
+| `Y_pre · conj(ZC)` complex mul | `estimate_channel` CH_DATA, preamble only | 8 |
+| Reciprocal `1/|G|²` path (mul + divide internals) | `estimate_channel` CH_EQ + CH_PILOT | 7 |
+| `Y · G_eq` complex mul, 6 pilots | `compute_pilot_cpe`, per symbol | 8 |
+| `Y · G_eq` complex mul, 200 data SCs | `equalize_sc` in QPSK_PACK, per symbol | 8 |
+| CPE rotation `x̂ · r_s` complex mul | `apply_cpe` in QPSK_PACK, per symbol | 8 |
+| `angle × K` wide scalar mul | `angle_to_phase_acc()`, per symbol | 8 |
+| QAM16 residual (shared with QPSK) | `equalize_demap_pack` QAM16_PACK | 4 |
+| Cross-hierarchy / placement residual | Vivado post-placement | 12 |
+| **Total** | | **63** |
+
+**Root cause:** every complex multiply in the hot path runs in `ap_fixed<32, 10>`. This width is a direct consequence of `G_eq ≈ 256` (from the FFT ÷256 scale schedule 0xAA) needing ≥ 10 integer bits of range, combined with the decision to keep 22 fractional bits of precision. The wide precision pushes every scalar mul to 2 DSP and every complex mul to 8 DSP. Narrow input types (`ap_fixed<16,1>` I/Q from AD9361) are preserved losslessly and are *not* the driver — only the post-FFT equalizer arithmetic is.
+
+### 10.4 Algebraic structure of the RX hot path
+
+Naming:
+
+| Symbol | Type | Meaning |
+|---|---|---|
+| `y[k]` | complex | FFT bin at subcarrier k (post-FFT, ÷256 scaled) |
+| `z[d]` | complex | ZC reference at data SC d, `|z| = 1` |
+| `g[d]` | complex | channel estimate = `y_pre[k] · conj(z[d])` |
+| `geq[k]` | complex | equalizer = `conj(g) / |g|²` |
+| `φ_s` | real | pilot CPE angle for data symbol s |
+| `r_s` | complex | CPE rotator = `cos(φ_s) − j·sin(φ_s) = e^(−j·φ_s)` |
+| `x̂[k]` | complex | equalized + CPE-corrected data |
+
+Preamble (once per frame):
+
+```
+(A1)  g[d]   = y_pre[k] · conj(z[d])                                        — complex mul [8 DSP]
+(A2)  geq[k] = conj(g[d]) / |g[d]|²                                         — divide + 2 real mul [~7 DSP]
+```
+
+Header + each data symbol s:
+
+```
+(B1)  φ_s     = atan2( Σ Im{ y[p]·geq[p] }, Σ Re{ y[p]·geq[p] } )           — 6 complex mul [8 DSP]
+(B2)  ph_acc  = φ_s · (2³² / 2π)                                            — wide scalar mul [8 DSP]
+(B3)  (cos_s, sin_s) = LUT(ph_acc[31:22])                                   — no DSP
+(B4)  x̂[k]   = ( y[k] · geq[k] ) · r_s                                    — TWO complex mul per SC [16 DSP]
+                 └─ equalize_sc ─┘ └─ apply_cpe ─┘
+```
+
+### 10.5 Optimization path
+
+#### Opt-1 — CORDIC rotator replaces `apply_cpe` + `angle_to_phase_acc` (saves 16 DSP)
+
+`apply_cpe(sym, cos, sin)` implements a 2-D rotation by `−φ_s`. This is the canonical use case for **CORDIC rotation mode** — shift-and-add only, zero multipliers. The existing `fixed_atan2_rx` (`ofdm_rx.cpp:114-158`) is CORDIC in *vectoring* mode; rotation mode is the same pipeline with the sign-decision driven by the residual angle instead of by `y`.
+
+Replacing the multiplier chain with a CORDIC rotator collapses three blocks at once:
+
+| Block | Before | After | Δ |
+|---|---:|---:|---:|
+| `apply_cpe` (4 real mul) | 8 DSP | 0 DSP | **−8** |
+| `sincos_lut_rx` + LUT ROM | 0 DSP (1 BRAM) | removed | — |
+| `angle_to_phase_acc` (`angle × K`) | 8 DSP | removed | **−8** |
+| **Sub-total** | **16 DSP** | **0 DSP** | **−16** |
+
+The CORDIC rotator takes `φ_s` (in `ap_fixed<32,4>` radians) directly — the whole `angle → phase_acc → LUT → cos/sin` chain disappears. Latency cost: ~16 extra cycles per symbol, well inside the per-symbol budget (288-sample symbol at 100 MHz = 2880 cycles).
+
+**Risk:** low — identical algebra, existing CORDIC infrastructure in-tree, standard in WiFi/LTE reference implementations.
+
+#### Opt-2 — Fold CPE rotation into `geq` via algebraic regrouping (saves ~4 DSP)
+
+`x̂[k] = y[k] · geq[k] · r_s = y[k] · (geq[k] · r_s) = y[k] · geq_s[k]`
+
+`r_s` is a **single scalar per symbol**, identical across all 200 SCs. Precompute `geq_s[k] = geq[k] · r_s` once per symbol in a sharing-friendly loop (high II), then use one complex mul in the hot path:
+
+| Path | Before | After |
+|---|---:|---:|
+| `equalize_sc` hot path | 8 DSP (II=1) | 8 DSP (II=1, unchanged) |
+| `apply_cpe` hot path | 8 DSP (II=1) | — |
+| `geq_s` precompute loop | — | 4 DSP (II=4, HLS ALLOCATION) |
+| **Sub-total** | **16 DSP** | **12 DSP** (**−4**) |
+
+**Subsumed by Opt-1** — if Opt-1 is adopted, Opt-2 is not needed. List here only as a fallback if CORDIC rotator is rejected.
+
+#### Opt-3 — Narrow `geq_t` from `ap_fixed<32,10>` → `ap_fixed<18,10>` (saves 10–20 DSP)
+
+`ap_fixed<18, 10>` keeps the same ±512 range (required for `geq ≈ 256`) but reduces fractional bits from 22 to 7. Operand fits in DSP48E1's 18-bit B port, so each scalar multiply drops from **2 DSP → 1 DSP**.
+
+Precision impact: relative error on `geq ≈ 256` is `1/2⁷ / 256 ≈ 0.003%`. Well below typical channel-estimation noise (dominated by AWGN at SNR < 30 dB). Must be validated with a BER sweep before commit.
+
+Affects every complex mul in `estimate_channel`, `compute_pilot_cpe`, and `equalize_demap_pack`. Approximate saving: 10–20 DSP depending on how many paths Vivado narrows versus how many stay at the full `<32,10>` width for headroom.
+
+**Risk:** medium — requires end-to-end BER validation across AWGN / phase-noise / multipath / combined channels at all mod/rate points. Reuse existing `run_ber_sweep.sh`.
+
+#### Opt-4 — QPSK sign-only narrow-path (saves ~4 DSP, conditional)
+
+`qpsk_demap` uses only `sign(Re{x̂})` and `sign(Im{x̂})`. The magnitude of `x̂` is irrelevant for QPSK. If `y` and `geq_s` are narrowed to `ap_fixed<16,1>` × `ap_fixed<16,1>` on the QPSK-only branch, each scalar mul drops to 1 DSP (fits 16×16 in one DSP48E1). 16-QAM still needs the wider path because `qam16_demap` threshold-compares against `±2/√10`, which requires magnitude.
+
+**Risk:** medium — adds a mod-dependent path split. Only worth doing if Opt-3 is insufficient.
+
+### 10.6 Summary and recommendation
+
+| # | Optimization | DSP saved | Effort | Risk | Validation |
+|---|---|---:|---|---|---|
+| Opt-1 | CORDIC rotator replaces `apply_cpe` + `angle_to_phase_acc` | **−16** | 2 days HLS | low | C-sim EVM + BER sweep |
+| Opt-2 | Fold `r_s` into `geq_s` (fallback if Opt-1 rejected) | −4 | 4 hr HLS | low | C-sim equivalence |
+| Opt-3 | Narrow `geq_t` to `ap_fixed<18,10>` | −10 to −20 | 4 hr HLS + sweep | medium | Full BER sweep, all mod/rate/channel |
+| Opt-4 | QPSK sign-only narrow path | −4 | 1 day HLS | medium | QPSK BER sweep |
+
+**Recommended order:** Opt-1 first (highest-value single change, low risk, reuses existing CORDIC pattern). Then Opt-3 with BER validation. Skip Opt-2 if Opt-1 is adopted. Opt-4 only if DSP budget is still tight after Opt-1 + Opt-3.
+
+**Projected DSP count for `ofdm_rx` after Opt-1 + Opt-3:** 63 − 16 − 15 ≈ **32 DSP** (≈50% reduction). Frees ~31 DSP at the full SoC level, bringing DSP utilization from 91.7% → ~66% on `xc7a50t`, restoring real headroom for future features (soft Viterbi LLR paths, per-symbol pilot update S3, diversity combining).
+
