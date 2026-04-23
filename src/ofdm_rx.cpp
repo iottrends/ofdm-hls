@@ -499,21 +499,50 @@ static cgeq_t equalize_sc(csample_t Y, cgeq_t G_eq) {
 }
 
 // ============================================================
-// SECTION 5b: CPE Rotation Helper
+// SECTION 5b: Per-Symbol Equalizer-Rotator Precompute
 //
-// Applies the inverse of the common phase error to a single equalized symbol.
-//   cpe_cos = cos(phase_err),  cpe_sin = sin(phase_err)  — both geq_t ∈ [-1,+1)
-//   corrected = sym × exp(-j·phase_err)
-//   re' =  re × cpe_cos + im × cpe_sin
-//   im' = -re × cpe_sin + im × cpe_cos
+// Algebraic regrouping of  x̂ = (Y · G_eq) · r_s  ≡  Y · (G_eq · r_s)
+// where r_s = cos(φ_s) − j·sin(φ_s) is the per-symbol CPE rotator.
 //
-// All arithmetic in ap_fixed<32,10> — 4 DSP48 multiplies per call.
-// Caller converts sincosf float output to geq_t once per symbol.
+// Runs once per data symbol: for every active subcarrier k (200 data +
+// 6 pilots = 206 SCs), premultiplies G_eq[k] by r_s and stores the
+// result in G_eq_final[k].  The hot demap loop then needs only ONE
+// complex multiply per SC  (Y · G_eq_final)  instead of two
+// (Y · G_eq  followed by  × r_s).
+//
+// II=4 on the precompute loop lets HLS share the 4-DSP complex
+// multiplier across iterations instead of instantiating four parallel
+// DSP48 pairs — net saving vs the previous apply_cpe path is ~4 DSP
+// (Opt-2 refactor).  Opt-1 (CORDIC rotator) is planned on top of this
+// and will eliminate these multiplies entirely.
 // ============================================================
-static cgeq_t apply_cpe(cgeq_t sym, geq_t cpe_cos, geq_t cpe_sin) {
-    #pragma HLS INLINE
-    return cgeq_t( sym.real() * cpe_cos + sym.imag() * cpe_sin,
-                  -sym.real() * cpe_sin + sym.imag() * cpe_cos);
+static void compute_geq_final(
+    cgeq_t G_eq[FFT_SIZE],
+    geq_t  cpe_cos,
+    geq_t  cpe_sin,
+    cgeq_t G_eq_final[FFT_SIZE]
+) {
+    #pragma HLS INLINE off
+    // (gr + j·gi) · (cpe_cos − j·cpe_sin)
+    //   = (gr·cos + gi·sin) + j·(gi·cos − gr·sin)
+    GEQ_DATA_ROT: for (int d = 0; d < NUM_DATA_SC; d++) {
+        #pragma HLS PIPELINE II=4
+        int k  = DATA_SC_IDX[d];
+        geq_t gr = G_eq[k].real();
+        geq_t gi = G_eq[k].imag();
+        geq_t nr = gr * cpe_cos + gi * cpe_sin;
+        geq_t ni = gi * cpe_cos - gr * cpe_sin;
+        G_eq_final[k] = cgeq_t(nr, ni);
+    }
+    GEQ_PILOT_ROT: for (int p = 0; p < NUM_PILOT_SC; p++) {
+        #pragma HLS PIPELINE II=4
+        int k  = PILOT_IDX[p];
+        geq_t gr = G_eq[k].real();
+        geq_t gi = G_eq[k].imag();
+        geq_t nr = gr * cpe_cos + gi * cpe_sin;
+        geq_t ni = gi * cpe_cos - gr * cpe_sin;
+        G_eq_final[k] = cgeq_t(nr, ni);
+    }
 }
 
 // ============================================================
@@ -613,14 +642,15 @@ static ap_uint<4> qam16_demap(cgeq_t sym) {
 }
 
 // ============================================================
-// SECTION 8: Equalize, CPE-Correct, Demap, and Pack one Data Symbol
+// SECTION 8: Equalize, Demap, and Pack one Data Symbol
+//
+// Takes G_eq_final (= G_eq · r_s precomputed by compute_geq_final) so a
+// SINGLE complex multiply per SC replaces the previous equalize_sc +
+// apply_cpe pair.  x̂[k] = Y[k] · G_eq_final[k].
 //
 // 1 SC per loop iteration, #pragma HLS PIPELINE II=1.
 // No loop-unrolling: the byte accumulator has a 1-cycle carry dependency
 // (ap_uint OR) which is the loop-carried critical path — well within II=1.
-//
-// cpe_cos/cpe_sin: geq_t (ap_fixed<32,10>), converted once per symbol by caller.
-// apply_cpe(): 4 DSP48 multiplies (fixed-point), no float casts.
 //
 // QPSK  (mod=0): 200 iterations, write byte every 4th  → 50 bytes/symbol
 // 16QAM (mod=1): 200 iterations, write byte every 2nd  → 100 bytes/symbol
@@ -631,10 +661,8 @@ static ap_uint<4> qam16_demap(cgeq_t sym) {
 // ============================================================
 static void equalize_demap_pack(
     csample_t               fft_out[FFT_SIZE],
-    cgeq_t                  G_eq[FFT_SIZE],
+    cgeq_t                  G_eq_final[FFT_SIZE],   // rotated equalizer (= G_eq · r_s)
     mod_t                   mod,
-    geq_t                   cpe_cos,   // cos(phase_err), geq_t ∈ [-1,+1)
-    geq_t                   cpe_sin,   // sin(phase_err), geq_t ∈ [-1,+1)
     hls::stream<ap_uint<8>> &bits_out
 ) {
     #pragma HLS INLINE off
@@ -644,8 +672,8 @@ static void equalize_demap_pack(
         ap_uint<8> byte_acc = 0;
         QPSK_PACK: for (int i = 0; i < NUM_DATA_SC; i++) {
             #pragma HLS PIPELINE II=1
-            cgeq_t eq  = equalize_sc(fft_out[DATA_SC_IDX[i]], G_eq[DATA_SC_IDX[i]]);
-            ap_uint<2> sym = qpsk_demap(apply_cpe(eq, cpe_cos, cpe_sin));
+            cgeq_t eq  = equalize_sc(fft_out[DATA_SC_IDX[i]], G_eq_final[DATA_SC_IDX[i]]);
+            ap_uint<2> sym = qpsk_demap(eq);
 
             // Place 2-bit symbol at the correct offset within the byte.
             // Reset accumulator at the start of each new byte (i%4==0).
@@ -659,8 +687,8 @@ static void equalize_demap_pack(
         ap_uint<8> byte_acc = 0;
         QAM16_PACK: for (int i = 0; i < NUM_DATA_SC; i++) {
             #pragma HLS PIPELINE II=1
-            cgeq_t eq  = equalize_sc(fft_out[DATA_SC_IDX[i]], G_eq[DATA_SC_IDX[i]]);
-            ap_uint<4> sym = qam16_demap(apply_cpe(eq, cpe_cos, cpe_sin));
+            cgeq_t eq  = equalize_sc(fft_out[DATA_SC_IDX[i]], G_eq_final[DATA_SC_IDX[i]]);
+            ap_uint<4> sym = qam16_demap(eq);
 
             // Even SC → upper nibble; odd SC → lower nibble.
             ap_uint<8> shifted = ((i & 1) == 0) ? (ap_uint<8>)((ap_uint<8>)sym << 4)
@@ -726,7 +754,8 @@ void ofdm_rx(
 
     csample_t time_buf[FFT_SIZE];
     csample_t freq_buf[FFT_SIZE];
-    cgeq_t    G_eq[FFT_SIZE];       // precomputed equalizer: conj(G)/|G|², ≈256 ideal
+    cgeq_t    G_eq[FFT_SIZE];       // preamble equalizer: conj(G)/|G|², ≈256 ideal
+    cgeq_t    G_eq_final[FFT_SIZE]; // per-symbol rotated equalizer: G_eq · r_s
 
     // Free-running: once ap_start fires (tied high at BD), process
     // packet-after-packet forever.  Each loop iteration waits on iq_in —
@@ -750,15 +779,17 @@ void ofdm_rx(
     geq_t hdr_cos_g = (geq_t)hdr_cos;
     geq_t hdr_sin_g = (geq_t)hdr_sin;
 
+    // Opt-2: precompute rotated equalizer once, reuse for all 26 header SCs.
+    compute_geq_final(G_eq, hdr_cos_g, hdr_sin_g, G_eq_final);
+
     // Demap 26 BPSK header bits, MSB first (d=0 → bit 25).
     // Separate raw-bit array avoids loop-carried read-modify-write on hdr_bits.
     ap_uint<1> hdr_raw[26];
     #pragma HLS ARRAY_PARTITION variable=hdr_raw complete
     HDR_DEMAP: for (int d = 0; d < 26; d++) {
         #pragma HLS PIPELINE II=1
-        cgeq_t eq  = equalize_sc(freq_buf[DATA_SC_IDX[d]], G_eq[DATA_SC_IDX[d]]);
-        cgeq_t rot = apply_cpe(eq, hdr_cos_g, hdr_sin_g);
-        hdr_raw[d] = (rot.real() < geq_t(0)) ? ap_uint<1>(1) : ap_uint<1>(0);
+        cgeq_t eq = equalize_sc(freq_buf[DATA_SC_IDX[d]], G_eq_final[DATA_SC_IDX[d]]);
+        hdr_raw[d] = (eq.real() < geq_t(0)) ? ap_uint<1>(1) : ap_uint<1>(0);
     }
 
     ap_uint<26> hdr_bits = 0;
@@ -805,7 +836,10 @@ void ofdm_rx(
         geq_t cpe_cos = (geq_t)cpe_cos_s;
         geq_t cpe_sin = (geq_t)cpe_sin_s;
 
-        equalize_demap_pack(freq_buf, G_eq, mod, cpe_cos, cpe_sin, bits_out);
+        // Opt-2: fold CPE rotator into G_eq once per symbol, then single
+        // complex multiply per SC in the hot demap loop.
+        compute_geq_final(G_eq, cpe_cos, cpe_sin, G_eq_final);
+        equalize_demap_pack(freq_buf, G_eq_final, mod, bits_out);
     }
     } // FREE_RUN while(1)
 }
