@@ -473,11 +473,11 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/export_ip.tcl 2>&1 | tee vitis_export.log
             echo "[run] Log saved to vitis_export.log"
             ;;
-        synth)
-            echo "[run] Running C synthesis..."
+        synth|ofdm_tx_synth)
+            echo "[run] Running ofdm_tx C synthesis (TX modulator, 10 ns)..."
             cd "$SCRIPT_DIR"
-            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_tx.tcl 2>&1 | tee vitis_synth.log
-            echo "[run] Log saved to vitis_synth.log"
+            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_tx.tcl 2>&1 | tee vitis_ofdm_tx_synth.log
+            echo "[run] Log saved to vitis_ofdm_tx_synth.log"
             ;;
         all)
             echo "[run] Running csim + synthesis..."

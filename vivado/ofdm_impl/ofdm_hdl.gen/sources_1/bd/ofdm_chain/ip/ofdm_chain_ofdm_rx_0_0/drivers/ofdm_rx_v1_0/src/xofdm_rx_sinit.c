@@ -22,7 +22,7 @@ XOfdm_rx_Config *XOfdm_rx_LookupConfig(UINTPTR BaseAddress) {
 	int Index;
 
 	for (Index = (u32)0x0; XOfdm_rx_ConfigTable[Index].Name != NULL; Index++) {
-		if (!BaseAddress || XOfdm_rx_ConfigTable[Index].Ctrl_BaseAddress == BaseAddress) {
+		if (!BaseAddress || XOfdm_rx_ConfigTable[Index].Stat_BaseAddress == BaseAddress) {
 			ConfigPtr = &XOfdm_rx_ConfigTable[Index];
 			break;
 		}

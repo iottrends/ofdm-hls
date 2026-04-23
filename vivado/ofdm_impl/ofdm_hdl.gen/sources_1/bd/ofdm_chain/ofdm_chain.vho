@@ -54,19 +54,48 @@
 COMPONENT ofdm_chain
   PORT (
     clk : IN STD_LOGIC;
+    clk_fec : IN STD_LOGIC;
     rst_n : IN STD_LOGIC;
+    rst_fec_n : IN STD_LOGIC;
     host_tx_in_tdata : IN STD_LOGIC_VECTOR(7 DOWNTO 0);
+    host_tx_in_tkeep : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
+    host_tx_in_tlast : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
     host_tx_in_tready : OUT STD_LOGIC;
+    host_tx_in_tstrb : IN STD_LOGIC_VECTOR(0 DOWNTO 0);
     host_tx_in_tvalid : IN STD_LOGIC;
     rf_tx_out_tdata : OUT STD_LOGIC_VECTOR(47 DOWNTO 0);
     rf_tx_out_tready : IN STD_LOGIC;
     rf_tx_out_tvalid : OUT STD_LOGIC;
-    rf_rx_in_tdata : IN STD_LOGIC_VECTOR(47 DOWNTO 0);
+    rf_rx_in_tdata : IN STD_LOGIC_VECTOR(39 DOWNTO 0);
     rf_rx_in_tready : OUT STD_LOGIC;
     rf_rx_in_tvalid : IN STD_LOGIC;
     host_rx_out_tdata : OUT STD_LOGIC_VECTOR(7 DOWNTO 0);
     host_rx_out_tready : IN STD_LOGIC;
-    host_rx_out_tvalid : OUT STD_LOGIC
+    host_rx_out_tvalid : OUT STD_LOGIC;
+    ctrl_axi_awaddr : IN STD_LOGIC_VECTOR(15 DOWNTO 0);
+    ctrl_axi_awprot : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
+    ctrl_axi_awvalid : IN STD_LOGIC;
+    ctrl_axi_awready : OUT STD_LOGIC;
+    ctrl_axi_wdata : IN STD_LOGIC_VECTOR(31 DOWNTO 0);
+    ctrl_axi_wstrb : IN STD_LOGIC_VECTOR(3 DOWNTO 0);
+    ctrl_axi_wvalid : IN STD_LOGIC;
+    ctrl_axi_wready : OUT STD_LOGIC;
+    ctrl_axi_bresp : OUT STD_LOGIC_VECTOR(1 DOWNTO 0);
+    ctrl_axi_bvalid : OUT STD_LOGIC;
+    ctrl_axi_bready : IN STD_LOGIC;
+    ctrl_axi_araddr : IN STD_LOGIC_VECTOR(15 DOWNTO 0);
+    ctrl_axi_arprot : IN STD_LOGIC_VECTOR(2 DOWNTO 0);
+    ctrl_axi_arvalid : IN STD_LOGIC;
+    ctrl_axi_arready : OUT STD_LOGIC;
+    ctrl_axi_rdata : OUT STD_LOGIC_VECTOR(31 DOWNTO 0);
+    ctrl_axi_rresp : OUT STD_LOGIC_VECTOR(1 DOWNTO 0);
+    ctrl_axi_rvalid : OUT STD_LOGIC;
+    ctrl_axi_rready : IN STD_LOGIC;
+    mac_tx_done_pulse : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
+    mac_rx_pkt_pulse : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
+    host_rx_out_tkeep : OUT STD_LOGIC_VECTOR(0 DOWNTO 0);
+    host_rx_out_tlast : OUT STD_LOGIC;
+    host_rx_out_tstrb : OUT STD_LOGIC_VECTOR(0 DOWNTO 0)
   );
 END COMPONENT;
 -- COMP_TAG_END ------  End cut for COMPONENT Declaration  ------
@@ -78,9 +107,14 @@ END COMPONENT;
 your_instance_name : ofdm_chain
   PORT MAP (
     clk => clk,
+    clk_fec => clk_fec,
     rst_n => rst_n,
+    rst_fec_n => rst_fec_n,
     host_tx_in_tdata => host_tx_in_tdata,
+    host_tx_in_tkeep => host_tx_in_tkeep,
+    host_tx_in_tlast => host_tx_in_tlast,
     host_tx_in_tready => host_tx_in_tready,
+    host_tx_in_tstrb => host_tx_in_tstrb,
     host_tx_in_tvalid => host_tx_in_tvalid,
     rf_tx_out_tdata => rf_tx_out_tdata,
     rf_tx_out_tready => rf_tx_out_tready,
@@ -90,7 +124,31 @@ your_instance_name : ofdm_chain
     rf_rx_in_tvalid => rf_rx_in_tvalid,
     host_rx_out_tdata => host_rx_out_tdata,
     host_rx_out_tready => host_rx_out_tready,
-    host_rx_out_tvalid => host_rx_out_tvalid
+    host_rx_out_tvalid => host_rx_out_tvalid,
+    ctrl_axi_awaddr => ctrl_axi_awaddr,
+    ctrl_axi_awprot => ctrl_axi_awprot,
+    ctrl_axi_awvalid => ctrl_axi_awvalid,
+    ctrl_axi_awready => ctrl_axi_awready,
+    ctrl_axi_wdata => ctrl_axi_wdata,
+    ctrl_axi_wstrb => ctrl_axi_wstrb,
+    ctrl_axi_wvalid => ctrl_axi_wvalid,
+    ctrl_axi_wready => ctrl_axi_wready,
+    ctrl_axi_bresp => ctrl_axi_bresp,
+    ctrl_axi_bvalid => ctrl_axi_bvalid,
+    ctrl_axi_bready => ctrl_axi_bready,
+    ctrl_axi_araddr => ctrl_axi_araddr,
+    ctrl_axi_arprot => ctrl_axi_arprot,
+    ctrl_axi_arvalid => ctrl_axi_arvalid,
+    ctrl_axi_arready => ctrl_axi_arready,
+    ctrl_axi_rdata => ctrl_axi_rdata,
+    ctrl_axi_rresp => ctrl_axi_rresp,
+    ctrl_axi_rvalid => ctrl_axi_rvalid,
+    ctrl_axi_rready => ctrl_axi_rready,
+    mac_tx_done_pulse => mac_tx_done_pulse,
+    mac_rx_pkt_pulse => mac_rx_pkt_pulse,
+    host_rx_out_tkeep => host_rx_out_tkeep,
+    host_rx_out_tlast => host_rx_out_tlast,
+    host_rx_out_tstrb => host_rx_out_tstrb
   );
 -- INST_TAG_END ------  End cut for INSTANTIATION Template  ------
 

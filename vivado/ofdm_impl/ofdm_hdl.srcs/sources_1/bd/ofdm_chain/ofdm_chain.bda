@@ -193,6 +193,132 @@
                 "VH": "2",
                 "VT": "PM",
                 "TU": "active"
+            },
+            "V3": {
+                "VT": "AC",
+                "BA": "0x0000",
+                "HA": "0x0FFF",
+                "BP": "C_S_AXI_CTRL_BASEADDR",
+                "HP": "C_S_AXI_CTRL_HIGHADDR",
+                "MA": "ctrl_axi",
+                "MX": "/",
+                "MI": "ctrl_axi",
+                "MS": "SEG_tx_chain_0_Reg",
+                "MV": ":::",
+                "SX": "/tx_chain_0",
+                "SI": "s_axi_ctrl",
+                "SS": "Reg",
+                "SV": "hallycon.in:ofdm:tx_chain:1.0",
+                "TM": "both",
+                "TU": "register"
+            },
+            "V4": {
+                "VT": "AC",
+                "BA": "0x1000",
+                "HA": "0x1FFF",
+                "BP": "C_S_AXI_CTRL_BASEADDR",
+                "HP": "C_S_AXI_CTRL_HIGHADDR",
+                "MA": "ctrl_axi",
+                "MX": "/",
+                "MI": "ctrl_axi",
+                "MS": "SEG_ofdm_tx_0_Reg",
+                "MV": ":::",
+                "SX": "/ofdm_tx_0",
+                "SI": "s_axi_ctrl",
+                "SS": "Reg",
+                "SV": "hallycon.in:ofdm:ofdm_tx:1.0",
+                "TM": "both",
+                "TU": "register"
+            },
+            "V5": {
+                "VT": "AC",
+                "BA": "0x2000",
+                "HA": "0x2FFF",
+                "BP": "C_S_AXI_STAT_BASEADDR",
+                "HP": "C_S_AXI_STAT_HIGHADDR",
+                "MA": "ctrl_axi",
+                "MX": "/",
+                "MI": "ctrl_axi",
+                "MS": "SEG_sync_detect_0_Reg",
+                "MV": ":::",
+                "SX": "/sync_detect_0",
+                "SI": "s_axi_stat",
+                "SS": "Reg",
+                "SV": "hallycon.in:ofdm:sync_detect:1.0",
+                "TM": "both",
+                "TU": "register"
+            },
+            "V6": {
+                "VT": "AC",
+                "BA": "0x3000",
+                "HA": "0x3FFF",
+                "BP": "C_S_AXI_STAT_BASEADDR",
+                "HP": "C_S_AXI_STAT_HIGHADDR",
+                "MA": "ctrl_axi",
+                "MX": "/",
+                "MI": "ctrl_axi",
+                "MS": "SEG_ofdm_rx_0_Reg",
+                "MV": ":::",
+                "SX": "/ofdm_rx_0",
+                "SI": "s_axi_stat",
+                "SS": "Reg",
+                "SV": "hallycon.in:ofdm:ofdm_rx:1.0",
+                "TM": "both",
+                "TU": "register"
+            },
+            "V7": {
+                "VT": "AC",
+                "BA": "0x4000",
+                "HA": "0x4FFF",
+                "BP": "C_S_AXI_CTRL_BASEADDR",
+                "HP": "C_S_AXI_CTRL_HIGHADDR",
+                "MA": "ctrl_axi",
+                "MX": "/",
+                "MI": "ctrl_axi",
+                "MS": "SEG_ofdm_mac_0_Reg",
+                "MV": ":::",
+                "SX": "/ofdm_mac_0",
+                "SI": "s_axi_ctrl",
+                "SS": "Reg",
+                "SV": "hallycon.in:ofdm:ofdm_mac:1.0",
+                "TM": "both",
+                "TU": "register"
+            },
+            "V8": {
+                "VT": "ACE",
+                "BA": "0x0000000000000000",
+                "HA": "0x0000000000000FFF",
+                "BP": "C_S_AXI_CTRL_BASEADDR",
+                "HP": "C_S_AXI_CTRL_HIGHADDR",
+                "MA": "Data_m_axi_csr_master",
+                "MX": "/ofdm_mac_0",
+                "MI": "m_axi_csr_master",
+                "MS": "SEG_tx_chain_0_Reg",
+                "MV": "hallycon.in:ofdm:ofdm_mac:1.0",
+                "SX": "/tx_chain_0",
+                "SI": "s_axi_ctrl",
+                "SS": "Reg",
+                "SV": "hallycon.in:ofdm:tx_chain:1.0",
+                "TM": "both",
+                "TU": "register"
+            },
+            "V9": {
+                "VT": "ACE",
+                "BA": "0x0000000000001000",
+                "HA": "0x0000000000001FFF",
+                "BP": "C_S_AXI_CTRL_BASEADDR",
+                "HP": "C_S_AXI_CTRL_HIGHADDR",
+                "MA": "Data_m_axi_csr_master",
+                "MX": "/ofdm_mac_0",
+                "MI": "m_axi_csr_master",
+                "MS": "SEG_ofdm_tx_0_Reg",
+                "MV": "hallycon.in:ofdm:ofdm_mac:1.0",
+                "SX": "/ofdm_tx_0",
+                "SI": "s_axi_ctrl",
+                "SS": "Reg",
+                "SV": "hallycon.in:ofdm:ofdm_tx:1.0",
+                "TM": "both",
+                "TU": "register"
             }
         },
         "edges": [
@@ -203,6 +329,41 @@
             {
                 "src": "V1",
                 "trg": "V2"
+            },
+            {
+                "src": "V3",
+                "trg": "V2",
+                "EH": "2"
+            },
+            {
+                "src": "V4",
+                "trg": "V2",
+                "EH": "2"
+            },
+            {
+                "src": "V5",
+                "trg": "V2",
+                "EH": "2"
+            },
+            {
+                "src": "V6",
+                "trg": "V2",
+                "EH": "2"
+            },
+            {
+                "src": "V7",
+                "trg": "V2",
+                "EH": "2"
+            },
+            {
+                "src": "V8",
+                "trg": "V2",
+                "EH": "2"
+            },
+            {
+                "src": "V9",
+                "trg": "V2",
+                "EH": "2"
             }
         ]
     }

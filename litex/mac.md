@@ -3,10 +3,13 @@
 Design document for the MAC layer that sits between the userspace/kernel
 networking stack and the opaque HLS OFDM PHY chain.
 
-**Implementation status (2026-04-12):**
+**Implementation status (2026-04-17, superseding the 2026-04-12 snapshot):**
 - Lower MAC (`OFDMLowerMAC` migen FSM) — implemented in `shell.py`
-- `axi_smartconnect` crossbar (1:10) — implemented in `create_ofdm_bd.tcl`
-- Full SoC bitstream — **built and verified** on XC7A50T (0 errors, timing met)
+- Full SoC bitstream — **built and verified** on XC7A50T (0 errors, timing met) — BUT only via the standalone `vivado/create_project.tcl` path (pure Vivado, no LiteX).
+- **Architecture pivot 2026-04-17: smartconnect removed from BD.** The LiteX path (`shell.py --build`) was broken by a project-mode `synth_ip` bug — Vivado can't recursively synthesize smartconnect's ~15 sub-IPs, producing stub-only DCPs that fail opt_design's INBB-3 DRC. Working around Xilinx IP properties (`generate_synth_checkpoint`, `synth_checkpoint_mode`, sed-strip `synth_ip`) all failed. The sustainable fix is to **route CSRs in LiteX, not in the BD**:
+    - `create_ofdm_bd.tcl` exposes each block's `s_axi_ctrl` / `s_axi_stat` and MAC's `m_axi_csr_master` as external ports on the wrapper (no BD xbar).
+    - `shell.py` instantiates LiteX's native `AXILiteInterconnectShared` (pure Python→Verilog, no Xilinx IP) to route 2 masters (host PCIe BAR + MAC m_axi) to 5 slaves.
+    - **tcl done. shell.py migration pending — see "Phase 1.5 shell.py migration" below.**
 - Upper MAC driver (`ofdm_mac.c`) — TBD
 
 ## Goals
@@ -325,6 +328,70 @@ Set once after `rst_n` release, before `enable=1` is first seen:
 write rx_interleaver.is_rx = 1     # critical -- default is 0 (TX mode)
 write tx_interleaver.is_rx = 0     # explicit, default is already 0
 ```
+
+## Phase 1.5 — shell.py migration to LiteX-native xbar (pending)
+
+### New architecture (post 2026-04-17)
+
+```
++----------- shell.py (LiteX) -----------+
+|                                         |
+|  host (via PCIe BAR CSR bus)            |
+|     |                                   |
+|     |  [WB/CSR -> AXI-Lite bridge]      |  <-- NEW adapter needed
+|     v                                   |
+|  [AXILiteInterconnectShared]            |  <-- NEW: LiteX-native xbar
+|     |   2 masters, 5 slaves             |
+|     |   M0 = host                       |
+|     |   M1 = mac_csr_master (from BD)   |
+|     |   S0 @ 0x0000 -> ctrl_tx_chain    |
+|     |   S1 @ 0x1000 -> ctrl_ofdm_tx     |
+|     |   S2 @ 0x2000 -> ctrl_sync_det    |
+|     |   S3 @ 0x3000 -> ctrl_ofdm_rx     |
+|     |   S4 @ 0x4000 -> ctrl_ofdm_mac    |
+|     |                                   |
+|     |  [AXIFullToAXILite adapter]       |  <-- NEW: MAC m_axi is full AXI
+|     |  (wraps wrapper.mac_csr_master)   |
+|     v                                   |
+| +-- ofdm_chain_wrapper (BD) -----------+ |
+| |  External CSR ports (NEW):          | |
+| |    ctrl_tx_chain   <-- slave        | |
+| |    ctrl_ofdm_tx    <-- slave        | |
+| |    ctrl_sync_det   <-- slave        | |
+| |    ctrl_ofdm_rx    <-- slave        | |
+| |    ctrl_ofdm_mac   <-- slave        | |
+| |    mac_csr_master  --> master       | |
+| |                                     | |
+| |  (data + IRQ ports unchanged)       | |
+| +-------------------------------------+ |
++-----------------------------------------+
+```
+
+### What changes in shell.py
+
+1. **Remove** 20× `ctrl_axi_*` `Signal(...)` declarations in `OFDMChainWrapper.__init__` (lines ~97–115 of current shell.py).
+2. **Remove** the 20× `ctrl_axi_*` mappings in the `Instance("ofdm_chain_wrapper", ...)` call (lines ~151–170).
+3. **Add** 5 `AXILiteInterface(data_width=32, address_width=12)` objects on `OFDMChainWrapper`, one per CSR port. Each exposes 19 signals across aw/w/b/ar/r channels.
+4. **Add** 1 `AXIInterface(data_width=32, address_width=16)` for `mac_csr_master` (full AXI — HLS m_axi is aximm, not aximm_lite).
+5. **Extend** the `Instance()` call with ~120 new port mappings:
+     - For each of the 5 slaves: 19 port bindings `i_ctrl_<name>_aw{addr,prot,valid}` → `o_ctrl_<name>_awready`, etc.
+     - For mac_csr_master (master, output direction): ~30 port bindings for full AXI (awid, awlen, awsize, awburst, awlock[1:0], awcache, awprot, awqos, awaddr, awvalid, awready, wdata, wstrb, wlast, wvalid, wready, bid, bresp, bvalid, bready, arid, arlen, arsize, arburst, arlock[1:0], arcache, arprot, arqos, araddr, arvalid, arready, rid, rresp, rdata, rlast, rvalid, rready).
+6. **In `BaseSoC`**, after `self.submodules.ofdm = ofdm = OFDMChainWrapper()`:
+     - Create an AXI-Lite bridge from LiteX's CSR/WB bus to a master AXI-Lite interface (host side). Reference: `litex.soc.interconnect.axi.axi_lite_to_wishbone` or similar; may need to write a small `AXILiteHostBridge` helper.
+     - Create `AXIFullToAXILite` adapter around `ofdm.mac_csr_master` to convert AXI3-full to AXI-Lite (import from `litex.soc.interconnect.axi.axi_full_to_axi_lite`).
+     - Instantiate `AXILiteInterconnectShared(masters=[host_axil, mac_axil_adapted], slaves=[(0x0000_decoder, ofdm.ctrl_tx_chain), (0x1000_decoder, ofdm.ctrl_ofdm_tx), (0x2000_decoder, ofdm.ctrl_sync_det), (0x3000_decoder, ofdm.ctrl_ofdm_rx), (0x4000_decoder, ofdm.ctrl_ofdm_mac)])`.
+     - Add an `add_slave` entry so the host CSR bus sees the PHY CSR region at a stable PCIe BAR offset (e.g., `0x5000_0000` + 0x8000 window).
+
+### Risks / uncertainties
+
+- **LiteX's host-side AXI-Lite bridge**: not sure which LiteX helper handles `CSRBus → AXILite` cleanly. May need to write a thin adapter. ~50 lines if so.
+- **MAC's m_axi exact signal set**: component.xml says `aximm` (full AXI) — assumed AXI4, but the smartconnect build showed `AWLOCK[1:0]` (AXI3 bit). `AXIFullToAXILite` assumes AXI4 (1-bit lock); we'll need to zero-extend or cap the lock signal. Likely a 1-line fix.
+- **Address map**: block offsets must match what the driver expects (currently 0x0000–0x4000 per `create_ofdm_bd.tcl`'s old `assign_bd_address`). Keep the same in LiteX's `AXILiteDecoder`.
+- **Initial build will likely need 1–2 small iterations** to get signal names / widths / directions right. Budget ~30 min of debug after the first LiteX build attempt.
+
+### Temporary fallback if LiteX wiring takes too long
+
+`vivado/create_project.tcl` still produces a working standalone bitstream (OFDM-only, no PCIe). Usable for PHY hardware bring-up. The LiteX path only matters when we need host↔FPGA communication over PCIe.
 
 ## Open questions / Phase 2+
 

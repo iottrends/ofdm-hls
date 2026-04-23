@@ -4,7 +4,7 @@
     "xci_name": "ofdm_chain_ofdm_tx_0_0",
     "cell_name": "ofdm_tx_0",
     "component_reference": "hallycon.in:ofdm:ofdm_tx:1.0",
-    "ip_revision": "2114559295",
+    "ip_revision": "2114567946",
     "gen_directory": "../../../../../../ofdm_hdl.gen/sources_1/bd/ofdm_chain/ip/ofdm_chain_ofdm_tx_0_0",
     "parameters": {
       "component_parameters": {
@@ -12,8 +12,8 @@
         "clk_period": [ { "value": "10", "enabled": false, "usage": "all" } ],
         "machine": [ { "value": "64", "enabled": false, "usage": "all" } ],
         "combinational": [ { "value": "0", "enabled": false, "usage": "all" } ],
-        "latency": [ { "value": "1595", "enabled": false, "usage": "all" } ],
-        "II": [ { "value": "1596 ~ 316776", "enabled": false, "usage": "all" } ]
+        "latency": [ { "value": "1627", "enabled": false, "usage": "all" } ],
+        "II": [ { "value": "1628 ~ 316808", "enabled": false, "usage": "all" } ]
       },
       "model_parameters": {
         "C_S_AXI_CTRL_ADDR_WIDTH": [ { "value": "5", "resolve_type": "generated", "format": "long", "usage": "all" } ],
@@ -28,13 +28,13 @@
         "PREFHDL": [ { "value": "VERILOG", "resolve_type": "generated", "usage": "all" } ],
         "SILICON_REVISION": [ { "value": "", "resolve_type": "generated", "usage": "all" } ],
         "SIMULATOR_LANGUAGE": [ { "value": "MIXED", "resolve_type": "generated", "usage": "all" } ],
-        "SPEEDGRADE": [ { "value": "-2", "resolve_type": "generated", "usage": "all" } ],
+        "SPEEDGRADE": [ { "value": "-1", "resolve_type": "generated", "usage": "all" } ],
         "STATIC_POWER": [ { "value": "", "resolve_type": "generated", "usage": "all" } ],
         "TEMPERATURE_GRADE": [ { "value": "", "resolve_type": "generated", "usage": "all" } ]
       },
       "runtime_parameters": {
         "IPCONTEXT": [ { "value": "IP_Integrator" } ],
-        "IPREVISION": [ { "value": "2114559295" } ],
+        "IPREVISION": [ { "value": "2114567946" } ],
         "MANAGED": [ { "value": "TRUE" } ],
         "OUTPUTDIR": [ { "value": "../../../../../../ofdm_hdl.gen/sources_1/bd/ofdm_chain/ip/ofdm_chain_ofdm_tx_0_0" } ],
         "SELECTEDSIMMODEL": [ { "value": "" } ],
@@ -71,10 +71,10 @@
         "iq_out_TDATA": [ { "direction": "out", "size_left": "47", "size_right": "0" } ],
         "iq_out_TREADY": [ { "direction": "in" } ],
         "iq_out_TVALID": [ { "direction": "out" } ],
-        "ifft_in_TDATA": [ { "direction": "out", "size_left": "47", "size_right": "0" } ],
+        "ifft_in_TDATA": [ { "direction": "out", "size_left": "31", "size_right": "0" } ],
         "ifft_in_TREADY": [ { "direction": "in" } ],
         "ifft_in_TVALID": [ { "direction": "out" } ],
-        "ifft_out_TDATA": [ { "direction": "in", "size_left": "47", "size_right": "0" } ],
+        "ifft_out_TDATA": [ { "direction": "in", "size_left": "31", "size_right": "0" } ],
         "ifft_out_TREADY": [ { "direction": "out" } ],
         "ifft_out_TVALID": [ { "direction": "in" } ]
       },
@@ -111,10 +111,10 @@
             "MAX_BURST_LENGTH": [ { "value": "1", "value_src": "auto", "value_permission": "bd_and_user", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
             "PHASE": [ { "value": "0.0", "value_permission": "bd_and_user", "resolve_type": "generated", "format": "float", "is_ips_inferred": true, "is_static_object": false } ],
             "CLK_DOMAIN": [ { "value": "ofdm_chain_clk", "value_src": "default_prop", "value_permission": "bd_and_user", "resolve_type": "generated", "is_ips_inferred": true, "is_static_object": false } ],
-            "NUM_READ_THREADS": [ { "value": "1", "value_permission": "bd_and_user", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
-            "NUM_WRITE_THREADS": [ { "value": "1", "value_permission": "bd_and_user", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
-            "RUSER_BITS_PER_BYTE": [ { "value": "0", "value_permission": "bd_and_user", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
-            "WUSER_BITS_PER_BYTE": [ { "value": "0", "value_permission": "bd_and_user", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
+            "NUM_READ_THREADS": [ { "value": "1", "value_src": "user_prop", "value_permission": "bd_and_user", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
+            "NUM_WRITE_THREADS": [ { "value": "1", "value_src": "user_prop", "value_permission": "bd_and_user", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
+            "RUSER_BITS_PER_BYTE": [ { "value": "0", "value_src": "user_prop", "value_permission": "bd_and_user", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
+            "WUSER_BITS_PER_BYTE": [ { "value": "0", "value_src": "user_prop", "value_permission": "bd_and_user", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
             "INSERT_VIP": [ { "value": "0", "resolve_type": "user", "format": "long", "usage": "simulation.rtl", "is_ips_inferred": true, "is_static_object": false } ]
           },
           "port_maps": {
@@ -235,7 +235,7 @@
           "mode": "master",
           "parameters": {
             "TUSER_WIDTH": [ { "value": "0", "value_src": "constant", "value_permission": "bd_and_user", "usage": "all" } ],
-            "TDATA_NUM_BYTES": [ { "value": "6", "value_src": "constant", "value_permission": "bd_and_user", "usage": "all" } ],
+            "TDATA_NUM_BYTES": [ { "value": "4", "value_src": "constant", "value_permission": "bd_and_user", "usage": "all" } ],
             "TDEST_WIDTH": [ { "value": "0", "value_src": "constant", "value_permission": "bd_and_user", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
             "TID_WIDTH": [ { "value": "0", "value_src": "constant", "value_permission": "bd_and_user", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
             "HAS_TREADY": [ { "value": "1", "value_src": "constant", "value_permission": "bd_and_user", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
@@ -260,7 +260,7 @@
           "mode": "slave",
           "parameters": {
             "TUSER_WIDTH": [ { "value": "0", "value_src": "constant", "value_permission": "bd_and_user", "usage": "all" } ],
-            "TDATA_NUM_BYTES": [ { "value": "6", "value_src": "constant", "value_permission": "bd_and_user", "usage": "all" } ],
+            "TDATA_NUM_BYTES": [ { "value": "4", "value_src": "constant", "value_permission": "bd_and_user", "usage": "all" } ],
             "TDEST_WIDTH": [ { "value": "0", "value_src": "constant", "value_permission": "bd_and_user", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
             "TID_WIDTH": [ { "value": "0", "value_src": "constant", "value_permission": "bd_and_user", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
             "HAS_TREADY": [ { "value": "1", "value_src": "constant", "value_permission": "bd_and_user", "resolve_type": "generated", "format": "long", "is_ips_inferred": true, "is_static_object": false } ],
@@ -445,23 +445,23 @@
                     }
                   }
                 },
-                "mod_r": {
+                "modcod": {
                   "address_offset": "16",
                   "size": 32,
-                  "display_name": "mod_r",
-                  "description": "Data signal of mod_r",
+                  "display_name": "modcod",
+                  "description": "Data signal of modcod",
                   "access": "write-only",
                   "reset_value": "0",
                   "fields": {
-                    "mod_r": {
+                    "modcod": {
                       "bit_offset": 0,
-                      "bit_width": 1,
-                      "description": "Bit 0 to 0 of mod_r",
+                      "bit_width": 2,
+                      "description": "Bit 1 to 0 of modcod",
                       "access": "write-only"
                     },
                     "RESERVED": {
-                      "bit_offset": 1,
-                      "bit_width": 31,
+                      "bit_offset": 2,
+                      "bit_width": 30,
                       "description": "Reserved.  0s on read.",
                       "access": "read-only"
                     }
@@ -496,5 +496,5 @@
       }
     }
   },
-  "checksum": "a72eb521"
+  "checksum": "be4568d5"
 }

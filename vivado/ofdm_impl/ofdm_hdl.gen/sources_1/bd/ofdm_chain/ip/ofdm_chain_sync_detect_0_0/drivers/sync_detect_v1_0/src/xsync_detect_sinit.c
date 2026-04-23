@@ -22,7 +22,7 @@ XSync_detect_Config *XSync_detect_LookupConfig(UINTPTR BaseAddress) {
 	int Index;
 
 	for (Index = (u32)0x0; XSync_detect_ConfigTable[Index].Name != NULL; Index++) {
-		if (!BaseAddress || XSync_detect_ConfigTable[Index].Ctrl_BaseAddress == BaseAddress) {
+		if (!BaseAddress || XSync_detect_ConfigTable[Index].Stat_BaseAddress == BaseAddress) {
 			ConfigPtr = &XSync_detect_ConfigTable[Index];
 			break;
 		}

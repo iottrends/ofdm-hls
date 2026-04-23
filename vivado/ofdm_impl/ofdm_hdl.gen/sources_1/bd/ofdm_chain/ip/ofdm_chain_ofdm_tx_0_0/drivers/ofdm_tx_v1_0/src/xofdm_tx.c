@@ -76,20 +76,20 @@ void XOfdm_tx_DisableAutoRestart(XOfdm_tx *InstancePtr) {
     XOfdm_tx_WriteReg(InstancePtr->Ctrl_BaseAddress, XOFDM_TX_CTRL_ADDR_AP_CTRL, 0);
 }
 
-void XOfdm_tx_Set_mod_r(XOfdm_tx *InstancePtr, u32 Data) {
+void XOfdm_tx_Set_modcod(XOfdm_tx *InstancePtr, u32 Data) {
     Xil_AssertVoid(InstancePtr != NULL);
     Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
 
-    XOfdm_tx_WriteReg(InstancePtr->Ctrl_BaseAddress, XOFDM_TX_CTRL_ADDR_MOD_R_DATA, Data);
+    XOfdm_tx_WriteReg(InstancePtr->Ctrl_BaseAddress, XOFDM_TX_CTRL_ADDR_MODCOD_DATA, Data);
 }
 
-u32 XOfdm_tx_Get_mod_r(XOfdm_tx *InstancePtr) {
+u32 XOfdm_tx_Get_modcod(XOfdm_tx *InstancePtr) {
     u32 Data;
 
     Xil_AssertNonvoid(InstancePtr != NULL);
     Xil_AssertNonvoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
 
-    Data = XOfdm_tx_ReadReg(InstancePtr->Ctrl_BaseAddress, XOFDM_TX_CTRL_ADDR_MOD_R_DATA);
+    Data = XOfdm_tx_ReadReg(InstancePtr->Ctrl_BaseAddress, XOFDM_TX_CTRL_ADDR_MODCOD_DATA);
     return Data;
 }
 

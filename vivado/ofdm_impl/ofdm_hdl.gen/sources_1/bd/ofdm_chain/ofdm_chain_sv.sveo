@@ -63,8 +63,9 @@
 // INTF_TAG     ------ Begin cut for INTERFACE INSTANTIATION Template ------
 vivado_axis_v1_0 #(.TDEST_WIDTH(0), .TID_WIDTH(0), .TUSER_WIDTH(0)) host_tx_in();
 vivado_axis_v1_0 #(.TDATA_NUM_BYTES(6), .TDEST_WIDTH(0), .TID_WIDTH(0), .TUSER_WIDTH(0)) rf_tx_out();
-vivado_axis_v1_0 #(.TDATA_NUM_BYTES(6), .TDEST_WIDTH(0), .TID_WIDTH(0), .TUSER_WIDTH(0)) rf_rx_in();
+vivado_axis_v1_0 #(.TDATA_NUM_BYTES(5), .TDEST_WIDTH(0), .TID_WIDTH(0), .TUSER_WIDTH(0)) rf_rx_in();
 vivado_axis_v1_0 #(.TDEST_WIDTH(0), .TID_WIDTH(0), .TUSER_WIDTH(0)) host_rx_out();
+vivado_axi4_lite_v1_0 #(.ADDR_WIDTH(16)) ctrl_axi();
 // INTF_TAG_END ------  End cut for INTERFACE INSTANTIATION Template  ------
 
 // INST_TAG     ------ Begin cut for WRAPPER INSTANTIATION Template ------
@@ -73,8 +74,13 @@ ofdm_chain_sv your_instance_name (
   .rf_tx_out(rf_tx_out.master), // vivado_axis_v1_0.master rf_tx_out
   .rf_rx_in(rf_rx_in.slave), // vivado_axis_v1_0.slave rf_rx_in
   .host_rx_out(host_rx_out.master), // vivado_axis_v1_0.master host_rx_out
+  .ctrl_axi(ctrl_axi.slave), // vivado_axi4_lite_v1_0.slave ctrl_axi
   .clk(clk), // input wire clk
-  .rst_n(rst_n) // input wire rst_n
+  .clk_fec(clk_fec), // input wire clk_fec
+  .rst_n(rst_n), // input wire rst_n
+  .rst_fec_n(rst_fec_n), // input wire rst_fec_n
+  .mac_tx_done_pulse(mac_tx_done_pulse), // output wire [0:0] mac_tx_done_pulse
+  .mac_rx_pkt_pulse(mac_rx_pkt_pulse) // output wire [0:0] mac_rx_pkt_pulse
 );
 // INST_TAG_END ------  End cut for WRAPPER INSTANTIATION Template  ------
 

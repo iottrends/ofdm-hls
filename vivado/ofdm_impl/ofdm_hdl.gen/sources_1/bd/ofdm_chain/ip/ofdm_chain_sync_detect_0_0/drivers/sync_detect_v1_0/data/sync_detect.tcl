@@ -9,16 +9,16 @@ proc generate {drv_handle} {
     xdefine_include_file $drv_handle "xparameters.h" "XSync_detect" \
         "NUM_INSTANCES" \
         "DEVICE_ID" \
-        "C_S_AXI_CTRL_BASEADDR" \
-        "C_S_AXI_CTRL_HIGHADDR"
+        "C_S_AXI_STAT_BASEADDR" \
+        "C_S_AXI_STAT_HIGHADDR"
 
     xdefine_config_file $drv_handle "xsync_detect_g.c" "XSync_detect" \
         "DEVICE_ID" \
-        "C_S_AXI_CTRL_BASEADDR"
+        "C_S_AXI_STAT_BASEADDR"
 
     xdefine_canonical_xpars $drv_handle "xparameters.h" "XSync_detect" \
         "DEVICE_ID" \
-        "C_S_AXI_CTRL_BASEADDR" \
-        "C_S_AXI_CTRL_HIGHADDR"
+        "C_S_AXI_STAT_BASEADDR" \
+        "C_S_AXI_STAT_HIGHADDR"
 }
 

@@ -14,137 +14,78 @@ int XSync_detect_CfgInitialize(XSync_detect *InstancePtr, XSync_detect_Config *C
     Xil_AssertNonvoid(InstancePtr != NULL);
     Xil_AssertNonvoid(ConfigPtr != NULL);
 
-    InstancePtr->Ctrl_BaseAddress = ConfigPtr->Ctrl_BaseAddress;
+    InstancePtr->Stat_BaseAddress = ConfigPtr->Stat_BaseAddress;
     InstancePtr->IsReady = XIL_COMPONENT_IS_READY;
 
     return XST_SUCCESS;
 }
 #endif
 
-void XSync_detect_Start(XSync_detect *InstancePtr) {
-    u32 Data;
-
+void XSync_detect_Set_pow_threshold(XSync_detect *InstancePtr, u32 Data) {
     Xil_AssertVoid(InstancePtr != NULL);
     Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
 
-    Data = XSync_detect_ReadReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_AP_CTRL) & 0x80;
-    XSync_detect_WriteReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_AP_CTRL, Data | 0x01);
+    XSync_detect_WriteReg(InstancePtr->Stat_BaseAddress, XSYNC_DETECT_STAT_ADDR_POW_THRESHOLD_DATA, Data);
 }
 
-u32 XSync_detect_IsDone(XSync_detect *InstancePtr) {
+u32 XSync_detect_Get_pow_threshold(XSync_detect *InstancePtr) {
     u32 Data;
 
     Xil_AssertNonvoid(InstancePtr != NULL);
     Xil_AssertNonvoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
 
-    Data = XSync_detect_ReadReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_AP_CTRL);
-    return (Data >> 1) & 0x1;
-}
-
-u32 XSync_detect_IsIdle(XSync_detect *InstancePtr) {
-    u32 Data;
-
-    Xil_AssertNonvoid(InstancePtr != NULL);
-    Xil_AssertNonvoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
-
-    Data = XSync_detect_ReadReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_AP_CTRL);
-    return (Data >> 2) & 0x1;
-}
-
-u32 XSync_detect_IsReady(XSync_detect *InstancePtr) {
-    u32 Data;
-
-    Xil_AssertNonvoid(InstancePtr != NULL);
-    Xil_AssertNonvoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
-
-    Data = XSync_detect_ReadReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_AP_CTRL);
-    // check ap_start to see if the pcore is ready for next input
-    return !(Data & 0x1);
-}
-
-void XSync_detect_EnableAutoRestart(XSync_detect *InstancePtr) {
-    Xil_AssertVoid(InstancePtr != NULL);
-    Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
-
-    XSync_detect_WriteReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_AP_CTRL, 0x80);
-}
-
-void XSync_detect_DisableAutoRestart(XSync_detect *InstancePtr) {
-    Xil_AssertVoid(InstancePtr != NULL);
-    Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
-
-    XSync_detect_WriteReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_AP_CTRL, 0);
-}
-
-void XSync_detect_Set_n_syms(XSync_detect *InstancePtr, u32 Data) {
-    Xil_AssertVoid(InstancePtr != NULL);
-    Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
-
-    XSync_detect_WriteReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_N_SYMS_DATA, Data);
-}
-
-u32 XSync_detect_Get_n_syms(XSync_detect *InstancePtr) {
-    u32 Data;
-
-    Xil_AssertNonvoid(InstancePtr != NULL);
-    Xil_AssertNonvoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
-
-    Data = XSync_detect_ReadReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_N_SYMS_DATA);
+    Data = XSync_detect_ReadReg(InstancePtr->Stat_BaseAddress, XSYNC_DETECT_STAT_ADDR_POW_THRESHOLD_DATA);
     return Data;
 }
 
-void XSync_detect_InterruptGlobalEnable(XSync_detect *InstancePtr) {
+void XSync_detect_Set_stat_preamble_count(XSync_detect *InstancePtr, u32 Data) {
     Xil_AssertVoid(InstancePtr != NULL);
     Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
 
-    XSync_detect_WriteReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_GIE, 1);
+    XSync_detect_WriteReg(InstancePtr->Stat_BaseAddress, XSYNC_DETECT_STAT_ADDR_STAT_PREAMBLE_COUNT_DATA, Data);
 }
 
-void XSync_detect_InterruptGlobalDisable(XSync_detect *InstancePtr) {
-    Xil_AssertVoid(InstancePtr != NULL);
-    Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
+u32 XSync_detect_Get_stat_preamble_count(XSync_detect *InstancePtr) {
+    u32 Data;
 
-    XSync_detect_WriteReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_GIE, 0);
-}
-
-void XSync_detect_InterruptEnable(XSync_detect *InstancePtr, u32 Mask) {
-    u32 Register;
-
-    Xil_AssertVoid(InstancePtr != NULL);
-    Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
-
-    Register =  XSync_detect_ReadReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_IER);
-    XSync_detect_WriteReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_IER, Register | Mask);
-}
-
-void XSync_detect_InterruptDisable(XSync_detect *InstancePtr, u32 Mask) {
-    u32 Register;
-
-    Xil_AssertVoid(InstancePtr != NULL);
-    Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
-
-    Register =  XSync_detect_ReadReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_IER);
-    XSync_detect_WriteReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_IER, Register & (~Mask));
-}
-
-void XSync_detect_InterruptClear(XSync_detect *InstancePtr, u32 Mask) {
-    Xil_AssertVoid(InstancePtr != NULL);
-    Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
-
-    XSync_detect_WriteReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_ISR, Mask);
-}
-
-u32 XSync_detect_InterruptGetEnabled(XSync_detect *InstancePtr) {
     Xil_AssertNonvoid(InstancePtr != NULL);
     Xil_AssertNonvoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
 
-    return XSync_detect_ReadReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_IER);
+    Data = XSync_detect_ReadReg(InstancePtr->Stat_BaseAddress, XSYNC_DETECT_STAT_ADDR_STAT_PREAMBLE_COUNT_DATA);
+    return Data;
 }
 
-u32 XSync_detect_InterruptGetStatus(XSync_detect *InstancePtr) {
+void XSync_detect_Set_stat_header_bad_count(XSync_detect *InstancePtr, u32 Data) {
+    Xil_AssertVoid(InstancePtr != NULL);
+    Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
+
+    XSync_detect_WriteReg(InstancePtr->Stat_BaseAddress, XSYNC_DETECT_STAT_ADDR_STAT_HEADER_BAD_COUNT_DATA, Data);
+}
+
+u32 XSync_detect_Get_stat_header_bad_count(XSync_detect *InstancePtr) {
+    u32 Data;
+
     Xil_AssertNonvoid(InstancePtr != NULL);
     Xil_AssertNonvoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
 
-    return XSync_detect_ReadReg(InstancePtr->Ctrl_BaseAddress, XSYNC_DETECT_CTRL_ADDR_ISR);
+    Data = XSync_detect_ReadReg(InstancePtr->Stat_BaseAddress, XSYNC_DETECT_STAT_ADDR_STAT_HEADER_BAD_COUNT_DATA);
+    return Data;
+}
+
+void XSync_detect_Set_stat_pow_env(XSync_detect *InstancePtr, u32 Data) {
+    Xil_AssertVoid(InstancePtr != NULL);
+    Xil_AssertVoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
+
+    XSync_detect_WriteReg(InstancePtr->Stat_BaseAddress, XSYNC_DETECT_STAT_ADDR_STAT_POW_ENV_DATA, Data);
+}
+
+u32 XSync_detect_Get_stat_pow_env(XSync_detect *InstancePtr) {
+    u32 Data;
+
+    Xil_AssertNonvoid(InstancePtr != NULL);
+    Xil_AssertNonvoid(InstancePtr->IsReady == XIL_COMPONENT_IS_READY);
+
+    Data = XSync_detect_ReadReg(InstancePtr->Stat_BaseAddress, XSYNC_DETECT_STAT_ADDR_STAT_POW_ENV_DATA);
+    return Data;
 }
 

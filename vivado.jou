@@ -3,22 +3,22 @@
 # SW Build 6299465 on Fri Nov 14 12:34:56 MST 2025
 # IP Build 6300035 on Fri Nov 14 10:48:45 MST 2025
 # SharedData Build 6298862 on Thu Nov 13 04:50:51 MST 2025
-# Start of session at: Fri Apr 10 09:38:42 2026
-# Process ID         : 506767
-# Current directory  : /mnt/d/work/HW/ofdm_tx_hls
-# Command line       : vivado -mode batch -source vivado/create_project.tcl
-# Log file           : /mnt/d/work/HW/ofdm_tx_hls/vivado.log
-# Journal file       : /mnt/d/work/HW/ofdm_tx_hls/vivado.jou
-# Running On         : LPT1146
+# Start of session at: Fri Apr 17 14:52:49 2026
+# Process ID         : 31157
+# Current directory  : /mnt/d/work/ofdm-hls
+# Command line       : vivado -mode batch -source vivado/create_ofdm_bd.tcl
+# Log file           : /mnt/d/work/ofdm-hls/vivado.log
+# Journal file       : /mnt/d/work/ofdm-hls/vivado.jou
+# Running On         : DESKTOP-KO4U942
 # Platform           : Ubuntu
-# Operating System   : Ubuntu 24.04.3 LTS
-# Processor Detail   : 11th Gen Intel(R) Core(TM) i5-1135G7 @ 2.40GHz
-# CPU Frequency      : 1382.398 MHz
+# Operating System   : Ubuntu 24.04.4 LTS
+# Processor Detail   : Intel(R) Core(TM) i5-10210U CPU @ 1.60GHz
+# CPU Frequency      : 2112.007 MHz
 # CPU Physical cores : 4
 # CPU Logical cores  : 8
-# Host memory        : 8015 MB
-# Swap memory        : 2147 MB
-# Total Virtual      : 10163 MB
-# Available Virtual  : 6993 MB
+# Host memory        : 12543 MB
+# Swap memory        : 17179 MB
+# Total Virtual      : 29723 MB
+# Available Virtual  : 28556 MB
 #-----------------------------------------------------------
-source vivado/create_project.tcl
+source vivado/create_ofdm_bd.tcl

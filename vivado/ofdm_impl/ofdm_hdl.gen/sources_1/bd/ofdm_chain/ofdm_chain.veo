@@ -55,19 +55,48 @@
 // INST_TAG     ------ Begin cut for INSTANTIATION Template ------
 ofdm_chain your_instance_name (
   .clk(clk), // input wire clk
+  .clk_fec(clk_fec), // input wire clk_fec
   .rst_n(rst_n), // input wire rst_n
+  .rst_fec_n(rst_fec_n), // input wire rst_fec_n
   .host_tx_in_tdata(host_tx_in_tdata), // input wire [7:0] host_tx_in_tdata
+  .host_tx_in_tkeep(host_tx_in_tkeep), // input wire [0:0] host_tx_in_tkeep
+  .host_tx_in_tlast(host_tx_in_tlast), // input wire [0:0] host_tx_in_tlast
   .host_tx_in_tready(host_tx_in_tready), // output wire host_tx_in_tready
+  .host_tx_in_tstrb(host_tx_in_tstrb), // input wire [0:0] host_tx_in_tstrb
   .host_tx_in_tvalid(host_tx_in_tvalid), // input wire host_tx_in_tvalid
   .rf_tx_out_tdata(rf_tx_out_tdata), // output wire [47:0] rf_tx_out_tdata
   .rf_tx_out_tready(rf_tx_out_tready), // input wire rf_tx_out_tready
   .rf_tx_out_tvalid(rf_tx_out_tvalid), // output wire rf_tx_out_tvalid
-  .rf_rx_in_tdata(rf_rx_in_tdata), // input wire [47:0] rf_rx_in_tdata
+  .rf_rx_in_tdata(rf_rx_in_tdata), // input wire [39:0] rf_rx_in_tdata
   .rf_rx_in_tready(rf_rx_in_tready), // output wire rf_rx_in_tready
   .rf_rx_in_tvalid(rf_rx_in_tvalid), // input wire rf_rx_in_tvalid
   .host_rx_out_tdata(host_rx_out_tdata), // output wire [7:0] host_rx_out_tdata
   .host_rx_out_tready(host_rx_out_tready), // input wire host_rx_out_tready
-  .host_rx_out_tvalid(host_rx_out_tvalid) // output wire host_rx_out_tvalid
+  .host_rx_out_tvalid(host_rx_out_tvalid), // output wire host_rx_out_tvalid
+  .ctrl_axi_awaddr(ctrl_axi_awaddr), // input wire [15:0] ctrl_axi_awaddr
+  .ctrl_axi_awprot(ctrl_axi_awprot), // input wire [2:0] ctrl_axi_awprot
+  .ctrl_axi_awvalid(ctrl_axi_awvalid), // input wire ctrl_axi_awvalid
+  .ctrl_axi_awready(ctrl_axi_awready), // output wire ctrl_axi_awready
+  .ctrl_axi_wdata(ctrl_axi_wdata), // input wire [31:0] ctrl_axi_wdata
+  .ctrl_axi_wstrb(ctrl_axi_wstrb), // input wire [3:0] ctrl_axi_wstrb
+  .ctrl_axi_wvalid(ctrl_axi_wvalid), // input wire ctrl_axi_wvalid
+  .ctrl_axi_wready(ctrl_axi_wready), // output wire ctrl_axi_wready
+  .ctrl_axi_bresp(ctrl_axi_bresp), // output wire [1:0] ctrl_axi_bresp
+  .ctrl_axi_bvalid(ctrl_axi_bvalid), // output wire ctrl_axi_bvalid
+  .ctrl_axi_bready(ctrl_axi_bready), // input wire ctrl_axi_bready
+  .ctrl_axi_araddr(ctrl_axi_araddr), // input wire [15:0] ctrl_axi_araddr
+  .ctrl_axi_arprot(ctrl_axi_arprot), // input wire [2:0] ctrl_axi_arprot
+  .ctrl_axi_arvalid(ctrl_axi_arvalid), // input wire ctrl_axi_arvalid
+  .ctrl_axi_arready(ctrl_axi_arready), // output wire ctrl_axi_arready
+  .ctrl_axi_rdata(ctrl_axi_rdata), // output wire [31:0] ctrl_axi_rdata
+  .ctrl_axi_rresp(ctrl_axi_rresp), // output wire [1:0] ctrl_axi_rresp
+  .ctrl_axi_rvalid(ctrl_axi_rvalid), // output wire ctrl_axi_rvalid
+  .ctrl_axi_rready(ctrl_axi_rready), // input wire ctrl_axi_rready
+  .mac_tx_done_pulse(mac_tx_done_pulse), // output wire [0:0] mac_tx_done_pulse
+  .mac_rx_pkt_pulse(mac_rx_pkt_pulse), // output wire [0:0] mac_rx_pkt_pulse
+  .host_rx_out_tkeep(host_rx_out_tkeep), // output wire [0:0] host_rx_out_tkeep
+  .host_rx_out_tlast(host_rx_out_tlast), // output wire host_rx_out_tlast
+  .host_rx_out_tstrb(host_rx_out_tstrb) // output wire [0:0] host_rx_out_tstrb
 );
 // INST_TAG_END ------  End cut for INSTANTIATION Template  ------
 

@@ -5,36 +5,33 @@
 // Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
 // 
 // ==============================================================
-// ctrl
-// 0x00 : Control signals
-//        bit 0  - ap_start (Read/Write/COH)
-//        bit 1  - ap_done (Read/COR)
-//        bit 2  - ap_idle (Read)
-//        bit 3  - ap_ready (Read/COR)
-//        bit 7  - auto_restart (Read/Write)
-//        bit 9  - interrupt (Read)
-//        others - reserved
-// 0x04 : Global Interrupt Enable Register
-//        bit 0  - Global Interrupt Enable (Read/Write)
-//        others - reserved
-// 0x08 : IP Interrupt Enable Register (Read/Write)
-//        bit 0 - enable ap_done interrupt (Read/Write)
-//        bit 1 - enable ap_ready interrupt (Read/Write)
-//        others - reserved
-// 0x0c : IP Interrupt Status Register (Read/TOW)
-//        bit 0 - ap_done (Read/TOW)
-//        bit 1 - ap_ready (Read/TOW)
-//        others - reserved
-// 0x10 : Data signal of n_syms
-//        bit 7~0 - n_syms[7:0] (Read/Write)
-//        others  - reserved
+// stat
+// 0x00 : reserved
+// 0x04 : reserved
+// 0x08 : reserved
+// 0x0c : reserved
+// 0x10 : Data signal of pow_threshold
+//        bit 23~0 - pow_threshold[23:0] (Read/Write)
+//        others   - reserved
 // 0x14 : reserved
+// 0x18 : Data signal of stat_preamble_count
+//        bit 31~0 - stat_preamble_count[31:0] (Read/Write)
+// 0x1c : reserved
+// 0x20 : Data signal of stat_header_bad_count
+//        bit 31~0 - stat_header_bad_count[31:0] (Read/Write)
+// 0x24 : reserved
+// 0x28 : Data signal of stat_pow_env
+//        bit 23~0 - stat_pow_env[23:0] (Read/Write)
+//        others   - reserved
+// 0x2c : reserved
 // (SC = Self Clear, COR = Clear on Read, TOW = Toggle on Write, COH = Clear on Handshake)
 
-#define XSYNC_DETECT_CTRL_ADDR_AP_CTRL     0x00
-#define XSYNC_DETECT_CTRL_ADDR_GIE         0x04
-#define XSYNC_DETECT_CTRL_ADDR_IER         0x08
-#define XSYNC_DETECT_CTRL_ADDR_ISR         0x0c
-#define XSYNC_DETECT_CTRL_ADDR_N_SYMS_DATA 0x10
-#define XSYNC_DETECT_CTRL_BITS_N_SYMS_DATA 8
+#define XSYNC_DETECT_STAT_ADDR_POW_THRESHOLD_DATA         0x10
+#define XSYNC_DETECT_STAT_BITS_POW_THRESHOLD_DATA         24
+#define XSYNC_DETECT_STAT_ADDR_STAT_PREAMBLE_COUNT_DATA   0x18
+#define XSYNC_DETECT_STAT_BITS_STAT_PREAMBLE_COUNT_DATA   32
+#define XSYNC_DETECT_STAT_ADDR_STAT_HEADER_BAD_COUNT_DATA 0x20
+#define XSYNC_DETECT_STAT_BITS_STAT_HEADER_BAD_COUNT_DATA 32
+#define XSYNC_DETECT_STAT_ADDR_STAT_POW_ENV_DATA          0x28
+#define XSYNC_DETECT_STAT_BITS_STAT_POW_ENV_DATA          24
 
