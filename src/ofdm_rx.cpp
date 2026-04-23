@@ -15,99 +15,6 @@
 typedef ap_fixed<32, 10>         geq_t;
 typedef std::complex<geq_t>     cgeq_t;
 
-// ============================================================
-// Fixed-point sin/cos and atan2 — replaces hls::sincosf / hls::atan2f
-//
-// Quarter-wave LUT (256 entries): sin(k × π/512), k=0..255
-// Full sin/cos derived by quadrant symmetry from phase_acc[31:30].
-// Max error < 2^-14 — below Q0.15 quantisation floor.
-//
-// fixed_atan2: 16-iteration CORDIC, output in ap_fixed<16,4> (radians).
-// Max error: ~0.0002 rad (~0.01°), sufficient for pilot CPE.
-// ============================================================
-static const sample_t SIN_LUT_RX[256] = {
-    sample_t(+0.000000), sample_t(+0.006136), sample_t(+0.012272), sample_t(+0.018407),
-    sample_t(+0.024541), sample_t(+0.030675), sample_t(+0.036807), sample_t(+0.042938),
-    sample_t(+0.049068), sample_t(+0.055195), sample_t(+0.061321), sample_t(+0.067444),
-    sample_t(+0.073565), sample_t(+0.079682), sample_t(+0.085797), sample_t(+0.091909),
-    sample_t(+0.098017), sample_t(+0.104122), sample_t(+0.110222), sample_t(+0.116319),
-    sample_t(+0.122411), sample_t(+0.128498), sample_t(+0.134581), sample_t(+0.140658),
-    sample_t(+0.146730), sample_t(+0.152797), sample_t(+0.158858), sample_t(+0.164913),
-    sample_t(+0.170962), sample_t(+0.177004), sample_t(+0.183040), sample_t(+0.189069),
-    sample_t(+0.195090), sample_t(+0.201105), sample_t(+0.207111), sample_t(+0.213110),
-    sample_t(+0.219101), sample_t(+0.225084), sample_t(+0.231058), sample_t(+0.237024),
-    sample_t(+0.242980), sample_t(+0.248928), sample_t(+0.254866), sample_t(+0.260794),
-    sample_t(+0.266713), sample_t(+0.272621), sample_t(+0.278520), sample_t(+0.284408),
-    sample_t(+0.290285), sample_t(+0.296151), sample_t(+0.302006), sample_t(+0.307850),
-    sample_t(+0.313682), sample_t(+0.319502), sample_t(+0.325310), sample_t(+0.331106),
-    sample_t(+0.336890), sample_t(+0.342661), sample_t(+0.348419), sample_t(+0.354164),
-    sample_t(+0.359895), sample_t(+0.365613), sample_t(+0.371317), sample_t(+0.377007),
-    sample_t(+0.382683), sample_t(+0.388345), sample_t(+0.393992), sample_t(+0.399624),
-    sample_t(+0.405241), sample_t(+0.410843), sample_t(+0.416430), sample_t(+0.422000),
-    sample_t(+0.427555), sample_t(+0.433094), sample_t(+0.438616), sample_t(+0.444122),
-    sample_t(+0.449611), sample_t(+0.455084), sample_t(+0.460539), sample_t(+0.465976),
-    sample_t(+0.471397), sample_t(+0.476799), sample_t(+0.482184), sample_t(+0.487550),
-    sample_t(+0.492898), sample_t(+0.498228), sample_t(+0.503538), sample_t(+0.508830),
-    sample_t(+0.514103), sample_t(+0.519356), sample_t(+0.524590), sample_t(+0.529804),
-    sample_t(+0.534998), sample_t(+0.540171), sample_t(+0.545325), sample_t(+0.550458),
-    sample_t(+0.555570), sample_t(+0.560662), sample_t(+0.565732), sample_t(+0.570781),
-    sample_t(+0.575808), sample_t(+0.580814), sample_t(+0.585798), sample_t(+0.590760),
-    sample_t(+0.595699), sample_t(+0.600616), sample_t(+0.605511), sample_t(+0.610383),
-    sample_t(+0.615232), sample_t(+0.620057), sample_t(+0.624859), sample_t(+0.629638),
-    sample_t(+0.634393), sample_t(+0.639124), sample_t(+0.643832), sample_t(+0.648514),
-    sample_t(+0.653173), sample_t(+0.657807), sample_t(+0.662416), sample_t(+0.667000),
-    sample_t(+0.671559), sample_t(+0.676093), sample_t(+0.680601), sample_t(+0.685084),
-    sample_t(+0.689541), sample_t(+0.693971), sample_t(+0.698376), sample_t(+0.702755),
-    sample_t(+0.707107), sample_t(+0.711432), sample_t(+0.715731), sample_t(+0.720003),
-    sample_t(+0.724247), sample_t(+0.728464), sample_t(+0.732654), sample_t(+0.736817),
-    sample_t(+0.740951), sample_t(+0.745058), sample_t(+0.749136), sample_t(+0.753187),
-    sample_t(+0.757209), sample_t(+0.761202), sample_t(+0.765167), sample_t(+0.769103),
-    sample_t(+0.773010), sample_t(+0.776888), sample_t(+0.780737), sample_t(+0.784557),
-    sample_t(+0.788346), sample_t(+0.792107), sample_t(+0.795837), sample_t(+0.799537),
-    sample_t(+0.803208), sample_t(+0.806848), sample_t(+0.810457), sample_t(+0.814036),
-    sample_t(+0.817585), sample_t(+0.821103), sample_t(+0.824589), sample_t(+0.828045),
-    sample_t(+0.831470), sample_t(+0.834863), sample_t(+0.838225), sample_t(+0.841555),
-    sample_t(+0.844854), sample_t(+0.848120), sample_t(+0.851355), sample_t(+0.854558),
-    sample_t(+0.857729), sample_t(+0.860867), sample_t(+0.863973), sample_t(+0.867046),
-    sample_t(+0.870087), sample_t(+0.873095), sample_t(+0.876070), sample_t(+0.879012),
-    sample_t(+0.881921), sample_t(+0.884797), sample_t(+0.887640), sample_t(+0.890449),
-    sample_t(+0.893224), sample_t(+0.895966), sample_t(+0.898674), sample_t(+0.901349),
-    sample_t(+0.903989), sample_t(+0.906596), sample_t(+0.909168), sample_t(+0.911706),
-    sample_t(+0.914210), sample_t(+0.916679), sample_t(+0.919114), sample_t(+0.921514),
-    sample_t(+0.923880), sample_t(+0.926210), sample_t(+0.928506), sample_t(+0.930767),
-    sample_t(+0.932993), sample_t(+0.935184), sample_t(+0.937339), sample_t(+0.939459),
-    sample_t(+0.941544), sample_t(+0.943593), sample_t(+0.945607), sample_t(+0.947586),
-    sample_t(+0.949528), sample_t(+0.951435), sample_t(+0.953306), sample_t(+0.955141),
-    sample_t(+0.956940), sample_t(+0.958703), sample_t(+0.960431), sample_t(+0.962121),
-    sample_t(+0.963776), sample_t(+0.965394), sample_t(+0.966976), sample_t(+0.968522),
-    sample_t(+0.970031), sample_t(+0.971504), sample_t(+0.972940), sample_t(+0.974339),
-    sample_t(+0.975702), sample_t(+0.977028), sample_t(+0.978317), sample_t(+0.979570),
-    sample_t(+0.980785), sample_t(+0.981964), sample_t(+0.983105), sample_t(+0.984210),
-    sample_t(+0.985278), sample_t(+0.986308), sample_t(+0.987301), sample_t(+0.988258),
-    sample_t(+0.989177), sample_t(+0.990058), sample_t(+0.990903), sample_t(+0.991710),
-    sample_t(+0.992480), sample_t(+0.993212), sample_t(+0.993907), sample_t(+0.994565),
-    sample_t(+0.995185), sample_t(+0.995767), sample_t(+0.996313), sample_t(+0.996820),
-    sample_t(+0.997290), sample_t(+0.997723), sample_t(+0.998118), sample_t(+0.998476),
-    sample_t(+0.998795), sample_t(+0.999078), sample_t(+0.999322), sample_t(+0.999529),
-    sample_t(+0.999699), sample_t(+0.999831), sample_t(+0.999925), sample_t(+0.999969)
-};
-
-// sin/cos from 32-bit phase accumulator (same quadrant-symmetry as cfo_correct_v2)
-static void sincos_lut_rx(ap_uint<32> phase_acc, sample_t &sin_out, sample_t &cos_out) {
-    #pragma HLS INLINE
-    #pragma HLS PIPELINE II=1
-    ap_uint<2> quadrant = phase_acc(31, 30);
-    ap_uint<8> addr     = phase_acc(29, 22);
-    sample_t sin_raw = SIN_LUT_RX[addr];
-    sample_t cos_raw = SIN_LUT_RX[(ap_uint<8>)(255 - addr)];
-    switch (quadrant) {
-        case 0:  sin_out =  sin_raw; cos_out =  cos_raw; break;
-        case 1:  sin_out =  cos_raw; cos_out = -sin_raw; break;
-        case 2:  sin_out = -sin_raw; cos_out = -cos_raw; break;
-        default: sin_out = -cos_raw; cos_out =  sin_raw; break;
-    }
-}
-
 // Fixed-point atan2 via 16-iteration CORDIC vectoring mode.
 // Returns phase in ap_fixed<32,4> (radians, range [-π, +π)).
 // No floating-point — maps to DSP48 shift-add chains.
@@ -157,16 +64,71 @@ static ap_fixed<32,4> fixed_atan2_rx(geq_t y_in, geq_t x_in) {
     return angle;
 }
 
-// Convert fixed-point angle (radians) to 32-bit phase accumulator
-static ap_uint<32> angle_to_phase_acc(ap_fixed<32,4> angle) {
+// Fixed-point CORDIC rotation mode (Opt-1).
+// Rotates complex input `in` by `angle_rad` using 16 shift-add iterations.
+// Zero DSP48 multipliers — pure shift-and-add hardware.
+//
+// CORDIC gain: output magnitude is scaled by K₁₆ ≈ 1.64676 (cumulative
+// gain of 16 rotation stages).  We deliberately do NOT renormalize,
+// which would cost DSPs.  Consumers compensate:
+//   • qpsk_demap: sign-only compare — positive K has no effect.
+//   • BPSK header demap: sign-only compare — positive K has no effect.
+//   • qam16_demap: THRESH is scaled by K at compile time — still zero DSPs.
+//
+// Range caution: geq_t = ap_fixed<32,10> caps at ±512.  Input magnitudes
+// above ~310 will overflow on the cast back to geq_t (310 × K ≈ 512).
+// In ideal channel G_eq ≈ 256 → 256 × K ≈ 422, well within range.
+// Only deep-fade / very low SNR channel estimates can breach this.
+static cgeq_t cordic_rotate_rx(cgeq_t in, ap_fixed<32,4> angle_rad) {
     #pragma HLS INLINE
-    // Map angle in [-π, +π) → phase_acc in [0, 2^32) with wrapping.
-    // Multiply by 2^32/(2π) ≈ 683565275.576; result is in [-2^31, +2^31).
-    // Casting ap_fixed → ap_int<32> keeps the lower 32 integer bits (mod-2^32 wrap).
-    // ap_uint<32> reinterprets as unsigned — standard NCO phase accumulator pattern.
-    const ap_fixed<40,32> K = ap_fixed<40,32>(683565275.576);  // 2^32/(2π)
-    ap_fixed<72,36> result = (ap_fixed<72,36>)angle * (ap_fixed<72,36>)K;
-    return (ap_uint<32>)(ap_int<32>)result;
+    static const ap_fixed<32,4> ATAN_LUT[16] = {
+        ap_fixed<32,4>(0.7853981634),  // atan(2^0)  = π/4
+        ap_fixed<32,4>(0.4636476090),  // atan(2^-1)
+        ap_fixed<32,4>(0.2449786631),  // atan(2^-2)
+        ap_fixed<32,4>(0.1243549945),  // atan(2^-3)
+        ap_fixed<32,4>(0.0624188100),  // atan(2^-4)
+        ap_fixed<32,4>(0.0312398334),  // atan(2^-5)
+        ap_fixed<32,4>(0.0156237286),  // atan(2^-6)
+        ap_fixed<32,4>(0.0078123766),  // atan(2^-7)
+        ap_fixed<32,4>(0.0039062301),  // atan(2^-8)
+        ap_fixed<32,4>(0.0019531226),  // atan(2^-9)
+        ap_fixed<32,4>(0.0009765622),  // atan(2^-10)
+        ap_fixed<32,4>(0.0004882812),  // atan(2^-11)
+        ap_fixed<32,4>(0.0002441406),  // atan(2^-12)
+        ap_fixed<32,4>(0.0001220703),  // atan(2^-13)
+        ap_fixed<32,4>(0.0000610352),  // atan(2^-14)
+        ap_fixed<32,4>(0.0000305176),  // atan(2^-15)
+    };
+
+    typedef ap_fixed<32,12> xy_t;   // 12 int bits → holds 256 × K ≈ 422
+    typedef ap_fixed<32,4>  ang_t;
+
+    xy_t x = (xy_t)in.real();
+    xy_t y = (xy_t)in.imag();
+    ang_t target_angle  = angle_rad;
+    ang_t current_angle = 0;
+
+    // Pre-rotate by ±π if target is outside CORDIC convergence range [-π/2, +π/2].
+    // x = -x, y = -y is an exact 180° rotation (gain = 1, no K contribution).
+    if (target_angle > ang_t(1.57079632)) {
+        x = -x; y = -y; current_angle = ang_t( 3.14159265);
+    } else if (target_angle < ang_t(-1.57079632)) {
+        x = -x; y = -y; current_angle = ang_t(-3.14159265);
+    }
+
+    // 16-iteration shift-add rotation — zero DSPs.
+    CORDIC_ROT: for (int i = 0; i < 16; i++) {
+        #pragma HLS UNROLL
+        xy_t  x_tmp = x >> i;
+        xy_t  y_tmp = y >> i;
+        ang_t a     = ATAN_LUT[i];
+        if (target_angle > current_angle) {
+            x -= y_tmp; y += x_tmp; current_angle += a;
+        } else {
+            x += y_tmp; y -= x_tmp; current_angle -= a;
+        }
+    }
+    return cgeq_t((geq_t)x, (geq_t)y);
 }
 
 // ============================================================
@@ -499,49 +461,43 @@ static cgeq_t equalize_sc(csample_t Y, cgeq_t G_eq) {
 }
 
 // ============================================================
-// SECTION 5b: Per-Symbol Equalizer-Rotator Precompute
+// SECTION 5b: Per-Symbol Equalizer-Rotator Precompute (CORDIC)
 //
-// Algebraic regrouping of  x̂ = (Y · G_eq) · r_s  ≡  Y · (G_eq · r_s)
-// where r_s = cos(φ_s) − j·sin(φ_s) is the per-symbol CPE rotator.
+// Algebraic regrouping of  x̂ = (Y · G_eq) · e^(−jφ_s)  ≡  Y · (G_eq · e^(−jφ_s))
+// where φ_s is the per-symbol CPE phase error from the 6 pilots.
 //
 // Runs once per data symbol: for every active subcarrier k (200 data +
-// 6 pilots = 206 SCs), premultiplies G_eq[k] by r_s and stores the
-// result in G_eq_final[k].  The hot demap loop then needs only ONE
+// 6 pilots = 206 SCs), rotates G_eq[k] by −φ_s via CORDIC and stores
+// the result in G_eq_final[k].  The hot demap loop then needs only ONE
 // complex multiply per SC  (Y · G_eq_final)  instead of two
 // (Y · G_eq  followed by  × r_s).
 //
-// II=4 on the precompute loop lets HLS share the 4-DSP complex
-// multiplier across iterations instead of instantiating four parallel
-// DSP48 pairs — net saving vs the previous apply_cpe path is ~4 DSP
-// (Opt-2 refactor).  Opt-1 (CORDIC rotator) is planned on top of this
-// and will eliminate these multiplies entirely.
+// Opt-1 + Opt-2 combined: the rotation uses CORDIC (zero DSPs), so the
+// precompute loop itself consumes NO DSP48s — just LUTs and adders.
+// The only remaining multiplier is equalize_sc in the hot path.
+//
+// CORDIC gain K₁₆ ≈ 1.64676 is absorbed into G_eq_final; consumers
+// (qpsk_demap, qam16_demap, BPSK header demap) handle it as described
+// in cordic_rotate_rx().
 // ============================================================
 static void compute_geq_final(
-    cgeq_t G_eq[FFT_SIZE],
-    geq_t  cpe_cos,
-    geq_t  cpe_sin,
-    cgeq_t G_eq_final[FFT_SIZE]
+    cgeq_t         G_eq[FFT_SIZE],
+    ap_fixed<32,4> phase_err,
+    cgeq_t         G_eq_final[FFT_SIZE]
 ) {
     #pragma HLS INLINE off
-    // (gr + j·gi) · (cpe_cos − j·cpe_sin)
-    //   = (gr·cos + gi·sin) + j·(gi·cos − gr·sin)
+    // Correct the phase: rotate by −phase_err (the CPE we want to undo).
+    ap_fixed<32,4> rot_angle = -phase_err;
+
     GEQ_DATA_ROT: for (int d = 0; d < NUM_DATA_SC; d++) {
         #pragma HLS PIPELINE II=4
-        int k  = DATA_SC_IDX[d];
-        geq_t gr = G_eq[k].real();
-        geq_t gi = G_eq[k].imag();
-        geq_t nr = gr * cpe_cos + gi * cpe_sin;
-        geq_t ni = gi * cpe_cos - gr * cpe_sin;
-        G_eq_final[k] = cgeq_t(nr, ni);
+        int k = DATA_SC_IDX[d];
+        G_eq_final[k] = cordic_rotate_rx(G_eq[k], rot_angle);
     }
     GEQ_PILOT_ROT: for (int p = 0; p < NUM_PILOT_SC; p++) {
         #pragma HLS PIPELINE II=4
-        int k  = PILOT_IDX[p];
-        geq_t gr = G_eq[k].real();
-        geq_t gi = G_eq[k].imag();
-        geq_t nr = gr * cpe_cos + gi * cpe_sin;
-        geq_t ni = gi * cpe_cos - gr * cpe_sin;
-        G_eq_final[k] = cgeq_t(nr, ni);
+        int k = PILOT_IDX[p];
+        G_eq_final[k] = cordic_rotate_rx(G_eq[k], rot_angle);
     }
 }
 
@@ -610,7 +566,11 @@ static ap_uint<2> qpsk_demap(cgeq_t sym) {
 // ============================================================
 static ap_uint<4> qam16_demap(cgeq_t sym) {
     #pragma HLS INLINE
-    const geq_t THRESH = geq_t(0.6325);   // 2/sqrt(10), in ap_fixed<32,10>
+    // Base threshold = 2/sqrt(10) ≈ 0.6325.  Pre-scaled by CORDIC gain
+    // K₁₆ ≈ 1.64676 to match the CORDIC-rotated equalized symbols from
+    // cordic_rotate_rx() — compile-time constant, zero DSPs at runtime.
+    //   THRESH = 0.6325 × 1.64676 ≈ 1.04157
+    const geq_t THRESH = geq_t(1.04157);
 
     ap_uint<2> i_bits, q_bits;
 
@@ -644,9 +604,10 @@ static ap_uint<4> qam16_demap(cgeq_t sym) {
 // ============================================================
 // SECTION 8: Equalize, Demap, and Pack one Data Symbol
 //
-// Takes G_eq_final (= G_eq · r_s precomputed by compute_geq_final) so a
-// SINGLE complex multiply per SC replaces the previous equalize_sc +
-// apply_cpe pair.  x̂[k] = Y[k] · G_eq_final[k].
+// Takes G_eq_final (= CORDIC-rotated G_eq precomputed by compute_geq_final)
+// so a SINGLE complex multiply per SC replaces the previous equalize_sc +
+// apply_cpe pair.  x̂[k] = Y[k] · G_eq_final[k].  G_eq_final includes
+// the CORDIC gain K₁₆ ≈ 1.647 (see cordic_rotate_rx for details).
 //
 // 1 SC per loop iteration, #pragma HLS PIPELINE II=1.
 // No loop-unrolling: the byte accumulator has a 1-cycle carry dependency
@@ -661,7 +622,7 @@ static ap_uint<4> qam16_demap(cgeq_t sym) {
 // ============================================================
 static void equalize_demap_pack(
     csample_t               fft_out[FFT_SIZE],
-    cgeq_t                  G_eq_final[FFT_SIZE],   // rotated equalizer (= G_eq · r_s)
+    cgeq_t                  G_eq_final[FFT_SIZE],   // CORDIC-rotated equalizer (K₁₆ gain absorbed)
     mod_t                   mod,
     hls::stream<ap_uint<8>> &bits_out
 ) {
@@ -755,7 +716,7 @@ void ofdm_rx(
     csample_t time_buf[FFT_SIZE];
     csample_t freq_buf[FFT_SIZE];
     cgeq_t    G_eq[FFT_SIZE];       // preamble equalizer: conj(G)/|G|², ≈256 ideal
-    cgeq_t    G_eq_final[FFT_SIZE]; // per-symbol rotated equalizer: G_eq · r_s
+    cgeq_t    G_eq_final[FFT_SIZE]; // per-symbol CORDIC-rotated equalizer (K₁₆ gain absorbed)
 
     // Free-running: once ap_start fires (tied high at BD), process
     // packet-after-packet forever.  Each loop iteration waits on iq_in —
@@ -773,14 +734,10 @@ void ofdm_rx(
     run_fft(time_buf, freq_buf, fft_in, fft_out);
 
     ap_fixed<32,4> hdr_phase_err = compute_pilot_cpe(freq_buf, G_eq);
-    ap_uint<32> hdr_phase_acc = angle_to_phase_acc(hdr_phase_err);
-    sample_t hdr_sin, hdr_cos;
-    sincos_lut_rx(hdr_phase_acc, hdr_sin, hdr_cos);
-    geq_t hdr_cos_g = (geq_t)hdr_cos;
-    geq_t hdr_sin_g = (geq_t)hdr_sin;
 
-    // Opt-2: precompute rotated equalizer once, reuse for all 26 header SCs.
-    compute_geq_final(G_eq, hdr_cos_g, hdr_sin_g, G_eq_final);
+    // Opt-1: CORDIC-rotate G_eq by −hdr_phase_err, reuse for all 26 header SCs.
+    // No NCO (angle→phase_acc→sincos LUT) needed — CORDIC takes the angle directly.
+    compute_geq_final(G_eq, hdr_phase_err, G_eq_final);
 
     // Demap 26 BPSK header bits, MSB first (d=0 → bit 25).
     // Separate raw-bit array avoids loop-carried read-modify-write on hdr_bits.
@@ -830,15 +787,10 @@ void ofdm_rx(
 
         // Estimate common phase error from 6 BPSK pilots — fixed-point, no float
         ap_fixed<32,4> phase_err = compute_pilot_cpe(freq_buf, G_eq);
-        ap_uint<32> phase_acc = angle_to_phase_acc(phase_err);
-        sample_t cpe_sin_s, cpe_cos_s;
-        sincos_lut_rx(phase_acc, cpe_sin_s, cpe_cos_s);
-        geq_t cpe_cos = (geq_t)cpe_cos_s;
-        geq_t cpe_sin = (geq_t)cpe_sin_s;
 
-        // Opt-2: fold CPE rotator into G_eq once per symbol, then single
-        // complex multiply per SC in the hot demap loop.
-        compute_geq_final(G_eq, cpe_cos, cpe_sin, G_eq_final);
+        // Opt-1 + Opt-2: CORDIC-rotate G_eq by −phase_err in the precompute
+        // (zero DSPs), then single complex multiply per SC in the hot loop.
+        compute_geq_final(G_eq, phase_err, G_eq_final);
         equalize_demap_pack(freq_buf, G_eq_final, mod, bits_out);
     }
     } // FREE_RUN while(1)
