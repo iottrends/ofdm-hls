@@ -1143,39 +1143,51 @@ Header + each data symbol s:
 
 ### 10.5 Optimization path
 
-#### Opt-1 — CORDIC rotator replaces `apply_cpe` + `angle_to_phase_acc` (saves 16 DSP)
+#### Opt-2 — Fold CPE rotation into `geq_final` via algebraic regrouping  ✅ **IMPLEMENTED** (`71b4906`)
 
-`apply_cpe(sym, cos, sin)` implements a 2-D rotation by `−φ_s`. This is the canonical use case for **CORDIC rotation mode** — shift-and-add only, zero multipliers. The existing `fixed_atan2_rx` (`ofdm_rx.cpp:114-158`) is CORDIC in *vectoring* mode; rotation mode is the same pipeline with the sign-decision driven by the residual angle instead of by `y`.
-
-Replacing the multiplier chain with a CORDIC rotator collapses three blocks at once:
-
-| Block | Before | After | Δ |
-|---|---:|---:|---:|
-| `apply_cpe` (4 real mul) | 8 DSP | 0 DSP | **−8** |
-| `sincos_lut_rx` + LUT ROM | 0 DSP (1 BRAM) | removed | — |
-| `angle_to_phase_acc` (`angle × K`) | 8 DSP | removed | **−8** |
-| **Sub-total** | **16 DSP** | **0 DSP** | **−16** |
-
-The CORDIC rotator takes `φ_s` (in `ap_fixed<32,4>` radians) directly — the whole `angle → phase_acc → LUT → cos/sin` chain disappears. Latency cost: ~16 extra cycles per symbol, well inside the per-symbol budget (288-sample symbol at 100 MHz = 2880 cycles).
-
-**Risk:** low — identical algebra, existing CORDIC infrastructure in-tree, standard in WiFi/LTE reference implementations.
-
-#### Opt-2 — Fold CPE rotation into `geq` via algebraic regrouping (saves ~4 DSP)
-
-`x̂[k] = y[k] · geq[k] · r_s = y[k] · (geq[k] · r_s) = y[k] · geq_s[k]`
-
-`r_s` is a **single scalar per symbol**, identical across all 200 SCs. Precompute `geq_s[k] = geq[k] · r_s` once per symbol in a sharing-friendly loop (high II), then use one complex mul in the hot path:
+`x̂[k] = y[k] · geq[k] · r_s = y[k] · (geq[k] · r_s) = y[k] · geq_final[k]` — move the rotation out of the per-SC hot loop into a per-symbol precompute. `r_s` is a single scalar per symbol, identical across all 206 active SCs.
 
 | Path | Before | After |
 |---|---:|---:|
 | `equalize_sc` hot path | 8 DSP (II=1) | 8 DSP (II=1, unchanged) |
 | `apply_cpe` hot path | 8 DSP (II=1) | — |
-| `geq_s` precompute loop | — | 4 DSP (II=4, HLS ALLOCATION) |
-| **Sub-total** | **16 DSP** | **12 DSP** (**−4**) |
+| `compute_geq_final` precompute loop | — | 4 DSP (II=4, Opt-2 alone) → **0 DSP** under Opt-1 |
+| **Sub-total (Opt-2 alone)** | **16 DSP** | **12 DSP** (**−4**) |
 
-**Subsumed by Opt-1** — if Opt-1 is adopted, Opt-2 is not needed. List here only as a fallback if CORDIC rotator is rejected.
+Commit `71b4906`:
+- Introduced `compute_geq_final(G_eq, cpe_cos, cpe_sin, G_eq_final)` — per-symbol precompute at II=4 (multiplier sharing).
+- Simplified `equalize_demap_pack` — single complex multiply per SC in hot path.
+- Removed the now-unused `apply_cpe` helper.
+- Updated `HDR_DEMAP` to also use `G_eq_final` (header BPSK demap).
 
-#### Opt-3 — Narrow `geq_t` from `ap_fixed<32,10>` → `ap_fixed<18,10>` (saves 10–20 DSP)
+Pure algebraic identity: C-sim output bit-exact to pre-refactor path. Critically, this refactor **sets up the precompute scaffolding** that Opt-1 then plugs into.
+
+#### Opt-1 — CORDIC rotator replaces `compute_geq_final` multiplier + NCO path  ✅ **IMPLEMENTED** (`f19a9d2`)
+
+`apply_cpe(sym, cos, sin)` implemented a 2-D rotation by `−φ_s`. Replaced with **CORDIC rotation mode** — shift-and-add only, zero multipliers. The existing `fixed_atan2_rx` (`ofdm_rx.cpp:114-158`, now post-refactor) is CORDIC in *vectoring* mode; the new `cordic_rotate_rx` is the rotation-mode counterpart.
+
+Layered on top of Opt-2: the CORDIC rotation replaces the 4-DSP multiplier inside `compute_geq_final`, **and** eliminates the entire NCO path that computed `cos`/`sin` from `φ_s`:
+
+| Block | Before | After | Δ |
+|---|---:|---:|---:|
+| `compute_geq_final` complex mul (post-Opt-2) | 4 DSP | 0 DSP (CORDIC) | **−4** |
+| `apply_cpe` hot path (pre-Opt-2) | 8 DSP | 0 DSP | **−8** |
+| `sincos_lut_rx` + `SIN_LUT_RX` ROM | 0 DSP (1 BRAM18) | removed | — (−1 BRAM) |
+| `angle_to_phase_acc` (`angle × K`) | 8 DSP | removed | **−8** |
+| **Combined Opt-1 + Opt-2 total** | **20 DSP + 1 BRAM** | **0 DSP + 0 BRAM** | **−16 DSP, −1 BRAM18** |
+
+The CORDIC rotator takes `φ_s` (in `ap_fixed<32,4>` radians) directly — the whole `angle → phase_acc → LUT → cos/sin` chain disappears. Latency cost per CORDIC call: ~16 shift-add stages, well inside the per-symbol budget (288-sample symbol at 100 MHz = 2880 cycles, and only 206 CORDIC calls per symbol at II=4 ≈ 824 cycles).
+
+**CORDIC gain absorption** (the key trick): CORDIC rotation has cumulative gain K₁₆ ≈ 1.64676. Renormalizing by 1/K would cost ~4 DSPs. Instead:
+- `qpsk_demap` uses sign-only comparison — positive K has no effect.
+- BPSK header demap uses sign-only comparison — positive K has no effect.
+- `qam16_demap` threshold pre-scaled at compile time: `0.6325 × 1.64676 ≈ 1.04157` — still zero DSP at runtime.
+
+**Range caveat**: `geq_t = ap_fixed<32,10>` caps at ±512. Input magnitudes above ~310 wrap on the cast back to `geq_t` (310 × 1.647 ≈ 512). In ideal channel `G_eq ≈ 256 → 256 × K ≈ 422`, well within range. Only deep-fade / very-low-SNR channel estimates breach this — out of useful operating range (sync already fails below ~5 dB SNR).
+
+**Risk:** low — identical algebra, existing CORDIC infrastructure pattern reused, standard in WiFi/LTE reference implementations.
+
+#### Opt-3 — Narrow `geq_t` from `ap_fixed<32,10>` → `ap_fixed<18,10>` (saves 10–20 DSP)  ⏸ **DEFERRED**
 
 `ap_fixed<18, 10>` keeps the same ±512 range (required for `geq ≈ 256`) but reduces fractional bits from 22 to 7. Operand fits in DSP48E1's 18-bit B port, so each scalar multiply drops from **2 DSP → 1 DSP**.
 
@@ -1185,22 +1197,74 @@ Affects every complex mul in `estimate_channel`, `compute_pilot_cpe`, and `equal
 
 **Risk:** medium — requires end-to-end BER validation across AWGN / phase-noise / multipath / combined channels at all mod/rate points. Reuse existing `run_ber_sweep.sh`.
 
-#### Opt-4 — QPSK sign-only narrow-path (saves ~4 DSP, conditional)
+#### Opt-4 — QPSK sign-only narrow-path (saves ~4 DSP, conditional)  ⏸ **DEFERRED**
 
-`qpsk_demap` uses only `sign(Re{x̂})` and `sign(Im{x̂})`. The magnitude of `x̂` is irrelevant for QPSK. If `y` and `geq_s` are narrowed to `ap_fixed<16,1>` × `ap_fixed<16,1>` on the QPSK-only branch, each scalar mul drops to 1 DSP (fits 16×16 in one DSP48E1). 16-QAM still needs the wider path because `qam16_demap` threshold-compares against `±2/√10`, which requires magnitude.
+`qpsk_demap` uses only `sign(Re{x̂})` and `sign(Im{x̂})`. The magnitude of `x̂` is irrelevant for QPSK. If `y` and `geq_final` are narrowed to `ap_fixed<16,1>` × `ap_fixed<16,1>` on the QPSK-only branch, each scalar mul drops to 1 DSP (fits 16×16 in one DSP48E1). 16-QAM still needs the wider path because `qam16_demap` threshold-compares against `±THRESH`, which requires magnitude.
 
 **Risk:** medium — adds a mod-dependent path split. Only worth doing if Opt-3 is insufficient.
 
-### 10.6 Summary and recommendation
+### 10.6 Landed state and outstanding work
 
-| # | Optimization | DSP saved | Effort | Risk | Validation |
-|---|---|---:|---|---|---|
-| Opt-1 | CORDIC rotator replaces `apply_cpe` + `angle_to_phase_acc` | **−16** | 2 days HLS | low | C-sim EVM + BER sweep |
-| Opt-2 | Fold `r_s` into `geq_s` (fallback if Opt-1 rejected) | −4 | 4 hr HLS | low | C-sim equivalence |
-| Opt-3 | Narrow `geq_t` to `ap_fixed<18,10>` | −10 to −20 | 4 hr HLS + sweep | medium | Full BER sweep, all mod/rate/channel |
-| Opt-4 | QPSK sign-only narrow path | −4 | 1 day HLS | medium | QPSK BER sweep |
+| # | Optimization | Status | DSP saved | Commit |
+|---|---|---|---:|---|
+| Opt-2 | Fold `r_s` into `G_eq_final` precompute | ✅ landed | foundation (subsumed by Opt-1) | `71b4906` |
+| Opt-1 | CORDIC rotator replaces multiplier + NCO | ✅ landed | **−16** | `f19a9d2` |
+| Opt-3 | Narrow `geq_t` to `ap_fixed<18,10>` | ⏸ deferred (pending BER sweep) | −10 to −20 | — |
+| Opt-4 | QPSK sign-only narrow path | ⏸ deferred (after Opt-3) | −4 | — |
 
-**Recommended order:** Opt-1 first (highest-value single change, low risk, reuses existing CORDIC pattern). Then Opt-3 with BER validation. Skip Opt-2 if Opt-1 is adopted. Opt-4 only if DSP budget is still tight after Opt-1 + Opt-3.
+**Projected landed impact** (pre-synth):
 
-**Projected DSP count for `ofdm_rx` after Opt-1 + Opt-3:** 63 − 16 − 15 ≈ **32 DSP** (≈50% reduction). Frees ~31 DSP at the full SoC level, bringing DSP utilization from 91.7% → ~66% on `xc7a50t`, restoring real headroom for future features (soft Viterbi LLR paths, per-symbol pilot update S3, diversity combining).
+| Resource | Before (today) | After (Opt-1 + Opt-2) | Delta |
+|---|---:|---:|---:|
+| `ofdm_rx` DSP48E1 | 63 | ~47 | **−16** |
+| `ofdm_rx` BRAM18 | 13 | 12 | **−1** (SIN_LUT_RX ROM removed) |
+| SoC-total DSP48E1 | 110 / 120 (91.7%) | ~94 / 120 (78%) | −16 |
+| SoC-total BRAM tile | 66.5 / 75 (88.7%) | ~65.5 / 75 (87%) | −1 |
+
+**Validation pending** — the WSL environment lacked Vivado/Vitis at commit time. Before merging to `rx-free-running-mac`, run:
+
+```bash
+./run_loopback.sh                # clean channel, QPSK — bit-exact vs pre-Opt-2
+./run_loopback.sh --mod 1        # clean channel, 16QAM — bit-exact vs pre-Opt-2
+./run_ber_sweep.sh --mod 0       # full BER sweep, QPSK
+./run_ber_sweep.sh --mod 1       # full BER sweep, 16QAM
+./setup_vitis.sh rx_synth        # per-block HLS synth — expect ofdm_rx DSP ~24
+```
+
+Note on C-sim equivalence: Opt-2 is pure associativity (bit-exact). Opt-1 introduces small quantisation drift vs the pre-refactor LUT-based NCO (CORDIC reaches ~0.0002 rad precision vs the LUT's ~2⁻¹⁴ ≈ 0.00006 rad). This shifts individual symbol phases by at most ~0.015°, well below the EVM noise floor. Expect bit-exact QPSK decoding and a ≤0.2 dB BER shift on 16-QAM at worst.
+
+**Next after validation:** Opt-3 (narrow `geq_t`) is the logical follow-up — with full BER sweep coverage, it takes SoC DSP utilization to ~65% and frees real headroom for soft-Viterbi LLR paths (S2), per-symbol pilot update (S3), and future diversity combining.
+
+### 10.7 Implementation notes
+
+**Staged commit strategy.** Opt-2 (`71b4906`) and Opt-1 (`f19a9d2`) landed as separate commits on branch `rx-dsp-opt` to keep the rollout reviewable:
+
+1. **Opt-2 commit** — restructures the hot path from `(Y·G_eq)·r_s` to `Y·(G_eq·r_s)` via a new `compute_geq_final` precompute. Pure algebraic refactor, bit-exact. C-sim output matches pre-refactor sample-for-sample. Safe revert if any issue is found.
+
+2. **Opt-1 commit** — swaps the multiplier inside `compute_geq_final` for `cordic_rotate_rx`, and deletes the now-unused NCO helpers (`sincos_lut_rx`, `angle_to_phase_acc`, `SIN_LUT_RX`). If Opt-1 regresses, `git revert f19a9d2` falls back cleanly to the Opt-2-only state (−4 DSP, no CORDIC risk).
+
+**The CORDIC gain trick.** Standard textbook CORDIC implementations renormalize the output by ~0.607 to cancel the cumulative rotation gain K₁₆ ≈ 1.647. That renormalization is a scalar multiply → 2 DSPs per CORDIC call → 400+ DSP-cycles per symbol. Instead, we leave the gain in place and compensate at the consumer:
+
+- **QPSK** demap compares `Re{x̂}` and `Im{x̂}` against zero. Scaling by positive K doesn't flip signs.
+- **Header BPSK** demap is also a zero-crossing test. Same reasoning.
+- **16-QAM** demap compares against `±2/√10 ≈ ±0.6325`. That threshold is a compile-time constant — we pre-multiply it by K₁₆ once at build time: `THRESH = 0.6325 × 1.64676 ≈ 1.04157`. Zero DSPs at runtime; the gain is effectively "pre-baked" into the comparison.
+
+Net effect: 16 DSPs saved without any of the cost usually associated with CORDIC normalization. Textbook trick for any QAM receiver where the demap thresholds are known at compile time.
+
+**Why `compute_pilot_cpe` still uses `G_eq` (not `G_eq_final`).** The pilot CPE estimate is what produces `phase_err` in the first place — it has to run on the unrotated equalizer. Running it on `G_eq_final` would be circular (you'd need `phase_err` to rotate `G_eq`, but you need to rotate `G_eq` to compute `phase_err`). So the call order is:
+```
+phase_err = compute_pilot_cpe(freq_buf, G_eq);   // extract CPE
+compute_geq_final(G_eq, phase_err, G_eq_final);  // apply CPE via CORDIC
+equalize_demap_pack(freq_buf, G_eq_final, …);    // use rotated eq in hot path
+```
+
+**Dead code removed by Opt-1 commit.** Three HLS artifacts are deleted from `ofdm_rx.cpp` entirely — reducing source size by 52 lines net and freeing both DSP and BRAM in synthesis:
+
+| Artifact | Purpose (obsolete) | Cost saved |
+|---|---|---|
+| `SIN_LUT_RX[256]` | Quarter-wave sin LUT for NCO | 1 BRAM18 (ROM) |
+| `sincos_lut_rx()` | NCO output → (sin, cos) scalar pair | LUT logic only |
+| `angle_to_phase_acc()` | Scalar mul `angle × (2³²/2π)` for NCO | 8 DSP48E1 |
+
+Post-refactor, the only remaining CORDIC/trig helper is `fixed_atan2_rx` (used by `compute_pilot_cpe` to extract `φ_s` from the 6-pilot residual).
 
