@@ -95,23 +95,29 @@ docs/   — Documentation
 
 ## Resource Usage — Post-Implementation (Vivado 2025.2, XC7A50T, 100 MHz)
 
-Numbers from `vivado/utilization_post_impl_summary.rpt` — full design placed and routed,
-all 14 IPs present, no black boxes. FFT/IFFT use Xilinx xfft v9.1 IP (not hls::fft).
+Latest LiteX SoC build (full PCIe + AD9361 wrapper + OFDM PHY chain), routed and
+bitstream-generated. Numbers from
+`litex/build/hallycon_m2sdr_platform/gateware/hallycon_m2sdr_platform_utilization_place.rpt`.
 
-| Resource     | Used   | Available | Utilization |
-|--------------|--------|-----------|-------------|
-| Slice LUTs   | 15,395 | 32,600    | **47%**     |
-| Slice FF     | 19,940 | 65,200    | **31%**     |
-| DSP48E1      | 94     | 120       | **78%**     |
-| BRAM Tiles   | 26     | 75        | **35%**     |
-| Bonded IOB   | 82     | 150       | **55%**     |
+| Resource     | Used   | Available | Utilization | vs. earlier baseline |
+|--------------|--------|-----------|-------------|----------------------|
+| Slice LUTs   | 25,913 | 32,600    | **79.5%**   | −106 (slight reduction after `rx-dsp-opt`) |
+| LUT as Logic | 23,549 | 32,600    | 72.2%       |                      |
+| LUT as Memory| 2,364  | 9,600     | 24.6%       |                      |
+| Slice FF     | 32,450 | 65,200    | **49.8%**   |                      |
+| DSP48E1      | 81     | 120       | **67.5%**   | **−5 vs Apr 17 (was 86)** ✓ |
+| Block RAM    | 67     | 75        | **89.3%**   | −0.5 (was 67.5)      |
+| Bonded IOB   | 57     | 150       | 38.0%       |                      |
 
-Per-block HLS csynth estimates summed to ~34K LUT (106% — over budget). Integrated
-Vivado implementation landed at 15,395 LUT (47%) — 55% reduction from cross-boundary
-optimization, LUT combining, and shared AXI-Lite overhead.
+**Timing**: Setup WNS = +0.210 ns, Hold WNS = +0.111 ns, all paths positive
+slack at 100 MHz. Routing 100% successful, bitstream OK.
 
-DSP at 78% (94/120) is the tightest resource. ~8,600 LUT headroom remains for
-PCIe IP, AD9361 HDL, and mode-mux logic (planned next phase).
+For the per-functional-block resource breakdown (sync_detect, ofdm_rx, fec_rx,
+viterbi, etc.) see [`docs/RESOURCES.md`](docs/RESOURCES.md).
+
+BRAM at 89.3% is the tightest resource. The 4096-sample circular buffer in
+`sync_detect` accounts for 4 RAMB36 of that — could be trimmed to 2048 if
+another change pressures BRAM further.
 
 ---
 
@@ -119,52 +125,41 @@ PCIe IP, AD9361 HDL, and mode-mux logic (planned next phase).
 
 ### EVM (TX accuracy)
 
-HLS TX output vs NumPy floating-point reference (74,016 samples, 16-QAM, 255 symbols):
+HLS TX vs NumPy float reference (74,016 samples, 16-QAM, 255 symbols):
 
 ```
-EVM = 0.056%  (-65 dB)   — ap_fixed<16,1> quantisation noise floor
-PREAMBLE  EVM = 0.056%
-HEADER    EVM = 0.132%
-DATA[*]   EVM = 0.052–0.062%  (uniform across all 255 symbols)
+EVM ≈ 0.054–0.062%   — ap_fixed<16,1> quantisation noise floor
+PREAMBLE  0.054%
+HEADER    0.128%
+DATA[*]   0.054% (median, range 0.05–0.06% across 255 symbols)
 ```
 
-### BER Sweep (RX chain, C-sim, 10 frames/point)
+### BER vs SNR — HLS RX vs Python Q15 reference (post `rx-dsp-opt` fixes)
 
-**QPSK, rate 1/2 (mod=0)**
+After the AP_SAT overflow fix and sync_detect inline-CFO removal landed
+(commit `d08a537`), HLS RX tracks the Python Q15 reference within ±5%
+relative BER at every SNR / modcod combination.
 
-| Channel | 5 dB | 10 dB | 15 dB | 20 dB | 25 dB |
-|---------|------|-------|-------|-------|-------|
-| AWGN | no sync | 9.8e-6 | 0 | 0 | 0 |
-| Phase noise | 2.65e-1 | 1.4e-3 | 0 | 0 | 0 |
-| Multipath (2-tap) | 2.3e-1 | 9.5e-3 | 5.5e-5 | 0 | 0 |
-| Combined (worst) | 2.96e-1 | 4.0e-3 | 2.4e-3 | 0 | 0 |
+**16-QAM, rate-1/2** — AWGN, single-frame:
 
-**16-QAM, rate 2/3 (mod=1)**
+| SNR  | HLS BER | Python Q15 BER |
+|------|---------|----------------|
+| 20   | 0       | 0              |
+| 17   | 0       | 0              |
+| 16   | 0       | 0 (was 8 errors before fix) |
+| 15   | **0**   | 0 (was hdr CRC FAIL before fix) |
+| 13   | 0.07%   | 0.07%          |
+| 12   | 0.30%   | 0.31%          |
+| 11   | 1.5%    | 1.5%           |
+| 10   | 6.1%    | 6.2%           |
 
-| Channel | 5 dB | 10 dB | 15 dB | 20 dB | 25 dB |
-|---------|------|-------|-------|-------|-------|
-| AWGN | 4.9e-1 | 9.5e-2 | 2.4e-5 | 0 | 0 |
-| Phase noise | 4.9e-1 | 1.4e-1 | 5.4e-5 | 0 | 0 |
-| Multipath (2-tap) | 4.9e-1 | 2.2e-1 | 1.7e-3 | 0 | 0 |
-| Combined (worst) | 4.9e-1 | 2.4e-1 | 4.6e-3 | 9.8e-6 | 0 |
+**16-QAM rate-2/3** is ~2 dB more sensitive than rate-1/2; **QPSK r=1/2 and
+r=2/3** stay at BER=0 down to 10 dB. See `docs/RX_LOW_SNR_DEBUG.md` for the
+full debug trace and `docs/REGRESSION_PLAN.md` for the planned channel-model
+regression matrix (multipath + phase noise + CFO).
 
-"no sync" = sync_detect failed to acquire (expected below ~5 dB SNR for Schmidl-Cox).
-
-**Recommended operating points:**
-- QPSK:   SNR ≥ 15 dB (AWGN/phase clean), ≥ 20 dB (multipath/combined clean)
-- 16-QAM: SNR ≥ 20 dB (all channels clean)
-
-**SNR penalty vs theory:** ~4–7 dB. Sources: ap_fixed<16,1> quantisation (~2–3 dB),
-preamble-only channel estimation (~1–2 dB), sync jitter at mid-SNR (~0.5 dB).
-
-### Co-simulation (RTL validation)
-
-| Test | Result |
-|------|--------|
-| TX C-sim (16-QAM, 255 symbols) | PASS — EVM 0.056% |
-| FEC encode+decode loopback | PASS — BER=0 clean, corrects 5% coded BER |
-| RX C-sim (full chain, BER=0) | PASS |
-| RX RTL co-simulation (ofdm_rx) | PASS — BER=0, C/RTL match confirmed |
+**Header CRC** passes at every test point — the BPSK header now decodes
+cleanly at any SNR ≥ 10 dB regardless of data BER.
 
 ---
 

@@ -1,6 +1,18 @@
 # RX Chain Gating & Preamble Detection — Design Notes
 
-## Problem statement
+> **STATUS — IMPLEMENTED.** The free-running architecture described
+> below landed in commit `fd24e5b`.  The block previously called
+> `sync_cfo` was merged into `sync_detect` (commit `ca6f58f`).  The
+> inline CFO derotation that this document discusses was later
+> *removed* in commit `d08a537` because it picked up noise at low SNR
+> and inflated header-decode phase error — see `RX_LOW_SNR_DEBUG.md`
+> for that journey.  Today's RX is:
+>   `sync_detect (gate, no CFO) → ofdm_rx (FFT + chan-est + CPE) → fec_rx`.
+> All `sync_cfo` references in the prose below should be read as
+> `sync_detect` for current code.  Document kept as the architectural
+> rationale archive.
+
+## Problem statement (historical, pre-fd24e5b)
 
 The RX chain (sync_cfo → ofdm_rx → fec_rx → ofdm_mac) today is an **open-loop
 fixed-sample-count** pipeline triggered once per MAC `ap_start`. Between

@@ -1,5 +1,20 @@
 # OFDM TX HLS — Bug Analysis & FFT Normalization Notes
 
+> **HISTORICAL ARCHIVE — 1270 lines of debugging journey.**  Walks
+> through the FFT/IFFT scaling, GNU Radio convention alignment, the
+> hls::fft → xfft IP swap, and per-block resource analysis from the
+> early development passes.
+>
+> For **current** state:
+>   - Resource breakdown: [`docs/RESOURCES.md`](RESOURCES.md)
+>   - Latest debug story (low-SNR header CRC): [`docs/RX_LOW_SNR_DEBUG.md`](RX_LOW_SNR_DEBUG.md)
+>   - Current RX architecture: [`docs/RX_GATING_DESIGN.md`](RX_GATING_DESIGN.md)
+>
+> Sections below are accurate-at-the-time and still useful for
+> understanding *why* the design is the way it is, but the absolute
+> numbers and pre-merge function names (sync_cfo, hls::fft, etc.) are
+> from earlier branches.
+
 ## 1. FFT/IFFT Normalization — The Core Problem
 
 ### Mathematical definitions

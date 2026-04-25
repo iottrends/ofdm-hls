@@ -1,6 +1,14 @@
 # OFDM HLS Optimization Guide — Fitting TX+RX on XC7A50T
 
-## Current Status (as of 2026-04-10)
+> **HISTORICAL ARCHIVE.** Snapshot from the early optimisation phase
+> (sync_detect v2, viterbi v2, pre-xfft-IP-swap).  Numbers below are
+> superseded.  For the current resource utilisation see
+> [`docs/RESOURCES.md`](../RESOURCES.md).
+>
+> Kept for the design rationale on each optimisation pass — those still
+> apply, only the absolute numbers have moved.
+
+## Status snapshot — 2026-04-10 (historical)
 
 | Block | Before | After | Saving |
 |-------|--------|-------|--------|
