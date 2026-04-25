@@ -9,8 +9,32 @@
 #   ./setup_vitis.sh all           # csim + synth + report
 # ============================================================
 
-XILINX_ROOT="/mnt/d/work/vivado/2025.2"
+# XILINX_ROOT can be overridden in the environment.  Otherwise probe the
+# usual install locations across machines (Windows-side WSL mount, the
+# Linux home install, the AMD default).  First match wins.
+if [[ -z "${XILINX_ROOT:-}" ]]; then
+    for _candidate in \
+        /mnt/d/work/vivado/2025.2 \
+        /home/abhi/work/xilinx/2025.2 \
+        /home/abhinavb/Xilinx/2025.2 \
+        /tools/Xilinx/2025.2 \
+        /opt/Xilinx/2025.2; do
+        if [[ -x "$_candidate/Vitis/bin/loader" ]]; then
+            XILINX_ROOT="$_candidate"
+            break
+        fi
+    done
+fi
+if [[ -z "${XILINX_ROOT:-}" || ! -x "$XILINX_ROOT/Vitis/bin/loader" ]]; then
+    echo "[setup] ERROR: Vitis 2025.2 install not found.  Set XILINX_ROOT" >&2
+    echo "        to the directory containing Vitis/bin/loader." >&2
+    return 1 2>/dev/null || exit 1
+fi
 SCRIPT_DIR_SETUP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# IP runtime libraries are derived from XILINX_ROOT — used in ld_path
+# inside each csim/cosim TCL block.
+VITIS_IP_LDPATH="$XILINX_ROOT/Vitis/lnx64/tools/fft_v9_1:$XILINX_ROOT/Vitis/lnx64/tools/fpo_v7_1:$XILINX_ROOT/Vitis/tps/lnx64/gcc-8.3.0/lib"
 
 # ── RDI vars (mirrors what vivado/vitis wrapper scripts derive) ──
 # RDI_BINROOT = the tool's bin/ dir
@@ -64,7 +88,7 @@ _write_csim_tcl() {
     local bits_src="$SCRIPT_DIR/tb_input_to_tx.bin"
     local hls_out="$SCRIPT_DIR/tb_tx_output_hls.txt"
     local build_dir="${proj_dir}/sol1/csim/build"
-    local ld_path="/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fft_v9_1:/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fpo_v7_1:/home/abhinavb/Xilinx/2025.2/Vitis/tps/lnx64/gcc-8.3.0/lib"
+    local ld_path="$VITIS_IP_LDPATH"
     cat > /tmp/ofdm_csim.tcl << EOF
 open_project -reset ofdm_tx_proj
 set_top ofdm_tx
@@ -110,7 +134,7 @@ _write_rx_csim_tcl() {
     local in_bits="$SCRIPT_DIR/tb_input_to_tx.bin"
     local decoded_out="$SCRIPT_DIR/tb_rx_decoded_hls.bin"
     local build_dir="${proj_dir}/sol1/csim/build"
-    local ld_path="/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fft_v9_1:/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fpo_v7_1:/home/abhinavb/Xilinx/2025.2/Vitis/tps/lnx64/gcc-8.3.0/lib"
+    local ld_path="$VITIS_IP_LDPATH"
     cat > /tmp/ofdm_rx_csim.tcl << EOF
 open_project -reset ofdm_rx_proj
 set_top ofdm_rx
@@ -164,7 +188,7 @@ _write_rx_noisy_csim_tcl() {
     local in_bits="$SCRIPT_DIR/tb_input_to_tx.bin"
     local decoded_out="$SCRIPT_DIR/tb_decoded_noisy.bin"
     local build_dir="${proj_dir}/sol1/csim/build"
-    local ld_path="/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fft_v9_1:/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fpo_v7_1:/home/abhinavb/Xilinx/2025.2/Vitis/tps/lnx64/gcc-8.3.0/lib"
+    local ld_path="$VITIS_IP_LDPATH"
     cat > /tmp/ofdm_rx_noisy_csim.tcl << EOF
 open_project -reset ofdm_rx_proj
 set_top ofdm_rx
@@ -211,7 +235,7 @@ _write_rx_noisy_build_tcl() {
     # avoiding per-point Vitis HLS startup overhead (~30-60 s/compile saved).
     local proj_dir="$SCRIPT_DIR/ofdm_rx_proj"
     local build_dir="${proj_dir}/sol1/csim/build"
-    local ld_path="/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fft_v9_1:/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fpo_v7_1:/home/abhinavb/Xilinx/2025.2/Vitis/tps/lnx64/gcc-8.3.0/lib"
+    local ld_path="$VITIS_IP_LDPATH"
     cat > /tmp/ofdm_rx_noisy_build.tcl << EOF
 open_project -reset ofdm_rx_proj
 set_top ofdm_rx
@@ -243,7 +267,7 @@ EOF
 _write_fec_csim_tcl() {
     local proj_dir="$SCRIPT_DIR/conv_fec_proj"
     local build_dir="${proj_dir}/sol1/csim/build"
-    local ld_path="/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fft_v9_1:/home/abhinavb/Xilinx/2025.2/Vitis/lnx64/tools/fpo_v7_1:/home/abhinavb/Xilinx/2025.2/Vitis/tps/lnx64/gcc-8.3.0/lib"
+    local ld_path="$VITIS_IP_LDPATH"
     cat > /tmp/fec_csim.tcl << EOF
 open_project -reset conv_fec_proj
 set_top conv_enc

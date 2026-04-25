@@ -3,6 +3,9 @@
 // ============================================================
 #include "ofdm_rx.h"
 #include <cmath>
+#ifndef __SYNTHESIS__
+#include <thread>   // std::this_thread::yield for csim drain detection
+#endif
 
 // ============================================================
 // Internal equalized-channel type
@@ -308,8 +311,15 @@ static void run_fft(
 // Reads (CP_LEN + FFT_SIZE) samples from stream.
 // Discards the first CP_LEN samples (cyclic prefix).
 // Stores the remaining FFT_SIZE samples in buf[].
+//
+// Return value: always true in synthesis (HLS will dead-code-eliminate
+// the caller's `if (!...) break;` check).  In csim, returns false if the
+// input stream stays empty for a long stretch — signal to the FREE_RUN
+// while(1) caller that the testbench has drained and the block should
+// exit cleanly.  Synthesis sees only the read; the csim drain logic
+// lives entirely under #ifndef __SYNTHESIS__.
 // ============================================================
-static void remove_cp_and_read(
+static bool remove_cp_and_read(
     hls::stream<iq_t> &iq_in,
     csample_t          buf[FFT_SIZE]
 ) {
@@ -319,16 +329,35 @@ static void remove_cp_and_read(
     // Discard CP
     SKIP_CP: for (int i = 0; i < CP_LEN; i++) {
         #pragma HLS PIPELINE II=1
+#ifdef __SYNTHESIS__
         s = iq_in.read();
+#else
+        bool __drained = true;
+        for (int __r = 0; __r < 100000; ++__r) {
+            if (iq_in.read_nb(s)) { __drained = false; break; }
+            std::this_thread::yield();
+        }
+        if (__drained) return false;
+#endif
         (void)s;
     }
 
     // Read symbol body into FFT input buffer
     READ_SYM: for (int i = 0; i < FFT_SIZE; i++) {
         #pragma HLS PIPELINE II=1
+#ifdef __SYNTHESIS__
         s = iq_in.read();
+#else
+        bool __drained = true;
+        for (int __r = 0; __r < 100000; ++__r) {
+            if (iq_in.read_nb(s)) { __drained = false; break; }
+            std::this_thread::yield();
+        }
+        if (__drained) return false;
+#endif
         buf[i] = csample_t(s.i, s.q);
     }
+    return true;
 }
 
 // ============================================================
@@ -725,12 +754,20 @@ void ofdm_rx(
         #pragma HLS PIPELINE off
 
     // ── 1. Preamble: estimate channel, precompute G_eq ─────────
+#ifdef __SYNTHESIS__
     remove_cp_and_read(iq_in, time_buf);
+#else
+    if (!remove_cp_and_read(iq_in, time_buf)) return;  // csim drain
+#endif
     run_fft(time_buf, freq_buf, fft_in, fft_out);
     estimate_channel(freq_buf, G_eq);
 
     // ── 2. Header symbol: BPSK demap 26 SCs → extract mod, n_syms ──
+#ifdef __SYNTHESIS__
     remove_cp_and_read(iq_in, time_buf);
+#else
+    if (!remove_cp_and_read(iq_in, time_buf)) return;  // csim drain
+#endif
     run_fft(time_buf, freq_buf, fft_in, fft_out);
 
     ap_fixed<32,4> hdr_phase_err = compute_pilot_cpe(freq_buf, G_eq);
@@ -782,7 +819,11 @@ void ofdm_rx(
 
     // ── 3. Data symbols: pilot CPE track → equalize → demap → pack ──
     RX_SYMBOL_LOOP: for (ap_uint<8> s = 0; s < n_syms; s++) {
+#ifdef __SYNTHESIS__
         remove_cp_and_read(iq_in, time_buf);
+#else
+        if (!remove_cp_and_read(iq_in, time_buf)) return;  // csim drain
+#endif
         run_fft(time_buf, freq_buf, fft_in, fft_out);
 
         // Estimate common phase error from 6 BPSK pilots — fixed-point, no float

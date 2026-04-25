@@ -25,6 +25,9 @@
 #include "sync_detect.h"
 #include "free_run.h"
 #include <cmath>    // atan2f in csim only
+#ifndef __SYNTHESIS__
+#include <thread>   // std::this_thread::yield for csim drain detection
+#endif
 
 // ── Sizing ──────────────────────────────────────────────────
 #define BUF_SIZE     4096
@@ -165,7 +168,7 @@ static ap_fixed<16,4> sync_atan2(acc_t y, acc_t x) {
     }
     return (ap_fixed<16,4>)acc;
 #else
-    return (ap_fixed<16,4>)std::atan2f((float)y, (float)x);
+    return (ap_fixed<16,4>)::atan2f((float)y, (float)x);
 #endif
 }
 
@@ -270,7 +273,24 @@ void sync_detect(
 #pragma HLS PIPELINE II=5
 
         // ── 1. Mandatory sample intake (never back-pressures iq_in) ──
+#ifdef __SYNTHESIS__
         iq_t in_s = iq_in.read();
+#else
+        // csim escape: in hardware iq_in is fed continuously by the ADC FIFO
+        // and never starves; in csim the input is finite, so a blocking read
+        // would hang the testbench.  Treat a long stretch of empty stream as
+        // "drained" and break out cleanly — the FREE_RUN_LOOP_BEGIN macro is
+        // already a bounded for-loop in csim, so this just tightens it.
+        iq_t in_s;
+        {
+            bool __drained = true;
+            for (int __r = 0; __r < 100000; ++__r) {
+                if (iq_in.read_nb(in_s)) { __drained = false; break; }
+                std::this_thread::yield();
+            }
+            if (__drained) break;
+        }
+#endif
         sample_t s_i = in_s.i;
         sample_t s_q = in_s.q;
 

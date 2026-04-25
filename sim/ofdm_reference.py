@@ -97,9 +97,15 @@ def crc16_hdr(payload_10bit):
             crc ^= 0x1021
     return crc
 
-def build_header_symbol(mod, n_syms):
-    """Build BPSK frame-header symbol (26 bits on DATA_SC_IDX[0..25])."""
-    payload = (n_syms << 2) | (mod & 1)
+def build_header_symbol(mod, n_syms, fec_rate=0):
+    """Build BPSK frame-header symbol (26 bits on DATA_SC_IDX[0..25]).
+
+    Payload layout (matches HLS src/ofdm_tx.cpp:485 + ofdm_tx.h:54):
+      bits[9:2] = n_syms[7:0]
+      bits[1:0] = modcod = {mod, rate}   ← modcod[1]=mod, modcod[0]=rate
+    """
+    modcod  = ((mod & 1) << 1) | (fec_rate & 1)
+    payload = (n_syms << 2) | (modcod & 0x3)
     crc     = crc16_hdr(payload)
     hdr     = (crc << 10) | payload   # 26-bit word
 
@@ -303,7 +309,7 @@ def generate(mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE):
     all_samples.append(preamble)
 
     # Header symbol
-    header = build_header_symbol(mod, n_syms)
+    header = build_header_symbol(mod, n_syms, fec_rate)
     all_samples.append(header)
 
     # Data symbols

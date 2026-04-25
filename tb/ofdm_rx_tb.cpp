@@ -1,26 +1,32 @@
 // ============================================================
 // ofdm_rx_tb.cpp  —  Vitis HLS C Simulation Testbench for RX
 //
-// Full RX chain under test:
-//   sync_detect → cfo_correct → ofdm_rx → viterbi_dec
+// Full RX chain under test (post-merge architecture):
+//   sync_detect → ofdm_rx → viterbi_dec → scrambler
+//
+// sync_detect now folds cfo_correct inside its FSM, so the standalone
+// cfo_correct call is gone.  The block is also free-running (ap_ctrl_none
+// + while(1)); the csim escape in src/sync_detect.cpp returns when iq_raw
+// drains.  Same for ofdm_rx.
+//
+// n_syms_fb feedback: in hardware, ofdm_rx pulses n_syms_fb_vld for one
+// cycle after BPSK header decode.  In this single-frame csim TB we
+// hard-wire vld=1 and n_syms_fb=TB_N_SYMS — the FSM transitions through
+// SEARCH → FWD_PREHDR → WAIT_NSYMS → FWD_DATA exactly once, exercising
+// every state.  Multi-frame / channel-impairment tests need the pthread
+// orchestration from docs/RX_GATING_DESIGN.md.
 //
 // Flow:
 //   1. Read TX output from  tb_tx_output_hls.txt  (ofdm_tx C-sim output)
-//   2. Feed IQ samples into sync_detect() → timing-aligned IQ + CFO estimate
-//   3. cfo_correct() applies phase rotation (pass-through when CFO = 0)
+//   2. Pre-pad iq_raw with 4096 zeros to clear sync_detect's warmup gate
+//   3. Feed IQ samples into sync_detect() → derotated, gated IQ
 //   4. ofdm_rx() → coded bytes
-//   5. viterbi_dec() → raw data bytes
-//   6. Write decoded bytes to  tb_rx_decoded_hls.bin
-//   7. Compare with original  tb_input_to_tx.bin  (raw bytes)
+//   5. interleaver(rx)/viterbi_dec/scrambler → raw data bytes
+//   6. Write decoded bytes to tb_rx_decoded_hls.bin
+//   7. Compare with original tb_input_to_tx.bin (raw bytes)
 //   8. Report byte error count and BER
-//
-// Run order:
-//   python3 ofdm_reference.py --gen          # create input bits + TX ref
-//   [run TX C-sim]                           # creates tb_tx_output_hls.txt
-//   [run RX C-sim]                           # this testbench
 // ============================================================
 #include "sync_detect.h"     // pulls in ofdm_rx.h → ofdm_tx.h
-#include "cfo_correct.h"
 #include "ofdm_rx.h"
 #include "conv_fec.h"
 #include "scrambler.h"
@@ -53,13 +59,11 @@ int main(int argc, char* argv[]) {
     }
     hls::stream<iq_t>        iq_raw("iq_raw");
     hls::stream<iq_t>        iq_aligned("iq_aligned");
-    hls::stream<iq_t>        iq_corrected("iq_corrected");
     hls::stream<ap_uint<8>>  coded_out("coded_out");
     hls::stream<ap_uint<8>>  deinterleaved("deinterleaved");
     hls::stream<ap_uint<8>>  raw_out("raw_out");
     hls::stream<ap_uint<8>>  descrambled_out("descrambled_out");
 
-    cfo_t      cfo_est   = cfo_t(0);
     ap_uint<1> header_err = 0;
 
     // ── Load TX output into IQ stream ─────────────────────────
@@ -72,54 +76,86 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // C2 fix: ofdm_tx now sends SYNC_NL=288 guard zeros before the preamble,
-    // so tb_tx_output_hls.txt already starts with the guard.  Total samples =
-    // guard + preamble + header + data = (TB_N_SYMS + 3) symbols.
-    // No need to prepend zeros manually — doing so would double the guard and
-    // push the preamble CP to t=576=SEARCH_WIN (edge), breaking sync_detect.
-    const int total_syms    = TB_N_SYMS + 3;  // +guard +preamble +header
-    const int total_samples = total_syms * (FFT_SIZE + CP_LEN);
+    // sync_detect's warmup gate needs ≥ BUF_SIZE (4096) samples in the SRL
+    // delay lines + power-envelope before it can arm.  The TX file starts
+    // with only SYNC_NL=288 guard zeros, so pre-pad iq_raw with extra
+    // zeros to clear warmup.  Tail-pad with another symbol so FWD_DATA can
+    // complete after the trigger consumes ~preamble samples of slack.
+    const int warmup_pad    = 4096;
+    const int tail_pad      = FFT_SIZE + CP_LEN;   // 288 — covers trigger lag
+    const int total_syms    = TB_N_SYMS + 3;       // +guard +preamble +header
+    const int total_samples = warmup_pad + total_syms * (FFT_SIZE + CP_LEN) + tail_pad;
 
-    int samples_loaded = 0;
+    // Push warmup zeros first
+    for (int k = 0; k < warmup_pad; k++) {
+        iq_t s;
+        s.i = sample_t(0); s.q = sample_t(0); s.last = 0;
+        iq_raw.write(s);
+    }
+
+    int samples_loaded = warmup_pad;
     double i_val, q_val;
-    while (ftx >> i_val >> q_val && samples_loaded < total_samples) {
+    const int file_end = warmup_pad + total_syms * (FFT_SIZE + CP_LEN);
+    while (ftx >> i_val >> q_val && samples_loaded < file_end) {
         iq_t s;
         s.i    = sample_t(i_val);
         s.q    = sample_t(q_val);
-        s.last = (samples_loaded == total_samples - 1) ? ap_uint<1>(1) : ap_uint<1>(0);
+        s.last = (samples_loaded == file_end - 1) ? ap_uint<1>(1) : ap_uint<1>(0);
         iq_raw.write(s);
         samples_loaded++;
     }
     ftx.close();
 
-    if (samples_loaded != total_samples) {
-        std::cerr << "[TB] ERROR: expected " << total_samples
-                  << " IQ samples, got " << samples_loaded << "\n";
+    if (samples_loaded != file_end) {
+        std::cerr << "[TB] ERROR: expected " << (file_end - warmup_pad)
+                  << " samples from file, got " << (samples_loaded - warmup_pad) << "\n";
         return 1;
     }
-    std::cout << "[TB] Loaded " << samples_loaded << " IQ samples from "
-              << TX_OUT_FILE << " (includes " << SYNC_NL << " guard zeros from TX)\n";
 
-    // ── Step 1: Timing sync + CFO estimation ─────────────────
-    sync_detect(iq_raw, iq_aligned, cfo_est, (ap_uint<8>)TB_N_SYMS);
+    // Tail-pad zeros so FWD_DATA can complete past the last data symbol.
+    for (int k = 0; k < tail_pad; k++) {
+        iq_t s;
+        s.i = sample_t(0); s.q = sample_t(0); s.last = 0;
+        iq_raw.write(s);
+        samples_loaded++;
+    }
 
-    std::cout << "[TB] Timing locked."
-              << "  CFO estimate = " << (float)cfo_est
-              << " subcarrier spacings"
-              << "  (" << (float)cfo_est * 78125.0f << " Hz at 20 MSPS / 256 SC)\n";
+    std::cout << "[TB] Loaded " << samples_loaded << " IQ samples ("
+              << warmup_pad << " warmup zeros + "
+              << (file_end - warmup_pad) << " from " << TX_OUT_FILE
+              << " + " << tail_pad << " tail zeros)\n";
 
-    // ── Step 2: CFO correction ────────────────────────────────
-    // In simulation CFO = 0, so this is a pass-through.
-    // In hardware, this undoes the carrier offset before the FFT.
-    cfo_correct(iq_aligned, iq_corrected, cfo_est);
+    // ── Step 1: sync_detect — preamble gate + inline CFO derotation ──
+    // Hard-wire n_syms_fb_vld=1 + n_syms_fb=TB_N_SYMS so the FSM
+    // transitions WAIT_NSYMS → FWD_DATA without needing the real-time
+    // feedback wire from ofdm_rx (csim is sequential).
+    ap_ufixed<24,8> pow_threshold = ap_ufixed<24,8>(0.001);
+    ap_uint<32>     stat_preamble_count   = 0;
+    ap_uint<32>     stat_header_bad_count = 0;
+    ap_ufixed<24,8> stat_pow_env          = 0;
 
-    // ── Step 3: OFDM demodulate → coded bytes ────────────────
-    // mod and n_syms are now decoded from the in-band header symbol.
+    sync_detect(iq_raw, iq_aligned,
+                (ap_uint<8>)TB_N_SYMS, (ap_uint<1>)1,
+                pow_threshold,
+                stat_preamble_count, stat_header_bad_count, stat_pow_env);
+
+    std::cout << "[TB] sync_detect drained.  preamble_count="
+              << (uint32_t)stat_preamble_count
+              << "  header_bad_count=" << (uint32_t)stat_header_bad_count
+              << "  iq_aligned size=" << iq_aligned.size() << "\n";
+
+    if (iq_aligned.size() == 0) {
+        std::cerr << "[TB] FAIL: sync_detect produced no aligned samples — "
+                  << "preamble not detected within warmup window\n";
+        return 1;
+    }
+
+    // ── Step 2: ofdm_rx — preamble equalize, header decode, data demap ──
     hls::stream<iq32_t> fft_in_s("fft_in"), fft_out_s("fft_out");
     modcod_t   rx_modcod_out = 0;
     ap_uint<8> rx_nsyms_out  = 0;
     ap_uint<8> rx_nsyms_fb   = 0;
-    ofdm_rx(iq_corrected, coded_out, fft_in_s, fft_out_s, header_err,
+    ofdm_rx(iq_aligned, coded_out, fft_in_s, fft_out_s, header_err,
             rx_modcod_out, rx_nsyms_out, rx_nsyms_fb);
     if (header_err) {
         std::cerr << "[TB] FAIL: ofdm_rx header CRC error\n";

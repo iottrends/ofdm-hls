@@ -5,6 +5,9 @@
 //                                   s1                s2
 // ============================================================
 #include "fec_rx.h"
+#ifndef __SYNTHESIS__
+#include <thread>   // std::this_thread::yield for csim drain detection
+#endif
 
 void fec_rx(
     hls::stream<ap_uint<8>>& data_in,
@@ -25,6 +28,21 @@ void fec_rx(
 
     FREE_RUN: while (1) {
         #pragma HLS PIPELINE off
+
+#ifndef __SYNTHESIS__
+        // csim escape: in hardware data_in stalls between packets and the
+        // block idles — but the loop never exits.  In csim the input is
+        // finite, so wait briefly for new bytes; if none arrive, return so
+        // the testbench can complete.  Synthesis sees only the FREE_RUN body.
+        {
+            bool __drained = true;
+            for (int __r = 0; __r < 100000; ++__r) {
+                if (!data_in.empty()) { __drained = false; break; }
+                std::this_thread::yield();
+            }
+            if (__drained) return;
+        }
+#endif
 
         // Per-packet: re-sample the ap_none wires.  ofdm_rx drives them
         // with the decoded modcod / n_syms for the current inbound packet.
