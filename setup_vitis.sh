@@ -143,8 +143,6 @@ add_files src/ofdm_tx.h
 add_files src/ofdm_rx.h
 add_files src/sync_detect.cpp
 add_files src/sync_detect.h
-add_files src/cfo_correct.cpp
-add_files src/cfo_correct.h
 add_files src/scrambler.cpp
 add_files src/scrambler.h
 add_files src/interleaver.cpp
@@ -197,8 +195,6 @@ add_files src/ofdm_tx.h
 add_files src/ofdm_rx.h
 add_files src/sync_detect.cpp
 add_files src/sync_detect.h
-add_files src/cfo_correct.cpp
-add_files src/cfo_correct.h
 add_files src/scrambler.cpp
 add_files src/scrambler.h
 add_files src/interleaver.cpp
@@ -244,8 +240,6 @@ add_files src/ofdm_tx.h
 add_files src/ofdm_rx.h
 add_files src/sync_detect.cpp
 add_files src/sync_detect.h
-add_files src/cfo_correct.cpp
-add_files src/cfo_correct.h
 add_files src/scrambler.cpp
 add_files src/scrambler.h
 add_files src/interleaver.cpp
@@ -342,8 +336,6 @@ add_files src/ofdm_rx.h
 add_files src/ofdm_tx.h
 add_files src/sync_detect.cpp
 add_files src/sync_detect.h
-add_files src/cfo_correct.cpp
-add_files src/cfo_correct.h
 add_files src/scrambler.cpp
 add_files src/scrambler.h
 add_files src/interleaver.cpp
@@ -457,12 +449,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_sync_detect.tcl 2>&1 | tee vitis_sync_detect_synth.log
             echo "[run] Log saved to vitis_sync_detect_synth.log"
             ;;
-        cfo_correct_synth)
-            echo "[run] Running cfo_correct C synthesis..."
-            cd "$SCRIPT_DIR"
-            "$VITIS_HLS_BIN" $VITIS_HLS_EXEC tcl/synth_cfo_correct.tcl 2>&1 | tee vitis_cfo_correct_synth.log
-            echo "[run] Log saved to vitis_cfo_correct_synth.log"
-            ;;
         scrambler_synth)
             echo "[run] Running scrambler C synthesis..."
             cd "$SCRIPT_DIR"
@@ -532,7 +518,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             echo "  ./setup_vitis.sh synth             # ofdm_tx synthesis (10 ns)"
             echo "  ./setup_vitis.sh rx_synth          # ofdm_rx synthesis (10 ns)"
             echo "  ./setup_vitis.sh tx_chain_synth    # tx_chain (scram+enc+intlv, 10 ns)"
-            echo "  ./setup_vitis.sh sync_cfo_synth    # sync_cfo (sync+cfo, 10 ns)"
+            echo "  ./setup_vitis.sh sync_detect_synth # sync_detect (free-running gate + inline CFO, 10 ns)"
             echo "  ./setup_vitis.sh fec_rx_synth      # fec_rx (intlv+vitv3+descram, 5 ns / 200 MHz)"
             echo "  ./setup_vitis.sh export_ip         # package 5 IPs → ip_repo/"
             echo "  ./setup_vitis.sh all               # TX csim + synth + report"

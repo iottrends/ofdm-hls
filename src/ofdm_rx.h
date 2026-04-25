@@ -4,7 +4,8 @@
 // Processes a packet produced by ofdm_tx:
 //   [Preamble (ZC, 288 samp)] [Data sym 0 (288)] ... [Data sym N-1 (288)]
 //
-// RX chain (timing and CFO assumed corrected by upstream sync_detect + cfo_correct):
+// RX chain (timing and CFO corrected upstream by sync_detect, which folds the
+// preamble gate and CFO derotator into one free-running block):
 //   remove_cp → FFT → channel_estimate (preamble)
 //                   → pilot_cpe_track → equalize → demap → pack_bits (data)
 //
@@ -28,9 +29,9 @@
 //   header_err  : 1 if CRC-16 on frame header failed; bits_out empty on error.
 //   modcod_out  : 2-bit {mod,rate} decoded from header (ap_vld per packet).
 //   n_syms_out  : 8-bit n_syms decoded from header (ap_vld per packet).
-//   n_syms_fb   : feedback to sync_cfo — number of data symbols to forward.
+//   n_syms_fb   : feedback to sync_detect — number of data symbols to forward.
 //                 Pulsed with n_syms on success, pulsed with 0 on header CRC
-//                 error so sync_cfo returns to SEARCH cleanly (ap_vld).
+//                 error so sync_detect returns to SEARCH cleanly (ap_vld).
 //
 // Free-running: top body is while(1); ap_start tied high at BD.
 void ofdm_rx(

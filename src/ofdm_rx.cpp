@@ -2,9 +2,12 @@
 // ofdm_rx.cpp  —  OFDM Receiver (Vitis HLS)
 // ============================================================
 #include "ofdm_rx.h"
+#include "ofdm_lut.h"   // PILOT_IDX, DATA_SC_IDX, ZC_I/Q_LUT, CORDIC_ATAN_VALUES, crc16_hdr
+#include "free_run.h"   // DRAIN_READ_OR (csim escape for blocking iq_in.read)
 #include <cmath>
 #ifndef __SYNTHESIS__
-#include <thread>   // std::this_thread::yield for csim drain detection
+#include <iostream> // diagnostic dumps in csim
+// <thread> for the csim drain-read polling lives in free_run.h's DRAIN_READ_OR macro.
 #endif
 
 // ============================================================
@@ -18,31 +21,18 @@
 typedef ap_fixed<32, 10>         geq_t;
 typedef std::complex<geq_t>     cgeq_t;
 
+// CORDIC angle table  atan(2^-i)  for i = 0..15, in ap_fixed<32,4>.
+// Single source of truth shared by fixed_atan2_rx (vectoring mode)
+// and cordic_rotate_rx (rotation mode).  Each .cpp that includes
+// ofdm_lut.h gets its own private ROM instance — synthesises once
+// per RTL module just like the old in-function locals.
+static const ap_fixed<32,4> ATAN_LUT[16] = CORDIC_ATAN_VALUES;
+
 // Fixed-point atan2 via 16-iteration CORDIC vectoring mode.
 // Returns phase in ap_fixed<32,4> (radians, range [-π, +π)).
 // No floating-point — maps to DSP48 shift-add chains.
 static ap_fixed<32,4> fixed_atan2_rx(geq_t y_in, geq_t x_in) {
     #pragma HLS INLINE
-    // CORDIC angle LUT: atan(2^-i) for i = 0..15, scaled to ap_fixed<32,4>
-    static const ap_fixed<32,4> ATAN_LUT[16] = {
-        ap_fixed<32,4>(0.7853981634),  // atan(2^0)  = π/4
-        ap_fixed<32,4>(0.4636476090),  // atan(2^-1)
-        ap_fixed<32,4>(0.2449786631),  // atan(2^-2)
-        ap_fixed<32,4>(0.1243549945),  // atan(2^-3)
-        ap_fixed<32,4>(0.0624188100),  // atan(2^-4)
-        ap_fixed<32,4>(0.0312398334),  // atan(2^-5)
-        ap_fixed<32,4>(0.0156237286),  // atan(2^-6)
-        ap_fixed<32,4>(0.0078123766),  // atan(2^-7)
-        ap_fixed<32,4>(0.0039062301),  // atan(2^-8)
-        ap_fixed<32,4>(0.0019531226),  // atan(2^-9)
-        ap_fixed<32,4>(0.0009765622),  // atan(2^-10)
-        ap_fixed<32,4>(0.0004882812),  // atan(2^-11)
-        ap_fixed<32,4>(0.0002441406),  // atan(2^-12)
-        ap_fixed<32,4>(0.0001220703),  // atan(2^-13)
-        ap_fixed<32,4>(0.0000610352),  // atan(2^-14)
-        ap_fixed<32,4>(0.0000305176),  // atan(2^-15)
-    };
-
     typedef ap_fixed<32,4> ang_t;
     typedef ap_fixed<32,12> xy_t;  // enough range for G_eq (~±256 → 9 int bits + margin)
 
@@ -84,25 +74,6 @@ static ap_fixed<32,4> fixed_atan2_rx(geq_t y_in, geq_t x_in) {
 // Only deep-fade / very low SNR channel estimates can breach this.
 static cgeq_t cordic_rotate_rx(cgeq_t in, ap_fixed<32,4> angle_rad) {
     #pragma HLS INLINE
-    static const ap_fixed<32,4> ATAN_LUT[16] = {
-        ap_fixed<32,4>(0.7853981634),  // atan(2^0)  = π/4
-        ap_fixed<32,4>(0.4636476090),  // atan(2^-1)
-        ap_fixed<32,4>(0.2449786631),  // atan(2^-2)
-        ap_fixed<32,4>(0.1243549945),  // atan(2^-3)
-        ap_fixed<32,4>(0.0624188100),  // atan(2^-4)
-        ap_fixed<32,4>(0.0312398334),  // atan(2^-5)
-        ap_fixed<32,4>(0.0156237286),  // atan(2^-6)
-        ap_fixed<32,4>(0.0078123766),  // atan(2^-7)
-        ap_fixed<32,4>(0.0039062301),  // atan(2^-8)
-        ap_fixed<32,4>(0.0019531226),  // atan(2^-9)
-        ap_fixed<32,4>(0.0009765622),  // atan(2^-10)
-        ap_fixed<32,4>(0.0004882812),  // atan(2^-11)
-        ap_fixed<32,4>(0.0002441406),  // atan(2^-12)
-        ap_fixed<32,4>(0.0001220703),  // atan(2^-13)
-        ap_fixed<32,4>(0.0000610352),  // atan(2^-14)
-        ap_fixed<32,4>(0.0000305176),  // atan(2^-15)
-    };
-
     typedef ap_fixed<32,12> xy_t;   // 12 int bits → holds 256 × K ≈ 422
     typedef ap_fixed<32,4>  ang_t;
 
@@ -133,90 +104,6 @@ static cgeq_t cordic_rotate_rx(cgeq_t in, ap_fixed<32,4> angle_rad) {
     }
     return cgeq_t((geq_t)x, (geq_t)y);
 }
-
-// ============================================================
-// SECTION 1: ROM Tables  (must match ofdm_tx.cpp exactly)
-// ============================================================
-
-static const int PILOT_IDX[NUM_PILOT_SC] = {50, 75, 100, 154, 179, 204};
-
-static const int DATA_SC_IDX[NUM_DATA_SC] = {
-    // Positive half (bins 25–127, pilots at 50, 75, 100 excluded)
-    25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,
-    51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,
-    76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,
-    101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,
-    120,121,122,123,124,125,126,127,
-    // Negative half (bins 129–231, pilots at 154, 179, 204 excluded)
-    129,130,131,132,133,134,135,136,137,138,139,140,141,142,143,144,145,146,147,
-    148,149,150,151,152,153,
-    155,156,157,158,159,160,161,162,163,164,165,166,167,168,169,170,171,172,173,
-    174,175,176,177,178,
-    180,181,182,183,184,185,186,187,188,189,190,191,192,193,194,195,196,197,198,
-    199,200,201,202,203,
-    205,206,207,208,209,210,211,212,213,214,215,216,217,218,219,220,221,222,223,
-    224,225,226,227,228,229,230,231
-};
-
-// Zadoff-Chu LUT: Re and Im of zc[DATA_SC_IDX[d]] for d = 0..199
-// Generated by gen_zc_lut.py — root u=25, N=256
-// ZC_I_LUT[d] = Re(zc[DATA_SC_IDX[d]])
-// ZC_Q_LUT[d] = Im(zc[DATA_SC_IDX[d]])
-static const sample_t ZC_I_LUT[NUM_DATA_SC] = {
-    sample_t(-0.073565), sample_t(-0.170962), sample_t(0.857729), sample_t(-0.595699), sample_t(-0.992480), sample_t(-0.844854), sample_t(-0.923880), sample_t(-0.923880),
-    sample_t(0.219101), sample_t(0.788346), sample_t(-0.989177), sample_t(0.970031), sample_t(-0.575808), sample_t(-0.653173), sample_t(0.471397), sample_t(0.881921),
-    sample_t(0.870087), sample_t(0.405241), sample_t(-0.740951), sample_t(-0.427555), sample_t(0.893224), sample_t(-0.914210), sample_t(0.555570), sample_t(0.555570),
-    sample_t(-0.689541), sample_t(-0.998795), sample_t(-0.903989), sample_t(-0.024541), sample_t(0.992480), sample_t(-0.773010), sample_t(0.634393), sample_t(-0.893224),
-    sample_t(0.844854), sample_t(0.595699), sample_t(-0.242980), sample_t(-0.492898), sample_t(-0.170962), sample_t(0.707107), sample_t(0.707107), sample_t(-0.985278),
-    sample_t(0.870087), sample_t(-0.970031), sample_t(0.803208), sample_t(0.534998), sample_t(-0.449611), sample_t(-0.773010), sample_t(-0.634393), sample_t(0.122411),
-    sample_t(0.999699), sample_t(-0.049068), sample_t(-0.073565), sample_t(0.724247), sample_t(-0.831470), sample_t(-0.831470), sample_t(-0.405241), sample_t(-0.449611),
-    sample_t(-0.903989), sample_t(-0.671559), sample_t(0.914210), sample_t(-0.492898), sample_t(0.471397), sample_t(-0.881921), sample_t(0.757209), sample_t(0.817585),
-    sample_t(0.242980), sample_t(0.146730), sample_t(0.615232), sample_t(0.975702), sample_t(-0.382683), sample_t(-0.382683), sample_t(0.534998), sample_t(-0.122411),
-    sample_t(-0.803208), sample_t(0.985278), sample_t(0.997290), sample_t(0.956940), sample_t(0.290285), sample_t(-0.963776), sample_t(0.359895), sample_t(-0.049068),
-    sample_t(0.336890), sample_t(-0.949528), sample_t(0.359895), sample_t(0.980785), sample_t(0.980785), sample_t(0.999699), sample_t(0.653173), sample_t(-0.671559),
-    sample_t(-0.336890), sample_t(0.724247), sample_t(-0.615232), sample_t(-0.098017), sample_t(0.995185), sample_t(0.313682), sample_t(-0.219101), sample_t(-0.146730),
-    sample_t(0.514103), sample_t(0.963776), sample_t(-0.575808), sample_t(0.000000), sample_t(0.575808), sample_t(-0.963776), sample_t(-0.514103), sample_t(0.146730),
-    sample_t(0.219101), sample_t(-0.313682), sample_t(-0.995185), sample_t(0.098017), sample_t(0.615232), sample_t(-0.724247), sample_t(0.336890), sample_t(0.671559),
-    sample_t(-0.653173), sample_t(-0.999699), sample_t(-0.980785), sample_t(-0.980785), sample_t(-0.359895), sample_t(0.949528), sample_t(-0.336890), sample_t(0.049068),
-    sample_t(-0.359895), sample_t(0.963776), sample_t(-0.290285), sample_t(-0.956940), sample_t(-0.997290), sample_t(-0.514103), sample_t(0.803208), sample_t(0.122411),
-    sample_t(-0.534998), sample_t(0.382683), sample_t(0.382683), sample_t(-0.975702), sample_t(-0.615232), sample_t(-0.146730), sample_t(-0.242980), sample_t(-0.817585),
-    sample_t(-0.757209), sample_t(0.881921), sample_t(-0.471397), sample_t(0.492898), sample_t(-0.914210), sample_t(0.671559), sample_t(0.903989), sample_t(0.449611),
-    sample_t(0.405241), sample_t(0.831470), sample_t(0.831470), sample_t(-0.724247), sample_t(0.073565), sample_t(0.427555), sample_t(-0.999699), sample_t(-0.122411),
-    sample_t(0.634393), sample_t(0.773010), sample_t(0.449611), sample_t(-0.534998), sample_t(-0.803208), sample_t(0.970031), sample_t(-0.870087), sample_t(0.985278),
-    sample_t(-0.707107), sample_t(-0.707107), sample_t(0.170962), sample_t(0.492898), sample_t(0.242980), sample_t(-0.595699), sample_t(-0.844854), sample_t(0.893224),
-    sample_t(-0.634393), sample_t(0.773010), sample_t(-0.992480), sample_t(0.024541), sample_t(0.903989), sample_t(0.997290), sample_t(0.689541), sample_t(-0.555570),
-    sample_t(-0.555570), sample_t(0.914210), sample_t(-0.893224), sample_t(0.427555), sample_t(0.740951), sample_t(-0.405241), sample_t(-0.870087), sample_t(-0.881921),
-    sample_t(-0.471397), sample_t(0.653173), sample_t(0.575808), sample_t(-0.970031), sample_t(0.989177), sample_t(-0.788346), sample_t(-0.219101), sample_t(0.923880),
-    sample_t(0.923880), sample_t(0.844854), sample_t(0.992480), sample_t(0.595699), sample_t(-0.857729), sample_t(0.170962), sample_t(0.073565), sample_t(0.290285),
-};
-
-static const sample_t ZC_Q_LUT[NUM_DATA_SC] = {
-    sample_t(0.997290), sample_t(-0.985278), sample_t(0.514103), sample_t(0.803208), sample_t(-0.122411), sample_t(-0.534998), sample_t(-0.382683), sample_t(0.382683),
-    sample_t(0.975702), sample_t(-0.615232), sample_t(0.146730), sample_t(-0.242980), sample_t(0.817585), sample_t(-0.757209), sample_t(-0.881921), sample_t(-0.471397),
-    sample_t(-0.492898), sample_t(-0.914210), sample_t(-0.671559), sample_t(0.903989), sample_t(-0.449611), sample_t(0.405241), sample_t(-0.831470), sample_t(0.831470),
-    sample_t(0.724247), sample_t(-0.049068), sample_t(0.427555), sample_t(0.999699), sample_t(-0.122411), sample_t(-0.634393), sample_t(0.773010), sample_t(-0.449611),
-    sample_t(-0.534998), sample_t(0.803208), sample_t(0.970031), sample_t(0.870087), sample_t(0.985278), sample_t(0.707107), sample_t(-0.707107), sample_t(-0.170962),
-    sample_t(0.492898), sample_t(-0.242980), sample_t(-0.595699), sample_t(0.844854), sample_t(0.893224), sample_t(0.634393), sample_t(0.773010), sample_t(0.992480),
-    sample_t(0.024541), sample_t(0.998795), sample_t(-0.997290), sample_t(0.689541), sample_t(0.555570), sample_t(-0.555570), sample_t(-0.914210), sample_t(-0.893224),
-    sample_t(-0.427555), sample_t(0.740951), sample_t(0.405241), sample_t(-0.870087), sample_t(0.881921), sample_t(-0.471397), sample_t(-0.653173), sample_t(0.575808),
-    sample_t(0.970031), sample_t(0.989177), sample_t(0.788346), sample_t(-0.219101), sample_t(-0.923880), sample_t(0.923880), sample_t(-0.844854), sample_t(0.992480),
-    sample_t(-0.595699), sample_t(-0.170962), sample_t(0.073565), sample_t(-0.290285), sample_t(-0.956940), sample_t(-0.266713), sample_t(0.932993), sample_t(-0.998795),
-    sample_t(0.941544), sample_t(-0.313682), sample_t(-0.932993), sample_t(-0.195090), sample_t(0.195090), sample_t(-0.024541), sample_t(-0.757209), sample_t(-0.740951),
-    sample_t(0.941544), sample_t(-0.689541), sample_t(0.788346), sample_t(-0.995185), sample_t(0.098017), sample_t(0.949528), sample_t(0.975702), sample_t(0.989177),
-    sample_t(0.857729), sample_t(-0.266713), sample_t(-0.817585), sample_t(0.999969), sample_t(0.817585), sample_t(0.266713), sample_t(-0.857729), sample_t(-0.989177),
-    sample_t(-0.975702), sample_t(-0.949528), sample_t(-0.098017), sample_t(0.995185), sample_t(-0.788346), sample_t(0.689541), sample_t(-0.941544), sample_t(0.740951),
-    sample_t(0.757209), sample_t(0.024541), sample_t(-0.195090), sample_t(0.195090), sample_t(0.932993), sample_t(0.313682), sample_t(-0.941544), sample_t(0.998795),
-    sample_t(-0.932993), sample_t(0.266713), sample_t(0.956940), sample_t(0.290285), sample_t(-0.073565), sample_t(0.857729), sample_t(0.595699), sample_t(-0.992480),
-    sample_t(0.844854), sample_t(-0.923880), sample_t(0.923880), sample_t(0.219101), sample_t(-0.788346), sample_t(-0.989177), sample_t(-0.970031), sample_t(-0.575808),
-    sample_t(0.653173), sample_t(0.471397), sample_t(-0.881921), sample_t(0.870087), sample_t(-0.405241), sample_t(-0.740951), sample_t(0.427555), sample_t(0.893224),
-    sample_t(0.914210), sample_t(0.555570), sample_t(-0.555570), sample_t(-0.689541), sample_t(0.997290), sample_t(0.903989), sample_t(-0.024541), sample_t(-0.992480),
-    sample_t(-0.773010), sample_t(-0.634393), sample_t(-0.893224), sample_t(-0.844854), sample_t(0.595699), sample_t(0.242980), sample_t(-0.492898), sample_t(0.170962),
-    sample_t(0.707107), sample_t(-0.707107), sample_t(-0.985278), sample_t(-0.870087), sample_t(-0.970031), sample_t(-0.803208), sample_t(0.534998), sample_t(0.449611),
-    sample_t(-0.773010), sample_t(0.634393), sample_t(0.122411), sample_t(-0.999699), sample_t(-0.427555), sample_t(-0.073565), sample_t(-0.724247), sample_t(-0.831470),
-    sample_t(0.831470), sample_t(-0.405241), sample_t(0.449611), sample_t(-0.903989), sample_t(0.671559), sample_t(0.914210), sample_t(0.492898), sample_t(0.471397),
-    sample_t(0.881921), sample_t(0.757209), sample_t(-0.817585), sample_t(0.242980), sample_t(-0.146730), sample_t(0.615232), sample_t(-0.975702), sample_t(-0.382683),
-    sample_t(0.382683), sample_t(0.534998), sample_t(0.122411), sample_t(-0.803208), sample_t(-0.514103), sample_t(0.985278), sample_t(-0.997290), sample_t(0.956940),
-};
 
 // ============================================================
 // SECTION 2: Forward FFT
@@ -329,32 +216,14 @@ static bool remove_cp_and_read(
     // Discard CP
     SKIP_CP: for (int i = 0; i < CP_LEN; i++) {
         #pragma HLS PIPELINE II=1
-#ifdef __SYNTHESIS__
-        s = iq_in.read();
-#else
-        bool __drained = true;
-        for (int __r = 0; __r < 100000; ++__r) {
-            if (iq_in.read_nb(s)) { __drained = false; break; }
-            std::this_thread::yield();
-        }
-        if (__drained) return false;
-#endif
+        DRAIN_READ_OR(iq_in, s, return false);
         (void)s;
     }
 
     // Read symbol body into FFT input buffer
     READ_SYM: for (int i = 0; i < FFT_SIZE; i++) {
         #pragma HLS PIPELINE II=1
-#ifdef __SYNTHESIS__
-        s = iq_in.read();
-#else
-        bool __drained = true;
-        for (int __r = 0; __r < 100000; ++__r) {
-            if (iq_in.read_nb(s)) { __drained = false; break; }
-            std::this_thread::yield();
-        }
-        if (__drained) return false;
-#endif
+        DRAIN_READ_OR(iq_in, s, return false);
         buf[i] = csample_t(s.i, s.q);
     }
     return true;
@@ -691,27 +560,11 @@ static void equalize_demap_pack(
 }
 
 // ============================================================
-// SECTION 8b: CRC-16/CCITT (polynomial 0x1021, init 0xFFFF)
-//
-// Identical to the TX-side crc16_hdr — computes CRC over the
-// 10-bit header payload for verification.
-// Fully unrolled → pure combinational.
-// ============================================================
-static ap_uint<16> crc16_hdr(ap_uint<10> data) {
-    ap_uint<16> crc = 0xFFFF;
-    for (int i = 9; i >= 0; i--) {
-        #pragma HLS UNROLL
-        ap_uint<1> x = crc[15] ^ data[i];
-        crc = (ap_uint<16>)(crc << 1);
-        if (x) crc ^= ap_uint<16>(0x1021);
-    }
-    return crc;
-}
-
-// ============================================================
 // SECTION 9: Top-Level OFDM RX
+// (CRC-16/CCITT helper crc16_hdr() lives in ofdm_lut.h)
 //
-// Timing and CFO are corrected upstream by sync_detect + cfo_correct.
+// Timing and CFO are corrected upstream by sync_detect (its FSM folds in
+// the CFO derotator that used to live in the separate cfo_correct block).
 // Frame structure: [Preamble] [Header] [Data × n_syms]
 //
 // Header symbol: BPSK on DATA_SC_IDX[0..25], MSB first.
@@ -749,7 +602,7 @@ void ofdm_rx(
 
     // Free-running: once ap_start fires (tied high at BD), process
     // packet-after-packet forever.  Each loop iteration waits on iq_in —
-    // which only delivers samples when sync_cfo's gate is open.
+    // which only delivers samples when sync_detect's gate is open.
     FREE_RUN: while (1) {
         #pragma HLS PIPELINE off
 
@@ -772,6 +625,23 @@ void ofdm_rx(
 
     ap_fixed<32,4> hdr_phase_err = compute_pilot_cpe(freq_buf, G_eq);
 
+#ifndef __SYNTHESIS__
+    // Diagnostic dump — same checkpoints as Python decode_header for direct comparison.
+    {
+        float pe_deg = (float)hdr_phase_err * 57.2957795f;
+        std::cerr << "[HLS] phase_err = " << pe_deg << " deg ("
+                  << (float)hdr_phase_err << " rad)\n";
+        std::cerr << "[HLS] freq_buf[pilot 50,75,100,154,179,204]: ";
+        for (int p : {50, 75, 100, 154, 179, 204})
+            std::cerr << "(" << (float)freq_buf[p].real() << "," << (float)freq_buf[p].imag() << ") ";
+        std::cerr << "\n";
+        std::cerr << "[HLS] G_eq[pilot 50,75,100,154,179,204]: ";
+        for (int p : {50, 75, 100, 154, 179, 204})
+            std::cerr << "(" << (float)G_eq[p].real() << "," << (float)G_eq[p].imag() << ") ";
+        std::cerr << "\n";
+    }
+#endif
+
     // Opt-1: CORDIC-rotate G_eq by −hdr_phase_err, reuse for all 26 header SCs.
     // No NCO (angle→phase_acc→sincos LUT) needed — CORDIC takes the angle directly.
     compute_geq_final(G_eq, hdr_phase_err, G_eq_final);
@@ -780,11 +650,30 @@ void ofdm_rx(
     // Separate raw-bit array avoids loop-carried read-modify-write on hdr_bits.
     ap_uint<1> hdr_raw[26];
     #pragma HLS ARRAY_PARTITION variable=hdr_raw complete
+#ifndef __SYNTHESIS__
+    float hdr_eq_real_dbg[26];
+#endif
     HDR_DEMAP: for (int d = 0; d < 26; d++) {
         #pragma HLS PIPELINE II=1
         cgeq_t eq = equalize_sc(freq_buf[DATA_SC_IDX[d]], G_eq_final[DATA_SC_IDX[d]]);
         hdr_raw[d] = (eq.real() < geq_t(0)) ? ap_uint<1>(1) : ap_uint<1>(0);
+#ifndef __SYNTHESIS__
+        hdr_eq_real_dbg[d] = (float)eq.real();
+#endif
     }
+#ifndef __SYNTHESIS__
+    {
+        float lo = hdr_eq_real_dbg[0], hi = hdr_eq_real_dbg[0];
+        for (int d = 1; d < 26; d++) {
+            if (hdr_eq_real_dbg[d] < lo) lo = hdr_eq_real_dbg[d];
+            if (hdr_eq_real_dbg[d] > hi) hi = hdr_eq_real_dbg[d];
+        }
+        std::cerr << "[HLS] hdr eq.real range: [" << lo << ", " << hi << "]\n";
+        std::cerr << "[HLS] hdr eq.real (26 bits): ";
+        for (int d = 0; d < 26; d++) std::cerr << hdr_eq_real_dbg[d] << " ";
+        std::cerr << "\n";
+    }
+#endif
 
     ap_uint<26> hdr_bits = 0;
     for (int d = 0; d < 26; d++) {
@@ -800,8 +689,8 @@ void ofdm_rx(
         header_err = 1;
         modcod_out = 0;
         n_syms_out = 0;
-        // Drain no longer needed — sync_cfo is the gatekeeper.  Pulse
-        // n_syms_fb = 0 so sync_cfo returns to SEARCH without forwarding
+        // Drain no longer needed — sync_detect is the gatekeeper.  Pulse
+        // n_syms_fb = 0 so sync_detect returns to SEARCH without forwarding
         // any data samples; the no-op RX path naturally restarts.
         n_syms_fb = 0;
         continue;   // back to WAIT_PREAMBLE
@@ -814,7 +703,7 @@ void ofdm_rx(
     // Surface decoded fields to the MAC via ap_vld output wires.
     modcod_out = modcod;
     n_syms_out = n_syms;
-    // Feedback to sync_cfo: "forward this many data-symbols' worth of samples".
+    // Feedback to sync_detect: "forward this many data-symbols' worth of samples".
     n_syms_fb = n_syms;
 
     // ── 3. Data symbols: pilot CPE track → equalize → demap → pack ──

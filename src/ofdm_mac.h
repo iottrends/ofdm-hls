@@ -78,8 +78,8 @@
 #define PHY_OFDM_TX_MODCOD  0x10
 #define PHY_OFDM_TX_N_SYMS  0x18
 
-// sync_cfo / ofdm_rx / fec_rx: no CSRs accessed by MAC.
-// (sync_cfo and ofdm_rx may have stats-only s_axilite banks for host diagnostics,
+// sync_detect / ofdm_rx / fec_rx: no CSRs accessed by MAC.
+// (sync_detect and ofdm_rx may have stats-only s_axilite banks for host diagnostics,
 //  but MAC never writes to them.)
 
 typedef ap_axiu<8,0,0,0> axis_byte_t;

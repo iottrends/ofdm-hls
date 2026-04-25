@@ -24,10 +24,9 @@
 // ============================================================
 #include "sync_detect.h"
 #include "free_run.h"
+#include "ofdm_lut.h"   // CORDIC_ATAN_VALUES (shared atan(2^-i) table)
 #include <cmath>    // atan2f in csim only
-#ifndef __SYNTHESIS__
-#include <thread>   // std::this_thread::yield for csim drain detection
-#endif
+// <thread> for the csim drain-read polling lives in free_run.h's DRAIN_READ_OR macro.
 
 // ── Sizing ──────────────────────────────────────────────────
 #define BUF_SIZE     4096
@@ -152,12 +151,11 @@ static void sincos_lut(ap_uint<32> p, sample_t& sin_v, sample_t& cos_v) {
 static ap_fixed<16,4> sync_atan2(acc_t y, acc_t x) {
 #pragma HLS INLINE off
 #ifdef __SYNTHESIS__
-    const ap_fixed<20,8> ATAN_LUT[16] = {
-        0.7853982f, 0.4636476f, 0.2449787f, 0.1243550f,
-        0.0624188f, 0.0312398f, 0.0156237f, 0.0078125f,
-        0.0039063f, 0.0019532f, 0.0009766f, 0.0004883f,
-        0.0002441f, 0.0001221f, 0.0000610f, 0.0000305f
-    };
+    // Shared atan(2^-i) values from ofdm_lut.h, narrowed to ap_fixed<20,8>.
+    // Quantization to 12 fractional bits yields the same bit pattern as the
+    // previous local table (differences were below the LSB) — no behavior
+    // change in synthesis.
+    const ap_fixed<20,8> ATAN_LUT[16] = CORDIC_ATAN_VALUES;
     ap_fixed<20,8> xi = x, yi = y, acc = 0;
     if (xi < 0) { xi = -x; yi = -y; acc = yi < 0 ? ap_fixed<20,8>(-3.141593f) : ap_fixed<20,8>(3.141593f); }
     CORDIC: for (int i = 0; i < 16; i++) {
@@ -273,24 +271,13 @@ void sync_detect(
 #pragma HLS PIPELINE II=5
 
         // ── 1. Mandatory sample intake (never back-pressures iq_in) ──
-#ifdef __SYNTHESIS__
-        iq_t in_s = iq_in.read();
-#else
-        // csim escape: in hardware iq_in is fed continuously by the ADC FIFO
-        // and never starves; in csim the input is finite, so a blocking read
-        // would hang the testbench.  Treat a long stretch of empty stream as
-        // "drained" and break out cleanly — the FREE_RUN_LOOP_BEGIN macro is
-        // already a bounded for-loop in csim, so this just tightens it.
+        // In hardware iq_in is fed continuously by the ADC FIFO and never
+        // starves; in csim the input is finite, so DRAIN_READ_OR returns
+        // from sync_detect once the testbench has drained the stream.
+        // (`return` instead of `break` because the macro's do/while wrapper
+        //  would swallow a `break` — see free_run.h.)
         iq_t in_s;
-        {
-            bool __drained = true;
-            for (int __r = 0; __r < 100000; ++__r) {
-                if (iq_in.read_nb(in_s)) { __drained = false; break; }
-                std::this_thread::yield();
-            }
-            if (__drained) break;
-        }
-#endif
+        DRAIN_READ_OR(iq_in, in_s, return);
         sample_t s_i = in_s.i;
         sample_t s_q = in_s.q;
 

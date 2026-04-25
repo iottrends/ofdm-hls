@@ -34,9 +34,9 @@ TX:  raw bytes → scrambler → conv_enc → interleaver → ofdm_tx
                                                            ↓
                                                     AD9364 → RF
 
-RX:  RF → AD9364 → sync_detect → cfo_correct → ofdm_rx
-                                                    ↓
-                                         deinterleaver → viterbi_dec → descrambler → raw bytes
+RX:  RF → AD9364 → sync_detect → ofdm_rx
+                                      ↓
+                           deinterleaver → viterbi_dec → descrambler → raw bytes
 ```
 
 ---
@@ -57,8 +57,7 @@ docs/   — Documentation
 |------|-------------|
 | `ofdm_tx.cpp / .h` | OFDM modulator — IFFT, CP insert, pilot insert |
 | `ofdm_rx.cpp / .h` | OFDM demodulator — FFT, ZC channel estimation, equalizer |
-| `sync_detect.cpp / .h` | Schmidl-Cox timing sync + CFO estimator |
-| `cfo_correct.cpp / .h` | Carrier frequency offset correction (phase rotation) |
+| `sync_detect.cpp / .h` | Free-running preamble gate + inline CFO estimation/correction (CP-based) |
 | `conv_enc.cpp` | Convolutional encoder, rate 1/2 and 2/3 (K=7) |
 | `viterbi_dec.cpp` | Viterbi decoder (hard decision, sliding-window) |
 | `conv_fec.h` | Shared FEC types and constants |
@@ -204,8 +203,7 @@ python3 sim/plot_ber.py ber_results_mod0.csv  # generate waterfall plot
 ./setup_vitis.sh synth             # ofdm_tx
 ./setup_vitis.sh rx_synth          # ofdm_rx
 ./setup_vitis.sh viterbi_synth     # viterbi_dec
-./setup_vitis.sh sync_detect_synth # sync_detect
-./setup_vitis.sh cfo_correct_synth # cfo_correct
+./setup_vitis.sh sync_detect_synth # sync_detect (free-running gate + inline CFO)
 ```
 
 ---
@@ -229,9 +227,8 @@ ADI HDL reference: https://github.com/analogdevicesinc/hdl
 
 | Block | Before | After | Saving | Notes |
 |-------|--------|-------|--------|-------|
-| sync_detect | 12,972 LUT | 2,895 LUT | −78% | Integer cross-multiply metric; pipelined CORDIC |
+| sync_detect | 12,972 LUT | 2,895 LUT | −78% | Integer cross-multiply metric; pipelined CORDIC; later absorbed cfo_correct (fixed-point sincos LUT, CORDIC phase accumulator) inline — see sync_detect.cpp |
 | viterbi_dec | 13,388 LUT | 9,448 LUT | −30% | PIPELINE+UNROLL factor=16; circular buffer; WIN_LEN=128 |
-| cfo_correct | 27 DSP | 8 DSP | −70% | Fixed-point sincos LUT; CORDIC phase accumulator |
 | ofdm_tx/rx FFT | ~20,000 LUT (hls::fft inline) | ~3,600 LUT (xfft v9.1 IP ×2) | −82% | Replaced with Xilinx xfft v9.1 AXI-Stream IP in Vivado BD |
 | **Full chain integrated** | **~49,000 LUT (150% — not routable)** | **15,395 LUT (47%)** | **−69%** | Post-implementation, Vivado 2025.2 |
 

@@ -6,7 +6,7 @@
 #
 # Post-merge topology (5 IPs total):
 #   TX:  tx_chain  →  ofdm_tx
-#   RX:  sync_cfo  →  ofdm_rx  →  fec_rx   (fec_rx on 200 MHz clock)
+#   RX:  sync_detect →  ofdm_rx  →  fec_rx   (fec_rx on 200 MHz clock)
 
 set ROOT [file normalize [file dirname [file dirname [info script]]]]
 set IP_DIR "$ROOT/ip_repo"

@@ -70,7 +70,7 @@ static void tx_wait_done(volatile ap_uint<32>* p) {
 }
 
 // NOTE: rx_arm_phy() has been removed.  The RX PHY chain is free-running
-// (ap_ctrl_none) and air-driven.  sync_cfo gates on detected preambles;
+// (ap_ctrl_none) and air-driven.  sync_detect gates on detected preambles;
 // ofdm_rx / fec_rx self-advance on stream data.  MAC no longer touches
 // any RX PHY CSR — the m_axi master only programs the TX path.
 
