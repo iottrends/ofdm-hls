@@ -541,6 +541,471 @@ def decode(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE, guard_syms=0
     return decoded_bytes
 
 
+def decode_header(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE, guard_syms=1):
+    """
+    BPSK-header-only decoder, mirroring HLS src/ofdm_rx.cpp step-by-step.
+
+    Pipeline (matches HLS exactly):
+      1. FFT preamble body, compute G[k] = Y_pre[k] * conj(ZC[k]) for data SCs;
+         G[k] = Y_pre[k] for pilot SCs.
+      2. FFT header body.
+      3. compute_pilot_cpe: equalize 6 pilots with G, sum_cos += eq.real,
+         sum_sin += eq.imag, phase_err = atan2(sum_sin, sum_cos).
+      4. compute_geq_final: G_eq_final = G_eq * exp(-j*phase_err).  (Pure rotation
+         in Python — HLS uses CORDIC which has gain K₁₆≈1.647, but BPSK uses sign
+         only so K is irrelevant for the decision.)
+      5. HDR_DEMAP: hdr_bit[d] = sign(equalize(Y_hdr[k], G_eq_final[k]).real() < 0)
+      6. CRC-16 check on the 26-bit word.
+
+    Used to isolate whether HLS's header CRC failure at low SNR is an algorithmic
+    issue (Python also fails) or an HLS implementation bug (Python passes).
+    """
+    if tx_file is None:
+        tx_file = HLS_FILE
+
+    if not os.path.exists(tx_file):
+        print(f"[HDR] {tx_file} not found")
+        return False
+
+    sig = np.loadtxt(tx_file, dtype=float)
+    sig_c = sig[:, 0] + 1j * sig[:, 1]
+
+    sym_len   = FFT_SIZE + CP_LEN  # 288
+    guard_len = guard_syms * sym_len
+
+    zc = zc_sequence()
+
+    # Step 1: preamble FFT → G
+    pre_body = sig_c[guard_len + CP_LEN : guard_len + sym_len]
+    Y_pre    = np.fft.fft(pre_body)
+    G        = np.zeros(FFT_SIZE, dtype=complex)
+    for d, k in enumerate(DATA_SC_IDX):
+        G[k] = Y_pre[k] * np.conj(zc[k])
+    for k in PILOT_IDX:
+        G[k] = Y_pre[k]                        # pilots are +1, so G = Y/X = Y
+
+    # Step 2: header FFT
+    hdr_off  = guard_len + sym_len             # skip guard + preamble
+    hdr_body = sig_c[hdr_off + CP_LEN : hdr_off + sym_len]
+    Y_hdr    = np.fft.fft(hdr_body)
+
+    # Step 3: pilot CPE.  HLS uses ZF equalize: eq = Y * conj(G) / |G|².  G ≈ Y_pre
+    # for pilots → eq = Y_hdr * conj(Y_pre) / |Y_pre|² ≈ X_hdr_pilot/X_pre_pilot ≈ 1.
+    sum_re = 0.0
+    sum_im = 0.0
+    for k in PILOT_IDX:
+        mag2 = abs(G[k]) ** 2
+        eq   = Y_hdr[k] * np.conj(G[k]) / mag2 if mag2 > 1e-12 else 0
+        sum_re += eq.real
+        sum_im += eq.imag
+    phase_err = np.arctan2(sum_im, sum_re)
+    print(f"  [HDR] pilot sum: ({sum_re:+.4f}, {sum_im:+.4f})  phase_err = {np.rad2deg(phase_err):+.2f} deg")
+
+    # Step 4: G_eq_final = G_eq * exp(-j*phase_err)
+    rot = np.exp(-1j * phase_err)
+    G_eq_final = np.zeros(FFT_SIZE, dtype=complex)
+    for k in range(FFT_SIZE):
+        if abs(G[k]) ** 2 > 1e-12:
+            G_eq_k       = np.conj(G[k]) / (abs(G[k]) ** 2)   # ZF G_eq
+            G_eq_final[k] = G_eq_k * rot
+
+    # Step 5: demap 26 BPSK bits.  HLS layout: hdr_bits[25-d] = (eq.real < 0)
+    hdr_bits = 0
+    eq_reals = []
+    for d in range(26):
+        k  = DATA_SC_IDX[d]
+        eq = Y_hdr[k] * G_eq_final[k]
+        bit = 1 if eq.real < 0 else 0
+        eq_reals.append(eq.real)
+        hdr_bits |= (bit << (25 - d))
+
+    # Step 6: CRC check
+    rx_crc     = (hdr_bits >> 10) & 0xFFFF
+    rx_payload = hdr_bits & 0x3FF
+    exp_crc    = crc16_hdr(rx_payload)
+    rx_n_syms  = (rx_payload >> 2) & 0xFF
+    rx_modcod  = rx_payload & 0x3
+    rx_mod     = (rx_modcod >> 1) & 1
+    rx_rate    = rx_modcod & 1
+
+    crc_ok = (rx_crc == exp_crc)
+    print(f"  [HDR] eq.real range: min={min(eq_reals):+.4f}  max={max(eq_reals):+.4f}  median={sorted(eq_reals)[13]:+.4f}")
+    print(f"  [HDR] decoded payload: n_syms={rx_n_syms} mod={rx_mod} rate={rx_rate}  rx_crc=0x{rx_crc:04X}  exp_crc=0x{exp_crc:04X}")
+    if crc_ok:
+        print(f"  [HDR] PASS — CRC ok, expected n_syms={n_syms} mod={mod} rate={fec_rate}")
+    else:
+        # Show which expected bits flipped
+        exp_payload = (n_syms << 2) | ((mod & 1) << 1) | (fec_rate & 1)
+        exp_word    = (crc16_hdr(exp_payload) << 10) | exp_payload
+        n_flipped = bin(hdr_bits ^ exp_word).count("1")
+        print(f"  [HDR] FAIL — CRC mismatch.  {n_flipped}/26 header bits flipped vs expected")
+    return crc_ok
+
+
+# ============================================================
+# HLS-precision-class header decoder
+# ============================================================
+# Mirrors the HLS chain at the SAME fixed-point widths used in
+# src/ofdm_rx.cpp.  Quantization grids:
+#   Q15  (LSB = 2⁻¹⁵)   sample_t  ap_fixed<16,1>   freq_buf, G[d] storage
+#   Q20  (LSB = 2⁻²⁰)   inv_t     ap_fixed<40,20>  |G|², 1/|G|²
+#   Q22  (LSB = 2⁻²²)   geq_t     ap_fixed<32,10>  G_eq, eq result
+# Quantization mode = AP_TRN (truncation toward -inf), matches HLS default.
+# Multiplications happen in float32 (24-bit mantissa) — wider than any
+# of the storage types, mimics HLS's wide intermediate before storage.
+
+_LSB_Q15 = 2.0 ** -15
+_LSB_Q20 = 2.0 ** -20
+_LSB_Q22 = 2.0 ** -22
+
+def _trn_q(x_real, lsb, lo, hi):
+    """ap_fixed AP_TRN (round toward -inf) + saturate to [lo, hi)."""
+    q = np.floor(np.asarray(x_real) / lsb) * lsb
+    return np.clip(q, lo, hi - lsb)
+
+def _q15(z):
+    """Quantize complex array (or scalar) to Q15 grid, range [-1, 1)."""
+    z = np.asarray(z, dtype=np.complex128)
+    return _trn_q(z.real, _LSB_Q15, -1.0, 1.0) + 1j * _trn_q(z.imag, _LSB_Q15, -1.0, 1.0)
+
+def _q20_real(x):
+    """Real Q20 truncation, ap_fixed<40,20> wide range."""
+    return _trn_q(x, _LSB_Q20, -(2**20), 2**20)
+
+def _q22(z):
+    """Quantize complex to Q22, range [-512, 512)."""
+    z = np.asarray(z, dtype=np.complex128)
+    return _trn_q(z.real, _LSB_Q22, -512.0, 512.0) + 1j * _trn_q(z.imag, _LSB_Q22, -512.0, 512.0)
+
+
+def decode_header_q15(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE, guard_syms=1):
+    """
+    Same header decode as decode_header(), but with HLS-equivalent
+    fixed-point quantization at every storage boundary.
+
+    Diverges from float64 decode_header() only via the quantize_* calls.
+    Used to test the precision-cliff theory: if Q15 here reproduces HLS's
+    phase_err = 3.09° at 15 dB → precision is the bug.  If Q15 still gives
+    Python's 0.45° → bug is elsewhere.
+    """
+    if tx_file is None:
+        tx_file = HLS_FILE
+    if not os.path.exists(tx_file):
+        print(f"[Q15] {tx_file} not found")
+        return False
+
+    sig = np.loadtxt(tx_file, dtype=float)
+    sig_c = (sig[:, 0] + 1j * sig[:, 1]).astype(np.complex64)   # input already Q15
+
+    sym_len   = FFT_SIZE + CP_LEN
+    guard_len = guard_syms * sym_len
+    zc = zc_sequence().astype(np.complex64)
+    # ZC LUT in HLS is sample_t — quantize the reference too
+    zc = _q15(zc)
+
+    # ── Step 1: preamble FFT, ÷N, store as Q15 (mirrors HLS run_fft + sample_t cast) ──
+    pre_body = sig_c[guard_len + CP_LEN : guard_len + sym_len]
+    Y_pre    = np.fft.fft(pre_body) / FFT_SIZE
+    Y_pre    = _q15(Y_pre)                       # csample_t storage
+
+    # ── Step 2: G[d] = Y_pre × conj(ZC), stored in sample_t (Q15)
+    # HLS line 409: result of (wide × wide) cast back to sample_t.
+    G = np.zeros(FFT_SIZE, dtype=np.complex128)
+    for d, k in enumerate(DATA_SC_IDX):
+        g = Y_pre[k] * np.conj(zc[k])
+        G[k] = _q15(np.array([g]))[0]            # match HLS Q15 truncation
+    for k in PILOT_IDX:
+        G[k] = Y_pre[k]                          # already Q15
+
+    # ── Step 3: header FFT, /N, Q15 storage ──
+    hdr_off  = guard_len + sym_len
+    hdr_body = sig_c[hdr_off + CP_LEN : hdr_off + sym_len]
+    Y_hdr    = np.fft.fft(hdr_body) / FFT_SIZE
+    Y_hdr    = _q15(Y_hdr)
+
+    # ── Step 4: pilot CPE — for each pilot, |G|² in Q20, inv in Q20, G_eq in Q22, eq in Q22
+    sum_re = 0.0
+    sum_im = 0.0
+    print("  [Q15] per-pilot:")
+    for k in PILOT_IDX:
+        gre, gim = G[k].real, G[k].imag
+        denom    = _q20_real(gre*gre + gim*gim)               # |G|² in inv_t (Q20)
+        if denom <= 0:
+            continue
+        inv      = _q20_real(1.0 / denom)                     # 1/|G|² in inv_t
+        # G_eq = conj(G) × inv.  Stored in geq_t (Q22).
+        Geq      = _q22(np.array([(gre - 1j*gim) * inv]))[0]  # match HLS line 440
+        # eq = Y_hdr × G_eq.  HLS computes in acc_t (Q22) and returns geq_t.
+        eq       = _q22(np.array([Y_hdr[k] * Geq]))[0]
+        sum_re  += eq.real
+        sum_im  += eq.imag
+        print(f"    k={k:3d}  G=({gre:+.6f},{gim:+.6f})  |G|²={denom:.3e}  "
+              f"inv={inv:.3e}  G_eq=({Geq.real:+.4f},{Geq.imag:+.4f})  "
+              f"eq=({eq.real:+.4f},{eq.imag:+.4f})")
+    phase_err = np.arctan2(sum_im, sum_re)   # csim path: Python double atan2, same as HLS line 562
+    print(f"  [Q15] pilot sum: ({sum_re:+.4f}, {sum_im:+.4f})  phase_err = {np.rad2deg(phase_err):+.3f} deg")
+
+    # ── Step 5: G_eq_final = G_eq × exp(-j·phase_err) (Python uses exp; HLS uses CORDIC with K₁₆ gain
+    # but we only need sign for BPSK → K doesn't affect decision)
+    rot = np.exp(-1j * phase_err).astype(np.complex64)
+    G_eq_final = np.zeros(FFT_SIZE, dtype=np.complex128)
+    for d in range(26):
+        k = DATA_SC_IDX[d]
+        gre, gim = G[k].real, G[k].imag
+        denom = _q20_real(gre*gre + gim*gim)
+        if denom <= 0:
+            continue
+        inv  = _q20_real(1.0 / denom)
+        Geq  = _q22(np.array([(gre - 1j*gim) * inv]))[0]
+        G_eq_final[k] = _q22(np.array([Geq * rot]))[0]
+
+    # ── Step 6: demap 26 bits ──
+    hdr_bits = 0
+    eq_reals = []
+    for d in range(26):
+        k  = DATA_SC_IDX[d]
+        eq = _q22(np.array([Y_hdr[k] * G_eq_final[k]]))[0]
+        bit = 1 if eq.real < 0 else 0
+        eq_reals.append(eq.real)
+        hdr_bits |= (bit << (25 - d))
+
+    rx_crc     = (hdr_bits >> 10) & 0xFFFF
+    rx_payload = hdr_bits & 0x3FF
+    exp_crc    = crc16_hdr(rx_payload)
+    rx_n_syms  = (rx_payload >> 2) & 0xFF
+    rx_mod     = (rx_payload >> 1) & 1
+    rx_rate    = rx_payload & 1
+
+    crc_ok = (rx_crc == exp_crc)
+    print(f"  [Q15] eq.real range: min={min(eq_reals):+.4f}  max={max(eq_reals):+.4f}  median={sorted(eq_reals)[13]:+.4f}")
+    print(f"  [Q15] decoded payload: n_syms={rx_n_syms} mod={rx_mod} rate={rx_rate}  rx_crc=0x{rx_crc:04X}  exp_crc=0x{exp_crc:04X}")
+    if crc_ok:
+        print(f"  [Q15] PASS — CRC ok")
+    else:
+        exp_payload = (n_syms << 2) | ((mod & 1) << 1) | (fec_rate & 1)
+        exp_word    = (crc16_hdr(exp_payload) << 10) | exp_payload
+        n_flipped = bin(hdr_bits ^ exp_word).count("1")
+        print(f"  [Q15] FAIL — CRC mismatch.  {n_flipped}/26 header bits flipped vs expected")
+    return crc_ok
+
+
+# ============================================================
+# Unified full RX decoder — header + data, optional Q15 precision
+# ============================================================
+def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
+                guard_syms=1, use_q15=False):
+    """
+    Full RX chain mirroring HLS step-by-step:
+      1. preamble channel estimate G
+      2. BPSK header CRC check
+      3. per-symbol pilot CPE on each data symbol (matches HLS compute_pilot_cpe)
+      4. data demap → bits → deinterleave → Viterbi → descramble → bytes
+      5. compare with tb_input_to_tx.bin → BER
+
+    use_q15 = True applies HLS-equivalent fixed-point quantization at storage
+    points (Q15 for freq_buf/G, Q20 for inv_t, Q22 for G_eq/eq).  This makes
+    Python a precision-class apples-to-apples reference for HLS.
+    """
+    label = "Q15 " if use_q15 else "FP64"
+
+    if tx_file is None:
+        tx_file = HLS_FILE
+    if not os.path.exists(tx_file):
+        print(f"[{label}] {tx_file} not found")
+        return None
+
+    sig = np.loadtxt(tx_file, dtype=float)
+    sig_c = sig[:, 0] + 1j * sig[:, 1]
+
+    sym_len   = FFT_SIZE + CP_LEN
+    guard_len = guard_syms * sym_len
+    expected_samps = (n_syms + 2 + guard_syms) * sym_len
+    if len(sig_c) < expected_samps:
+        print(f"[{label}] FAIL: signal too short ({len(sig_c)} < {expected_samps})")
+        return None
+
+    zc = zc_sequence()
+    if use_q15:
+        zc = _q15(zc)
+
+    def _fft_body(body):
+        Y = np.fft.fft(body)
+        if use_q15:
+            Y = Y / FFT_SIZE
+            Y = _q15(Y)
+        return Y
+
+    def _compute_geq_at(k, G_arr):
+        gre, gim = G_arr[k].real, G_arr[k].imag
+        if use_q15:
+            denom = _q20_real(gre*gre + gim*gim)
+            if denom <= 0:
+                return 0 + 0j
+            inv = _q20_real(1.0 / denom)
+            return _q22(np.array([(gre - 1j*gim) * inv]))[0]
+        else:
+            mag2 = gre*gre + gim*gim
+            if mag2 <= 1e-12:
+                return 0 + 0j
+            return (gre - 1j*gim) / mag2
+
+    # ── Step 1: channel estimation from preamble ──
+    pre_body = sig_c[guard_len + CP_LEN : guard_len + sym_len]
+    Y_pre = _fft_body(pre_body)
+    G = np.zeros(FFT_SIZE, dtype=np.complex128)
+    for d, k in enumerate(DATA_SC_IDX):
+        g = Y_pre[k] * np.conj(zc[k])
+        G[k] = _q15(np.array([g]))[0] if use_q15 else g
+    for k in PILOT_IDX:
+        G[k] = Y_pre[k]   # pilot transmitted at +1 → G = Y_pre
+
+    # ── Step 2: header decode ──
+    hdr_off  = guard_len + sym_len
+    hdr_body = sig_c[hdr_off + CP_LEN : hdr_off + sym_len]
+    Y_hdr    = _fft_body(hdr_body)
+
+    sum_re = sum_im = 0.0
+    for k in PILOT_IDX:
+        Geq_p = _compute_geq_at(k, G)
+        eq = Y_hdr[k] * Geq_p
+        if use_q15:
+            eq = _q22(np.array([eq]))[0]
+        sum_re += eq.real
+        sum_im += eq.imag
+    hdr_phase_err = np.arctan2(sum_im, sum_re)
+
+    rot = np.exp(-1j * hdr_phase_err)
+    if use_q15:
+        rot = rot.astype(np.complex64)
+
+    hdr_bits = 0
+    for d in range(26):
+        k    = DATA_SC_IDX[d]
+        Geq  = _compute_geq_at(k, G)
+        Gf   = Geq * rot
+        if use_q15:
+            Gf = _q22(np.array([Gf]))[0]
+        eq   = Y_hdr[k] * Gf
+        if use_q15:
+            eq = _q22(np.array([eq]))[0]
+        bit  = 1 if eq.real < 0 else 0
+        hdr_bits |= (bit << (25 - d))
+
+    rx_crc     = (hdr_bits >> 10) & 0xFFFF
+    rx_payload = hdr_bits & 0x3FF
+    exp_crc    = crc16_hdr(rx_payload)
+    rx_n_syms  = (rx_payload >> 2) & 0xFF
+    rx_mod     = (rx_payload >> 1) & 1
+    rx_rate    = rx_payload & 1
+    header_pass = (rx_crc == exp_crc)
+
+    print(f"  [{label}] phase_err = {np.rad2deg(hdr_phase_err):+.3f} deg  "
+          f"header: n_syms={rx_n_syms} mod={rx_mod} rate={rx_rate}  "
+          f"CRC 0x{rx_crc:04X}/0x{exp_crc:04X}  {'PASS' if header_pass else 'FAIL'}")
+
+    # ── Step 3: data demap with per-symbol pilot CPE ──
+    bps = 2 if mod == 0 else 4
+    decoded_bits = []
+
+    for s in range(n_syms):
+        offset = guard_len + sym_len * (s + 2)
+        sym_iq = sig_c[offset + CP_LEN : offset + sym_len]
+        Y      = _fft_body(sym_iq)
+
+        # per-symbol CPE
+        sum_re = sum_im = 0.0
+        for k in PILOT_IDX:
+            Geq_p = _compute_geq_at(k, G)
+            eq = Y[k] * Geq_p
+            if use_q15:
+                eq = _q22(np.array([eq]))[0]
+            sum_re += eq.real
+            sum_im += eq.imag
+        sym_phase_err = np.arctan2(sum_im, sum_re)
+        sym_rot = np.exp(-1j * sym_phase_err)
+        if use_q15:
+            sym_rot = sym_rot.astype(np.complex64)
+
+        for d, k in enumerate(DATA_SC_IDX):
+            Geq = _compute_geq_at(k, G)
+            Gf  = Geq * sym_rot
+            if use_q15:
+                Gf = _q22(np.array([Gf]))[0]
+            X_hat = Y[k] * Gf
+            if use_q15:
+                X_hat = _q22(np.array([X_hat]))[0]
+
+            if mod == 0:  # QPSK
+                b1 = 1 if X_hat.real < 0 else 0
+                b0 = 1 if X_hat.imag < 0 else 0
+                decoded_bits.extend([b1, b0])
+            else:  # 16-QAM
+                i_bits = decode_axis_16qam(X_hat.real)
+                q_bits = decode_axis_16qam(X_hat.imag)
+                b3 = (i_bits >> 1) & 1
+                b2 =  i_bits       & 1
+                b1 = (q_bits >> 1) & 1
+                b0 =  q_bits       & 1
+                decoded_bits.extend([b3, b2, b1, b0])
+
+    # ── Step 4: pack bits → bytes (matches TX format) ──
+    decoded_bits = np.array(decoded_bits, dtype=np.uint8)
+    if mod == 0:
+        n_total = len(decoded_bits) // 2
+        decoded_bytes = []
+        for i in range(0, n_total, 4):
+            s0 = (int(decoded_bits[i*2])     << 1) | int(decoded_bits[i*2+1])
+            s1 = (int(decoded_bits[(i+1)*2]) << 1) | int(decoded_bits[(i+1)*2+1])
+            s2 = (int(decoded_bits[(i+2)*2]) << 1) | int(decoded_bits[(i+2)*2+1])
+            s3 = (int(decoded_bits[(i+3)*2]) << 1) | int(decoded_bits[(i+3)*2+1])
+            decoded_bytes.append((s0 << 6) | (s1 << 4) | (s2 << 2) | s3)
+    else:
+        n_total = len(decoded_bits) // 4
+        decoded_bytes = []
+        for i in range(0, n_total, 2):
+            s0 = (int(decoded_bits[i*4])     << 3 | int(decoded_bits[i*4+1]) << 2 |
+                  int(decoded_bits[i*4+2])   << 1 | int(decoded_bits[i*4+3]))
+            s1 = (int(decoded_bits[(i+1)*4]) << 3 | int(decoded_bits[(i+1)*4+1]) << 2 |
+                  int(decoded_bits[(i+1)*4+2]) << 1 | int(decoded_bits[(i+1)*4+3]))
+            decoded_bytes.append((s0 << 4) | s1)
+    decoded_bytes = np.array(decoded_bytes, dtype=np.uint8)
+
+    # ── Step 5: FEC decode + descramble ──
+    coded_per_sym = NUM_DATA_SC // 4 if mod == 0 else NUM_DATA_SC // 2
+    total_coded   = n_syms * coded_per_sym
+    total_raw     = total_coded // 2 if fec_rate == 0 else total_coded * 2 // 3
+
+    deinterleaved = py_deinterleave(bytes(decoded_bytes), mod, n_syms)
+    raw_decoded   = fec_decode(deinterleaved, fec_rate, total_raw)
+    raw_decoded   = py_scramble(raw_decoded)
+    decoded_bytes = np.frombuffer(raw_decoded, dtype=np.uint8)
+
+    # ── Step 6: BER vs original ──
+    if not os.path.exists(IN_FILE):
+        print(f"  [{label}] {IN_FILE} not found — cannot compute BER")
+        return None
+
+    original = np.frombuffer(open(IN_FILE, 'rb').read(), dtype=np.uint8)
+    if len(decoded_bytes) != len(original):
+        print(f"  [{label}] FAIL: length mismatch decoded={len(decoded_bytes)} original={len(original)}")
+        return None
+
+    byte_errors = int(np.sum(decoded_bytes != original))
+    diff_xor    = decoded_bytes ^ original
+    bit_errors  = int(sum(bin(x).count('1') for x in diff_xor))
+    total_bits  = len(original) * 8
+    ber         = bit_errors / total_bits
+
+    overall = "PASS" if (header_pass and bit_errors == 0) else "FAIL"
+    print(f"  [{label}] data: byte_err={byte_errors}/{len(original)}  bit_err={bit_errors}/{total_bits}  BER={ber:.2e}  → {overall}")
+
+    return {'header_pass': header_pass,
+            'phase_err_deg': np.rad2deg(hdr_phase_err),
+            'byte_errors': byte_errors,
+            'bit_errors': bit_errors,
+            'total_bits': total_bits}
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--gen",     action="store_true", help="Generate bits and reference output")
@@ -548,6 +1013,14 @@ if __name__ == "__main__":
     parser.add_argument("--decode",  action="store_true", help="Decode TX output and check BER")
     parser.add_argument("--decode-hls", action="store_true",
                         help="Decode HLS TX output and check BER")
+    parser.add_argument("--decode-header", action="store_true",
+                        help="Python-side BPSK header decode (mirrors HLS) for low-SNR diagnosis")
+    parser.add_argument("--decode-header-q15", action="store_true",
+                        help="HLS-precision-class (Q15/Q20/Q22) header decode — pins down precision-vs-algorithm bug")
+    parser.add_argument("--decode-full", action="store_true",
+                        help="Full RX chain (header + data) in float64 with per-symbol pilot CPE")
+    parser.add_argument("--decode-full-q15", action="store_true",
+                        help="Full RX chain (header + data) at HLS-equivalent Q15/Q20/Q22 precision")
     parser.add_argument("--input",   type=str, default=None,
                         help="Override IQ input file for --decode-hls (default: tb_tx_output_hls.txt)")
     parser.add_argument("--mod",     type=int, default=MOD,      help="0=QPSK 1=16QAM")
@@ -555,7 +1028,8 @@ if __name__ == "__main__":
     parser.add_argument("--rate",    type=int, default=FEC_RATE,  help="0=rate-1/2 1=rate-2/3")
     args = parser.parse_args()
 
-    if not any([args.gen, args.compare, args.decode, args.decode_hls]):
+    if not any([args.gen, args.compare, args.decode, args.decode_hls, args.decode_header,
+                args.decode_header_q15, args.decode_full, args.decode_full_q15]):
         parser.print_help()
     if args.gen:
         generate(mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate)
@@ -566,3 +1040,17 @@ if __name__ == "__main__":
     if args.decode_hls:
         decode(tx_file=args.input if args.input else HLS_FILE, mod=args.mod, n_syms=args.nsyms,
                fec_rate=args.rate, guard_syms=1)
+    if args.decode_header:
+        decode_header(tx_file=args.input if args.input else HLS_FILE,
+                      mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate, guard_syms=1)
+    if args.decode_header_q15:
+        decode_header_q15(tx_file=args.input if args.input else HLS_FILE,
+                          mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate, guard_syms=1)
+    if args.decode_full:
+        decode_full(tx_file=args.input if args.input else HLS_FILE,
+                    mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
+                    guard_syms=1, use_q15=False)
+    if args.decode_full_q15:
+        decode_full(tx_file=args.input if args.input else HLS_FILE,
+                    mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
+                    guard_syms=1, use_q15=True)

@@ -13,13 +13,27 @@
 // ============================================================
 // Internal equalized-channel type
 //
-// geq_t / cgeq_t hold precomputed G_eq = conj(G)/|G|² values.
+// geq_t / cgeq_t hold precomputed G_eq = conj(G)/|G|² values, plus
+// the CORDIC-rotated G_eq_final = K₁₆ · G_eq · e^(-jφ) consumed by
+// equalize_sc.
 //   With scale_sch=0xAA (RX FFT ÷256): G ≈ 1/256, G_eq ≈ 256.
-//   ap_fixed<32,10>: range [-512, +512), 22 fractional bits.
-//   Holds G_eq ≈ 256 with sufficient precision.
+//   At low SNR, noise inflates G_eq above ~310 in pathological frames.
+//   After CORDIC gain K₁₆ ≈ 1.648, the CORDIC output can exceed ±512.
+//
+// Width: ap_fixed<32, 10> — ±512 range, 22 fractional bits, matches
+// the Q22 grid the Python golden reference uses.
+//
+// Overflow mode: AP_SAT (saturate, NOT wrap).  Default AP_WRAP wraps
+// modulo 1024 — a value of +513 becomes -511, flipping the sign of
+// the real part and turning a BPSK '0' into a '1' (CRC fail at 15 dB
+// SNR, see docs/RX_LOW_SNR_DEBUG.md).  AP_SAT clips to ±511.999
+// instead, which preserves the sign for the BPSK demap.  AP_SAT is
+// what np.clip() does in the Python Q15 reference, so HLS now matches
+// the golden numerically on overflow.  Cost: ~50 LUT for the saturate
+// comparator; zero DSP/BRAM impact.
 // ============================================================
-typedef ap_fixed<32, 10>         geq_t;
-typedef std::complex<geq_t>     cgeq_t;
+typedef ap_fixed<32, 10, AP_TRN, AP_SAT>   geq_t;
+typedef std::complex<geq_t>                cgeq_t;
 
 // CORDIC angle table  atan(2^-i)  for i = 0..15, in ap_fixed<32,4>.
 // Single source of truth shared by fixed_atan2_rx (vectoring mode)
@@ -341,7 +355,11 @@ static void estimate_channel(
 // ============================================================
 static cgeq_t equalize_sc(csample_t Y, cgeq_t G_eq) {
     #pragma HLS INLINE
-    typedef ap_fixed<32, 10> acc_t;  // range [-512,+512): holds noisy equalized value ≈ ±1.4
+    // acc_t carries the same width and saturation policy as geq_t — see
+    // the geq_t typedef at the top of the file for the rationale.  AP_SAT
+    // here ensures the complex-multiply result clips cleanly on overflow
+    // instead of wrapping (which would re-introduce the sign-flip bug).
+    typedef ap_fixed<32, 10, AP_TRN, AP_SAT> acc_t;
 
     acc_t y_re = (acc_t)Y.real();
     acc_t y_im = (acc_t)Y.imag();
@@ -352,9 +370,9 @@ static cgeq_t equalize_sc(csample_t Y, cgeq_t G_eq) {
     acc_t x_re = y_re * g_re - y_im * g_im;
     acc_t x_im = y_re * g_im + y_im * g_re;
 
-    // Return as cgeq_t (ap_fixed<32,10>) — do NOT cast down to sample_t here.
-    // With noise, x_re can exceed ±1.0 and would wrap in ap_fixed<16,1>.
-    // The demapper only needs sign/threshold comparison, not a narrow type.
+    // Return as cgeq_t (ap_fixed<32,10> AP_SAT) — do NOT cast down to
+    // sample_t here.  With noise, x_re can exceed ±1.0 and would wrap in
+    // ap_fixed<16,1>.  The demapper only needs sign/threshold comparison.
     return cgeq_t(geq_t(x_re), geq_t(x_im));
 }
 

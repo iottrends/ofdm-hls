@@ -116,27 +116,38 @@ else
     fail "HLS RX C-sim: could not determine BER — check log"
 fi
 
-# ── Step 5: Python reference decoder on noisy signal ─────────
-header "Step 5 — Python reference decoder on noisy signal  (independent check)"
-log "Running: python3 sim/ofdm_reference.py --decode-hls (on noisy file)"
-log "  Reads    tb_tx_output_hls_noise.txt   : noisy IQ"
-log "  Decodes  using Python numpy FFT (float, no HLS RX involved)"
-log "  Compares decoded bytes vs tb_input_to_tx.bin → BER"
-log "  Purpose: baseline — what BER does float arithmetic achieve at ${SNR} dB?"
+# ── Step 5: Python reference decoders (full chain — header + data, both precisions) ─────────
+header "Step 5 — Python reference decoders  (header + data, FP64 vs Q15)"
+log "Reads    tb_tx_output_hls_noise.txt   : noisy IQ"
+log "Runs     decode_full() at TWO precision classes:"
+log "  --decode-full       float64 throughout (idealised reference)"
+log "  --decode-full-q15   Q15/Q20/Q22 (HLS-equivalent precision class)"
+log "Both decode preamble + header + 255 data symbols + Viterbi + descramble"
+log "and report header CRC PASS/FAIL plus data BER vs tb_input_to_tx.bin."
 echo ""
-dec_result=$(python3 sim/ofdm_reference.py --decode-hls --input tb_tx_output_hls_noise.txt --mod "$MOD" --rate "$RATE")
-echo "$dec_result" | sed 's/^/  /'
+echo "  ── float64 ──"
+dec_fp=$(python3 sim/ofdm_reference.py --decode-full     --input tb_tx_output_hls_noise.txt --mod "$MOD" --rate "$RATE")
+echo "$dec_fp"
 echo ""
-py_bit_errors=$(echo "$dec_result" | grep "Bit  errors" | awk '{print $5}' | head -1)
-if [ -n "$py_bit_errors" ]; then
-    if [ "$py_bit_errors" -eq 0 ]; then
-        pass "Python reference decoder: BER = 0 at SNR = ${SNR} dB"
-    else
-        py_total=$(echo "$dec_result" | grep "Bit  errors" | awk '{print $7}' | head -1)
-        pass "Python reference decoder: ${py_bit_errors}/${py_total} bit errors at SNR = ${SNR} dB  (float baseline)"
-    fi
+echo "  ── Q15 (HLS-equivalent precision) ──"
+dec_q15=$(python3 sim/ofdm_reference.py --decode-full-q15 --input tb_tx_output_hls_noise.txt --mod "$MOD" --rate "$RATE")
+echo "$dec_q15"
+echo ""
+
+# Overall = (header PASS) AND (data PASS).  decode_full prints the overall
+# verdict on the "data: ... → PASS/FAIL" line — match that, not header-PASS.
+# `|| true` swallows grep's exit-code-1 on zero matches (set -e would
+# otherwise kill the script before printing the SUMMARY).
+fp_pass=$(echo "$dec_fp"  | grep -cE "data: .* → PASS$" || true)
+q15_pass=$(echo "$dec_q15" | grep -cE "data: .* → PASS$" || true)
+if [ "$fp_pass" -gt 0 ] && [ "$q15_pass" -gt 0 ]; then
+    pass "Python reference decoders: BOTH FP64 and Q15 pass at SNR = ${SNR} dB"
+elif [ "$fp_pass" -gt 0 ]; then
+    fail "Python decoders: FP64 pass, Q15 fail at SNR = ${SNR} dB  (precision-sensitive case)"
+elif [ "$q15_pass" -gt 0 ]; then
+    fail "Python decoders: Q15 pass, FP64 fail — unexpected, check setup"
 else
-    fail "Python reference decoder failed"
+    fail "Python decoders: both FAIL at SNR = ${SNR} dB  (algorithm cliff or HLS-side bug)"
 fi
 
 # ── Summary ───────────────────────────────────────────────────

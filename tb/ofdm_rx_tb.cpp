@@ -125,6 +125,13 @@ int main(int argc, char* argv[]) {
               << (file_end - warmup_pad) << " from " << TX_OUT_FILE
               << " + " << tail_pad << " tail zeros)\n";
 
+    // Diagnostic mode: env OFDM_RX_BYPASS_SYNC=1 skips sync_detect and feeds
+    // ofdm_rx directly with pre-aligned IQ (preamble + header + data, with
+    // the file's 288 guard zeros stripped).  Lets us isolate sync_detect
+    // from ofdm_rx when chasing low-SNR cliffs.
+    const char* bypass_env = std::getenv("OFDM_RX_BYPASS_SYNC");
+    bool bypass_sync = bypass_env && bypass_env[0] != '0' && bypass_env[0] != '\0';
+
     // ── Step 1: sync_detect — preamble gate + inline CFO derotation ──
     // Hard-wire n_syms_fb_vld=1 + n_syms_fb=TB_N_SYMS so the FSM
     // transitions WAIT_NSYMS → FWD_DATA without needing the real-time
@@ -134,10 +141,29 @@ int main(int argc, char* argv[]) {
     ap_uint<32>     stat_header_bad_count = 0;
     ap_ufixed<24,8> stat_pow_env          = 0;
 
-    sync_detect(iq_raw, iq_aligned,
-                (ap_uint<8>)TB_N_SYMS, (ap_uint<1>)1,
-                pow_threshold,
-                stat_preamble_count, stat_header_bad_count, stat_pow_env);
+    if (bypass_sync) {
+        // Drain iq_raw, skip warmup_pad + 288 TX guard zeros, then push EXACTLY
+        // (1 preamble + 1 header + TB_N_SYMS data) symbols.  Capping the count
+        // prevents the trailing zero pad from bleeding in and triggering a
+        // spurious second-packet decode attempt inside ofdm_rx.
+        std::cout << "[TB] BYPASS_SYNC: feeding ofdm_rx directly (sync_detect skipped)\n";
+        const int skip_total = warmup_pad + (FFT_SIZE + CP_LEN);            // pad + TX guard
+        const int target     = (1 + 1 + TB_N_SYMS) * (FFT_SIZE + CP_LEN);   // pre + hdr + data
+        int idx = 0;
+        while (!iq_raw.empty()) {
+            iq_t s = iq_raw.read();
+            if (idx >= skip_total && (int)iq_aligned.size() < target)
+                iq_aligned.write(s);
+            idx++;
+        }
+        std::cout << "[TB] BYPASS_SYNC: pushed " << iq_aligned.size()
+                  << " samples to iq_aligned (expected " << target << ")\n";
+    } else {
+        sync_detect(iq_raw, iq_aligned,
+                    (ap_uint<8>)TB_N_SYMS, (ap_uint<1>)1,
+                    pow_threshold,
+                    stat_preamble_count, stat_header_bad_count, stat_pow_env);
+    }
 
     std::cout << "[TB] sync_detect drained.  preamble_count="
               << (uint32_t)stat_preamble_count
