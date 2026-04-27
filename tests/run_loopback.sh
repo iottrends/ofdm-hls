@@ -18,7 +18,7 @@
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+cd "$SCRIPT_DIR/.."   # operate from repo root (sim/, tb/, ip_repo/, ...)
 
 # ── Args ──────────────────────────────────────────────────────
 MOD=1     # 0=QPSK  1=16QAM

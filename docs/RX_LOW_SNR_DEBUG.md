@@ -36,7 +36,7 @@ The 5+ dB cliff was actually **two bugs** stacked:
 
 ## Validation matrix (post-fix)
 
-`./run_loopback_noisy.sh --mod $m --rate $r --snr $snr` for the full grid
+`./tests/run_loopback_noisy.sh --mod $m --rate $r --snr $snr` for the full grid
 `m × r × snr`:
 
 | SNR | QPSK r=1/2 | QPSK r=2/3 | 16-QAM r=1/2 | 16-QAM r=2/3 |
@@ -54,6 +54,113 @@ Header CRC PASS at every test point.  HLS BER tracks Python Q15 within ±5%
 relative.  These match textbook Viterbi-coded BPSK/QPSK/16-QAM cliffs to
 within fractions of a dB — **HLS RX is now performing at the algorithm's
 theoretical limit.**
+
+---
+
+## 2026-04-27: Python RX chain improvements (sync ref + soft Viterbi + DFT smoothing)
+
+Built end-to-end Python RX as the algorithm-development testbed before
+porting wins back into HLS.  Three new pieces, all wired into
+`sim/ofdm_reference.py:decode_full()` orthogonally (FP64 and Q15 modes both).
+
+### 1. `sync_detect_reference()` — Python mirror of `src/sync_detect.cpp` v5
+
+Sliding-window Schmidl-Cox CP correlation + power-envelope dual gate.
+
+- Q15 mode: accumulators at `ap_fixed<24,8>`, products at `ap_fixed<32,12>`,
+  threshold constant 0.49 quantised to `ap_ufixed<16,16>` — bit-equivalent
+  to HLS `acc_t` / `prod_t` / `SC_TH_SQ_CONST`.
+- FP64 mode: same recurrence in float64 — idealised reference for the
+  precision-impact comparison the user asked for.
+- Single-frame use: no FSM (FWD_PREHDR / WAIT_NSYMS / FWD_DATA), no deaf
+  window, no 4096-sample BUF_SIZE warmup — just N+L+POW_WIN samples to
+  prime the running sums, then single detect-and-return.
+- `decode_full(..., use_sync=True)` replaces the fixed `guard_syms*sym_len`
+  offset with the detected `start_offset = wr_ptr − CP_LEN − FFT_SIZE`
+  (matches HLS `rd_ptr` init exactly).
+- Validated: triggers at sample n=562 with metric ≈ 0.99 on a 20 dB AWGN
+  noisy IQ; Q15 and FP64 fire on the same sample (precision is not biting
+  on sync).
+
+CLI: `--decode-full-sync`, `--decode-full-q15-sync`, `--sync-only`.
+
+### 2. Soft-decision Viterbi end-to-end
+
+- `viterbi_decode_soft()` in `sim/fec_reference.py`: linear-soft branch
+  metric `bm = -r·sign(expected)`.  Drop-in companion to the existing
+  hard `viterbi_decode`; same trellis, traceback, depuncture pattern.
+  Punctured rate-2/3 positions pass `None` as erasure.
+- Soft demap added to `decode_full()`:
+  - QPSK: `soft_b1 = X_hat.real`, `soft_b0 = X_hat.imag` (positive → bit=0).
+  - 16-QAM per axis: high-bit `= signed value`, low-bit `= |value| − 2/√10`.
+- Soft deinterleave (`py_deinterleave_soft`) — same permutation as the
+  byte-level deinterleaver but operates on the float soft-bit array.
+- Q15 path quantises soft values to Q22 (matches `geq_t` storage).
+- Smoke validation on raw BPSK at Eb/N0 = 2 dB: hard 11 % BER → soft
+  0.78 % BER (14× gain — matches expected K=7 soft Viterbi behavior).
+
+CLI: `--decode-full-soft`, `--decode-full-q15-soft`.
+
+### 3. DFT-based channel smoothing
+
+`_smooth_channel_dft(G, L_taps)` — denoises the single-preamble channel
+estimate by truncating its time-domain impulse response.
+
+```
+G[k]  →  iDFT  →  h[n]  →  zero h[L_taps:N]  →  DFT  →  G_smooth[k]
+```
+
+- First attempt with `L_taps=16` **made BER worse** — diagnosed as
+  windowing leakage from the 50 null SCs (DC + guard bands).  Even though
+  the true channel impulse fits in `CP_LEN=32`, the iDFT of
+  `[G[active], 0[null]]` has support spread far wider in time.
+  Aggressive truncation throws away legitimate channel energy along
+  with noise.
+- Sweep across `L_taps ∈ {8, 16, 32, 48, 64, 96, 128, 192, 256}` on a
+  16QAM-2/3 SNR=14 combined-no-CFO test point: baseline soft BER 5.66e-4
+  → with `L_taps=64` 1.32e-4 → with `L_taps=96` **0** → with `L_taps=256`
+  back to 5.66e-4 (sanity: full-length truncation = no smoothing).
+- Default set to `L_taps=64`; sweet spot is 64–128, tunable via
+  `--smooth-taps N`.
+
+CLI: `--decode-full-smooth`, `--decode-full-q15-smooth`,
+`--decode-full-soft-smooth`, `--decode-full-q15-soft-smooth`.
+
+### Cumulative cliff shifts (combined-no-CFO, single-frame)
+
+Channel = AWGN + multipath (delays 1, 3 / amps 0.30, 0.15) + phase noise
+(σ = 0.005 rad/sample), CFO injection disabled (`--cfo-sc 0`).
+
+| Modcod      | Hard, no smooth | Soft only | Smooth only | **Soft + Smooth** | Total dB recovered |
+|---|---|---|---|---|---|
+| QPSK 1/2    | 10 dB           | 9 dB (−1) | 8 dB (−2)   | **7 dB**          | **−3 dB**          |
+| QPSK 2/3    | ≥11 dB          | 9 dB (−2) | 9 dB (−2)   | **8 dB**          | **≥−3 dB**         |
+| 16QAM 1/2   | 15–16 dB        | 14 dB (−2)| 15 dB (−1)  | **12 dB**         | **−3 to −4 dB**    |
+| 16QAM 2/3   | ≥17 dB          | 16 dB     | ≥17 dB      | **16 dB**         | **−1 dB** (variance-limited) |
+
+Mid-cliff BER reductions of 5–100× across all 4 modcods.  Q15 ≈ FP64 at
+every measured point — quantization is not the bottleneck for any of the
+three improvements.  Header CRC PASS at every SNR in every configuration.
+
+### What's left to gain (catalogued for future work)
+
+| Improvement | Expected dB | Effort |
+|---|---|---|
+| Per-pilot magnitude weighted CPE                        | ~0.3–0.5 dB | small  |
+| LLR clipping in soft Viterbi (kills metric outliers)   | ~0.3 dB     | tiny   |
+| Per-SC noise variance estimate → proper LLR             | ~0.5 dB     | moderate |
+| Reed-Solomon outer code                                 | ~2–3 dB system gain at BER=1e-6 | moderate |
+| Frame averaging in measurement (`--frames 5`)           | reveals 0.5–1 dB hidden by single-frame variance | trivial |
+
+### Files touched
+
+| File | Change |
+|---|---|
+| `sim/ofdm_reference.py` | `sync_detect_reference()`, `_smooth_channel_dft()`, `_q22_real()`, soft demap branches in `decode_full()`, `use_sync` / `use_soft` / `use_channel_smooth` flags + 8 new `--decode-full-*` CLI variants. |
+| `sim/fec_reference.py`  | `viterbi_decode_soft()` (linear-soft branch metric, erasure-aware). |
+| `tests/run_regression.sh` | New full TX → channel → RX driver.  `--soft`, `--smooth`, `--hls-rx`, `--frames` flags.  Outputs `regression_results.csv` (per frame) + `regression_summary.csv` (mean ± stddev per modcod×channel×SNR). |
+| `tests/test.md`         | New catalog of all test scripts with usage + cost. |
+| `tests/run_loopback*.sh`, `tests/run_ber_sweep.sh` | Moved from repo root into `tests/`; `cd` lines patched to operate from repo root. |
 
 ## Original symptom (preserved below for archive)
 
@@ -88,7 +195,7 @@ Both options are bitstream-affecting and require careful resource-budget review.
 
 ## 1. Symptom
 
-`./run_loopback_noisy.sh --mod 1 --rate 0 --snr <N>` results, by SNR:
+`./tests/run_loopback_noisy.sh --mod 1 --rate 0 --snr <N>` results, by SNR:
 
 | SNR (dB) | HLS RX | Python ref decode | Notes |
 |---|---|---|---|
@@ -434,19 +541,19 @@ To reproduce:
 ```bash
 # Clean signal, with HLS diagnostics in vitis_rx_csim.log
 python3 sim/ofdm_reference.py --gen --mod 1 --rate 0
-./run_loopback.sh --mod 1 --rate 0
+./tests/run_loopback.sh --mod 1 --rate 0
 grep '\[HLS\]' vitis_rx_csim.log
 
 # 15 dB AWGN, with HLS diagnostics in vitis_rx_noisy_csim.log
 python3 sim/ofdm_channel_sim.py --snr 15 --write-noisy --input tb_tx_output_hls.txt
-./run_loopback_noisy.sh --mod 1 --rate 0 --snr 15
+./tests/run_loopback_noisy.sh --mod 1 --rate 0 --snr 15
 grep '\[HLS\]' vitis_rx_noisy_csim.log | head -4   # first frame only
 
 # Python apples-to-apples header decode at any SNR
 python3 sim/ofdm_reference.py --decode-header --input tb_tx_output_hls_noise.txt --mod 1 --rate 0
 
 # Bypass mode
-OFDM_RX_BYPASS_SYNC=1 ./run_loopback_noisy.sh --mod 1 --rate 0 --snr 16
+OFDM_RX_BYPASS_SYNC=1 ./tests/run_loopback_noisy.sh --mod 1 --rate 0 --snr 16
 ```
 
 ---
@@ -522,7 +629,7 @@ estimated from preamble nulls).
 ## 8. Recommended next steps
 
 1. **Try Fix A first** — minimal code change, no IP regen. Run
-   `./run_loopback_noisy.sh --mod 1 --rate 0 --snr 15` and check if HLS
+   `./tests/run_loopback_noisy.sh --mod 1 --rate 0 --snr 15` and check if HLS
    phase_err drops to Python's `+0.45°`. If yes → root cause confirmed.
 
 2. **If Fix A insufficient** — Fix B (xfft scale_sch + wider types). Bitstream

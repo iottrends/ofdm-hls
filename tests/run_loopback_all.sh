@@ -18,7 +18,7 @@
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+cd "$SCRIPT_DIR/.."   # operate from repo root
 
 LOG_DIR="/tmp/loopback_all_$$"
 mkdir -p "$LOG_DIR"
@@ -51,7 +51,7 @@ for combo in "${COMBOS[@]}"; do
     echo "──────────────────────────────────────────────────────"
 
     # Run loopback; capture full log, stream a tail so user sees progress
-    if ./run_loopback.sh --mod "$m" --rate "$r" > "$log_file" 2>&1; then
+    if "$SCRIPT_DIR/run_loopback.sh" --mod "$m" --rate "$r" > "$log_file" 2>&1; then
         result="PASS"
         PASS_TOTAL=$((PASS_TOTAL + 1))
     else

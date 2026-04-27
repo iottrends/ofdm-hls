@@ -13,9 +13,12 @@ tb_tx_output_ref.txt
 tb_rx_decoded_hls.bin
 tb_decoded_noisy.bin
 
-# Generated BER results and plots
+# Generated BER / regression results and plots
 ber_results*.csv
-ber_vs_snr.csv
+ber_vs_snr*.csv
+ber_sweep_summary.csv
+regression_*.csv
+python_rx_*.csv
 *.png
 
 # Python cache

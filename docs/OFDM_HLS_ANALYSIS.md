@@ -423,9 +423,9 @@ Python reference decoder on tb_tx_output_hls.txt   →  BER = 0  ✓
 ### Test scripts
 
 ```bash
-./run_loopback.sh                  # clean loopback: 5 steps, all PASS
-./run_loopback_noisy.sh            # noisy loopback: default SNR=20 dB
-./run_loopback_noisy.sh --snr 10   # marginal SNR test
+./tests/run_loopback.sh                  # clean loopback: 5 steps, all PASS
+./tests/run_loopback_noisy.sh            # noisy loopback: default SNR=20 dB
+./tests/run_loopback_noisy.sh --snr 10   # marginal SNR test
 ```
 
 ### Resource usage — BEFORE xfft swap (hls::fft inline, Artix-50T)
@@ -1239,10 +1239,10 @@ Affects every complex mul in `estimate_channel`, `compute_pilot_cpe`, and `equal
 **Validation pending** — the WSL environment lacked Vivado/Vitis at commit time. Before merging to `rx-free-running-mac`, run:
 
 ```bash
-./run_loopback.sh                # clean channel, QPSK — bit-exact vs pre-Opt-2
-./run_loopback.sh --mod 1        # clean channel, 16QAM — bit-exact vs pre-Opt-2
-./run_ber_sweep.sh --mod 0       # full BER sweep, QPSK
-./run_ber_sweep.sh --mod 1       # full BER sweep, 16QAM
+./tests/run_loopback.sh                # clean channel, QPSK — bit-exact vs pre-Opt-2
+./tests/run_loopback.sh --mod 1        # clean channel, 16QAM — bit-exact vs pre-Opt-2
+./tests/run_ber_sweep.sh --mod 0       # full BER sweep, QPSK
+./tests/run_ber_sweep.sh --mod 1       # full BER sweep, 16QAM
 ./setup_vitis.sh rx_synth        # per-block HLS synth — expect ofdm_rx DSP ~24
 ```
 

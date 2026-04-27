@@ -128,15 +128,15 @@ in ofdm_rx (equaliser) could recover the remaining DSPs.
 1. **cfo_correct v2** — fixed-point sin/cos (biggest DSP win, ~15 min change)
 2. **Vivado xfft IP swap** — done at integration time, no HLS changes needed
 3. **ofdm_rx equaliser DSPs** — audit for unnecessary float, apply `BIND_OP fabric`
-4. **BER re-validate** after each change with `./run_loopback.sh` + `./run_ber_sweep.sh`
+4. **BER re-validate** after each change with `./tests/run_loopback.sh` + `./tests/run_ber_sweep.sh`
 
 ---
 
 ## Quick Verification After Each Change
 
 ```bash
-./run_loopback.sh                      # clean channel, BER must = 0
-./run_ber_sweep.sh --mod 0 --quick     # QPSK quick sweep, BER trend must be similar
+./tests/run_loopback.sh                      # clean channel, BER must = 0
+./tests/run_ber_sweep.sh --mod 0 --quick     # QPSK quick sweep, BER trend must be similar
 ./setup_vitis.sh cfo_correct_synth     # check LUT/DSP numbers
 ./setup_vitis.sh rx_synth              # check full RX
 ```

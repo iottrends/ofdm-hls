@@ -99,25 +99,40 @@ Latest LiteX SoC build (full PCIe + AD9361 wrapper + OFDM PHY chain), routed and
 bitstream-generated. Numbers from
 `litex/build/hallycon_m2sdr_platform/gateware/hallycon_m2sdr_platform_utilization_place.rpt`.
 
-| Resource     | Used   | Available | Utilization | vs. earlier baseline |
-|--------------|--------|-----------|-------------|----------------------|
-| Slice LUTs   | 25,913 | 32,600    | **79.5%**   | −106 (slight reduction after `rx-dsp-opt`) |
-| LUT as Logic | 23,549 | 32,600    | 72.2%       |                      |
-| LUT as Memory| 2,364  | 9,600     | 24.6%       |                      |
-| Slice FF     | 32,450 | 65,200    | **49.8%**   |                      |
-| DSP48E1      | 81     | 120       | **67.5%**   | **−5 vs Apr 17 (was 86)** ✓ |
-| Block RAM    | 67     | 75        | **89.3%**   | −0.5 (was 67.5)      |
-| Bonded IOB   | 57     | 150       | 38.0%       |                      |
+| Resource     | Used   | Available | Utilization |
+|--------------|--------|-----------|-------------|
+| Slice LUTs   | 25,913 | 32,600    | **79.5%**   |
+| LUT as Logic | 23,549 | 32,600    | 72.2%       |
+| LUT as Memory| 2,364  | 9,600     | 24.6%       |
+| Slice FF     | 32,450 | 65,200    | **49.8%**   |
+| DSP48E1      | 81     | 120       | **67.5%**   |
+| Block RAM    | 67     | 75        | **89.3%**   |
+| Bonded IOB   | 57     | 150       | 38.0%       |
 
 **Timing**: Setup WNS = +0.210 ns, Hold WNS = +0.111 ns, all paths positive
 slack at 100 MHz. Routing 100% successful, bitstream OK.
 
-For the per-functional-block resource breakdown (sync_detect, ofdm_rx, fec_rx,
-viterbi, etc.) see [`docs/RESOURCES.md`](docs/RESOURCES.md).
-
-BRAM at 89.3% is the tightest resource. The 4096-sample circular buffer in
+BRAM is the tightest resource (89.3%). The 4096-sample circular buffer in
 `sync_detect` accounts for 4 RAMB36 of that — could be trimmed to 2048 if
-another change pressures BRAM further.
+another change pressures BRAM.
+
+For the per-functional-block resource breakdown see [`docs/RESOURCES.md`](docs/RESOURCES.md).
+
+## Throughput (20 MSPS sample rate, 255 data symbols/frame)
+
+PHY-layer gross throughput = `200 SCs × bps × code_rate × 69,444 sym/sec × 99.2%`
+(99.2% is the data efficiency from 255/(255+2) preamble+header overhead).
+Net throughput is PHY minus 10–15% MAC + framing overhead.
+
+| Modcod         | PHY (gross) | Net (after MAC) |
+|----------------|-------------|-----------------|
+| QPSK   r=1/2   | 13.8 Mbps   | 11.7–12.4 Mbps  |
+| QPSK   r=2/3   | 18.4 Mbps   | 15.6–16.5 Mbps  |
+| 16-QAM r=1/2   | 27.6 Mbps   | 23.4–24.8 Mbps  |
+| **16-QAM r=2/3** | **36.7 Mbps** | **31–33 Mbps** |
+
+Frame time at 255 symbols + preamble + header = 257 × 14.4 µs = **3.7 ms**.
+Half-duplex round-trip ≥ 7.4 ms.
 
 ---
 
@@ -155,8 +170,8 @@ relative BER at every SNR / modcod combination.
 
 **16-QAM rate-2/3** is ~2 dB more sensitive than rate-1/2; **QPSK r=1/2 and
 r=2/3** stay at BER=0 down to 10 dB. See `docs/RX_LOW_SNR_DEBUG.md` for the
-full debug trace and `docs/REGRESSION_PLAN.md` for the planned channel-model
-regression matrix (multipath + phase noise + CFO).
+full debug trace and `tests/test.md` for the regression matrix (multipath +
+phase noise + CFO).
 
 **Header CRC** passes at every test point — the BPSK header now decodes
 cleanly at any SNR ≥ 10 dB regardless of data BER.
@@ -181,16 +196,19 @@ python3 sim/ofdm_reference.py --compare       # EVM comparison
 ### Run RX C-sim loopback
 
 ```bash
-./run_loopback.sh                         # TX csim → RX csim → BER report
+./tests/run_loopback.sh                       # TX csim → RX csim → BER report
+./tests/run_loopback_all.sh                   # all 4 modcods
+./tests/run_loopback_noisy.sh --snr 15        # AWGN at 15 dB
 ```
 
-### BER sweep
+### Full TX → channel → RX regression
 
 ```bash
-./run_ber_sweep.sh --mod 0                # QPSK sweep, all channels
-./run_ber_sweep.sh --mod 1                # 16QAM sweep, all channels
-python3 sim/plot_ber.py ber_results_mod0.csv  # generate waterfall plot
+./tests/run_regression.sh --snr 15            # 4 modcods × 5 channels at SNR=15
+./tests/run_regression.sh --snr "5 10 15 20" --soft --smooth   # full diagnostic
 ```
+
+See [`tests/test.md`](tests/test.md) for the complete test catalog.
 
 ### Synthesis (individual blocks)
 

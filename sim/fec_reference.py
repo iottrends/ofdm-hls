@@ -149,6 +149,103 @@ def viterbi_decode(coded_bytes: bytes, rate: int, n_data_bytes: int) -> bytes:
     return bytes(out)
 
 
+# ── Soft-decision Viterbi (Euclidean / linear branch metric) ────────────────
+#
+# Sign convention for `soft_bits`:
+#   r > 0  →  bit=0 likely (high confidence when |r| is large)
+#   r < 0  →  bit=1 likely
+#   r == 0 →  no information
+#   r is None → punctured (erased) position; do not contribute to metric
+#
+# Branch metric (per coded bit, lower = better path):
+#   bm = +r  if hypothesis bit g = 1
+#   bm = -r  if hypothesis bit g = 0
+# Equivalent to ML for AWGN with constant noise variance — the (r±1)² metric
+# minus per-step constants reduces to ±r.
+#
+# The forward recursion / traceback structure is identical to the hard
+# decoder; only the branch metric changes from Hamming to linear-soft.
+def viterbi_decode_soft(soft_bits, rate: int, n_data_bytes: int) -> bytes:
+    """Soft-decision Viterbi.  See module docstring above for sign convention.
+
+    soft_bits     : iterable of floats (or None for punctured positions).
+    rate          : 0 = rate-1/2, 1 = rate-2/3 (G1 punctured on odd input bits).
+    n_data_bytes  : expected output payload size — also defines trellis length.
+    """
+    n_data_bits  = n_data_bytes * 8
+    soft = list(soft_bits)
+
+    # Build per-step (r0, r1) pairs.  For rate-2/3, every other r1 is None
+    # (puncture pattern matches the encoder in conv_encode).
+    trellis = []
+    ci = 0
+    for step in range(n_data_bits):
+        r0 = soft[ci]; ci += 1
+        if rate == 0 or (step & 1) == 0:
+            r1 = soft[ci]; ci += 1
+        else:
+            r1 = None
+        trellis.append((r0, r1))
+
+    N        = 64
+    INF      = float("inf")
+    pm       = [INF] * N
+    pm[0]    = 0.0
+    decisions = []
+
+    for step in range(n_data_bits):
+        r0, r1 = trellis[step]
+        pm_new   = [INF] * N
+        dec_step = [0]   * N
+
+        for sp in range(N):
+            b  = (sp >> 5) & 1            # decoded bit = MSB of new state
+            p0 = (sp & 0x1F) << 1         # predecessor (old_state[0]=0)
+            p1 = ((sp & 0x1F) << 1) | 1   # predecessor (old_state[0]=1)
+
+            g0, g1 = _branch_outputs(p0, b)
+            # p1's outputs are the complement: (g0^1, g1^1).
+
+            # Linear soft branch metric: bm += r if hypothesis bit = 1, else -r.
+            # Equivalent to negative correlation (lower = better match).
+            bm0 = 0.0
+            if r0 is not None: bm0 += ( r0 if g0      == 1 else -r0)
+            if r1 is not None: bm0 += ( r1 if g1      == 1 else -r1)
+            bm1 = 0.0
+            if r0 is not None: bm1 += ( r0 if (g0^1)  == 1 else -r0)
+            if r1 is not None: bm1 += ( r1 if (g1^1)  == 1 else -r1)
+
+            cost0 = (pm[p0] + bm0) if pm[p0] < INF else INF
+            cost1 = (pm[p1] + bm1) if pm[p1] < INF else INF
+
+            if cost0 <= cost1:
+                pm_new[sp]   = cost0
+                dec_step[sp] = 0
+            else:
+                pm_new[sp]   = cost1
+                dec_step[sp] = 1
+
+        pm = pm_new
+        decisions.append(dec_step)
+
+    # Traceback from minimum-metric terminal state.
+    best_state   = pm.index(min(pm))
+    decoded_bits = [0] * n_data_bits
+    state        = best_state
+
+    for step in range(n_data_bits - 1, -1, -1):
+        decoded_bits[step] = (state >> 5) & 1
+        pred_idx           = decisions[step][state]
+        state              = ((state & 0x1F) << 1) | pred_idx
+
+    out = bytearray(n_data_bytes)
+    for byte_idx in range(n_data_bytes):
+        for p in range(8):
+            if decoded_bits[byte_idx * 8 + p]:
+                out[byte_idx] |= (1 << (7 - p))
+    return bytes(out)
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def count_bit_errors(a: bytes, b: bytes) -> int:

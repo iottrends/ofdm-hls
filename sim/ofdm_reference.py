@@ -43,7 +43,7 @@ N_SYMS    = 255
 MOD       = 1    # 0 = QPSK, 1 = 16QAM
 FEC_RATE  = 0    # 0 = rate 1/2, 1 = rate 2/3
 
-from fec_reference import conv_encode, viterbi_decode as fec_decode
+from fec_reference import conv_encode, viterbi_decode as fec_decode, viterbi_decode_soft as fec_decode_soft
 
 IN_FILE  = "tb_input_to_tx.bin"
 REF_FILE = "tb_tx_output_ref.txt"
@@ -262,6 +262,23 @@ def py_deinterleave(coded_bytes, mod, n_syms):
     """RX deinterleaver — matches HLS interleaver(is_rx=1)."""
     src_fn = _src_qpsk_rx if mod == 0 else _src_16qam_rx
     return _apply_interleave_perm(coded_bytes, mod, n_syms, src_fn)
+
+
+def py_deinterleave_soft(soft_bits, mod, n_syms):
+    """Soft-bit RX deinterleaver — same permutation as py_deinterleave but
+    operates on a 1-D array of float soft values rather than packed bytes.
+
+    soft_bits: length = n_syms * ncbps  (ncbps = 400 for QPSK, 800 for 16-QAM).
+               Sign convention: positive = bit=0, negative = bit=1.
+    Returns:   list of floats in deinterleaved bit order.
+    """
+    src_fn = _src_qpsk_rx if mod == 0 else _src_16qam_rx
+    ncbps  = 400 if mod == 0 else 800
+    out = []
+    for s in range(n_syms):
+        sym_soft = soft_bits[s * ncbps : (s + 1) * ncbps]
+        out.extend(sym_soft[src_fn(j)] for j in range(ncbps))
+    return out
 
 # ── Main ─────────────────────────────────────────────────────────
 def generate(mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE):
@@ -677,6 +694,60 @@ def _q22(z):
     z = np.asarray(z, dtype=np.complex128)
     return _trn_q(z.real, _LSB_Q22, -512.0, 512.0) + 1j * _trn_q(z.imag, _LSB_Q22, -512.0, 512.0)
 
+def _q22_real(x):
+    """Quantize a real scalar to Q22 grid — used for soft-decision values."""
+    return float(_trn_q(np.asarray([x], dtype=np.float64), _LSB_Q22, -512.0, 512.0)[0])
+
+
+# ============================================================
+# DFT-based MMSE channel smoothing
+# ============================================================
+# The single-preamble channel estimate G[k] = Y_pre[k] · conj(ZC[k]) carries
+# the FULL per-SC noise variance.  But the true channel impulse response
+# h[n] = iDFT(G_true) is sparse — for AWGN it's literally δ[n] (one tap),
+# for typical multipath it's a handful of taps inside the cyclic prefix
+# (CP_LEN = 32).  Anything beyond ~CP_LEN in time is purely noise.
+#
+# Algorithm:
+#   1. Form length-N (=FFT_SIZE) channel vector with G[k] on active SCs
+#      and zeros on null SCs (DC + guard bands carry no info).
+#   2. iDFT → time-domain channel response h[n] (length N).
+#   3. Truncate: keep h[0 .. L_taps-1], zero the rest.
+#   4. DFT back → smoothed G[k].
+#
+# IMPORTANT — choosing L_taps:
+#   The 50 null SCs (DC + guards) cause windowing leakage: even though the
+#   true channel impulse fits in CP_LEN=32 taps, the iDFT of [G[active], 0[null]]
+#   has support spread far wider.  Truncating too aggressively (e.g. L_taps=16
+#   or 32) throws away legitimate channel energy along with noise and HURTS BER.
+#   Empirical sweet spot for our 200/256 active configuration is L_taps in
+#   [64, 128].  Default = 64 (good balance of denoising vs leakage retention).
+#
+# Noise-variance reduction (rough): factor (L_taps / N).  With L_taps=64,
+# N=256 that's ~6 dB noise reduction on the channel estimate.
+#
+# Cost: one iDFT + one DFT per frame (preamble symbol only).
+# Q15 mirror: just keep the smoothed G in Q15 storage on the way out;
+# intermediate iDFT/DFT can run in float because they're bit-equivalent
+# at the input grid (no quantization happens until we store).
+# ============================================================
+def _smooth_channel_dft(G, L_taps=16, use_q15=False):
+    """DFT-based MMSE-style channel smoothing.
+
+    G        : length-FFT_SIZE complex array (zeros on null SCs).
+    L_taps   : number of time-domain taps to keep (default 16, well inside CP_LEN=32).
+    use_q15  : if True, requantize the smoothed G[k] back to Q15 grid (matches
+               sample_t storage in HLS).
+    """
+    G = np.asarray(G, dtype=np.complex128)
+    h = np.fft.ifft(G)              # time-domain impulse response, length N
+    h_trunc = np.zeros_like(h)
+    h_trunc[:L_taps] = h[:L_taps]   # keep first L_taps, discard the rest (noise)
+    G_smooth = np.fft.fft(h_trunc)  # back to frequency domain
+    if use_q15:
+        G_smooth = _q15(G_smooth)
+    return G_smooth
+
 
 def decode_header_q15(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE, guard_syms=1):
     """
@@ -790,10 +861,190 @@ def decode_header_q15(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE, g
 
 
 # ============================================================
+# sync_detect_reference — Python mirror of src/sync_detect.cpp
+# ============================================================
+# Sliding-window Schmidl-Cox CP correlation + power-envelope threshold.
+# When `use_q15=True`, accumulators are quantized at the same widths the HLS
+# block uses, so this becomes a faithful Q15 mirror of the RTL behavior.
+# `use_q15=False` runs the same algorithm in float64 — the idealised
+# reference that tells us how much precision is costing us.
+#
+# Mirrors sync_detect.cpp pipeline-register semantics: at iteration n the
+# threshold check uses the REGISTERED (P, R, Rl) computed in iteration n-1,
+# matching the +1-sample detection lag in the RTL.  As a result, when the
+# correlation peak lands at sample n_peak, this function reports
+#     start_offset = n_peak + 1 - CP_LEN - FFT_SIZE
+# which matches HLS's `rd_ptr = wr_ptr - CP_LEN - FFT_SIZE` on the next
+# iteration.  See sync_detect.cpp:177-217 for the original sequence.
+#
+# Out-of-scope vs HLS (intentional, single-frame Python use):
+#   • No FSM (FWD_PREHDR / WAIT_NSYMS / FWD_DATA) — single detect, return.
+#   • No deaf window / accumulator clear — we never re-arm in one frame.
+#   • No 4096-sample BUF_SIZE warmup — we only need N+L+POW_WIN samples
+#     for the running sums to be valid (see warmup_n below).
+# ============================================================
+
+# acc_t  = ap_fixed<24,8>  → 8 int + 16 frac, range [-128, 128), LSB = 2⁻¹⁶
+# prod_t = ap_fixed<32,12> → 12 int + 20 frac, range [-2048, 2048), LSB = 2⁻²⁰
+# SC_TH_SQ_CONST = ap_ufixed<16,0>(0.49) → quantized 0.49 ≈ 32113/65536
+_LSB_ACC  = 2.0 ** -16
+_LSB_PROD = 2.0 ** -20
+_ACC_HI   = 128.0
+_PROD_HI  = 2048.0
+_SC_TH_SQ_Q = np.floor(0.49 * 65536.0) / 65536.0   # ap_ufixed<16,0>(0.49) bit-pattern
+
+def _acc_q(x, use_q15):
+    if not use_q15:
+        return float(x)
+    return float(_trn_q(np.asarray([x], dtype=np.float64), _LSB_ACC, -_ACC_HI, _ACC_HI)[0])
+
+def _prod_q(x, use_q15):
+    if not use_q15:
+        return float(x)
+    return float(_trn_q(np.asarray([x], dtype=np.float64), _LSB_PROD, -_PROD_HI, _PROD_HI)[0])
+
+
+def sync_detect_reference(sig_c, pow_threshold=None, use_q15=True, verbose=False):
+    """Run a single-frame Python mirror of sync_detect over `sig_c`.
+
+    Parameters
+    ----------
+    sig_c          : 1-D complex array of IQ samples (Q15 grid expected if use_q15).
+    pow_threshold  : float, pow_env trigger level (matches HLS s_axilite reg).
+                     None → auto-set to 10 % of the mean power over a clean
+                     window of N samples N..2N (skips leading guard zeros).
+    use_q15        : True  → ap_fixed widths from HLS (acc_t Q24/16, prod_t Q32/20)
+                     False → float64 reference.
+    verbose        : True  → print metric/pow_env summary.
+
+    Returns
+    -------
+    dict with keys:
+        detected      : bool — was the dual-threshold gate ever crossed?
+        start_offset  : int  — preamble first-CP sample, or -1 if no trigger.
+                                Matches HLS `rd_ptr = wr_ptr - CP_LEN - FFT_SIZE`.
+        metric_max    : float — peak |P|² / (R·Rl) seen across the buffer
+                                (NaN-safe; 0 if denominators were zero).
+        pow_env_max   : float — peak pow_env reading.
+        trigger_n     : int  — sample index where the threshold first fired
+                                (use start_offset for the symbol boundary).
+    """
+    L       = CP_LEN          # 32
+    N       = FFT_SIZE        # 256
+    POW_WIN = 64
+    SC_TH_SQ = _SC_TH_SQ_Q if use_q15 else 0.49
+
+    sig_c = np.asarray(sig_c, dtype=np.complex128)
+    if use_q15:
+        # Project onto the Q15 grid (idempotent if input already Q15).
+        sig_c = _q15(sig_c)
+
+    n_samples = len(sig_c)
+    s_re = sig_c.real
+    s_im = sig_c.imag
+
+    # Auto pow_threshold: 10 % of mean power over a clean N-sample window.
+    if pow_threshold is None:
+        if n_samples >= 2 * N:
+            ref_pow = float(np.mean(s_re[N:2*N]**2 + s_im[N:2*N]**2))
+            pow_threshold = ref_pow * 0.10
+        else:
+            pow_threshold = 0.0
+
+    # Running accumulators (mirror static vars in sync_detect.cpp:119-122)
+    P_re = 0.0
+    P_im = 0.0
+    R    = 0.0
+    Rl   = 0.0
+    pow_env = 0.0
+    pow_delay = [0.0] * POW_WIN
+    pow_idx = 0
+
+    metric_max  = 0.0
+    pow_env_max = 0.0
+    triggered_at = -1
+    start_offset = -1
+
+    # warmup: the running sums need at least N+L samples of history before
+    # they reflect a true sliding window.  +POW_WIN guards the pow_env tap.
+    warmup_n = N + L + POW_WIN
+
+    for n in range(n_samples):
+        # ── 1. Read current and delayed samples (zeros before t=0) ──
+        cur_re = s_re[n];      cur_im = s_im[n]
+        rO_re  = s_re[n-L]     if n - L     >= 0 else 0.0
+        rO_im  = s_im[n-L]     if n - L     >= 0 else 0.0
+        rN_re  = s_re[n-N]     if n - N     >= 0 else 0.0
+        rN_im  = s_im[n-N]     if n - N     >= 0 else 0.0
+        rON_re = s_re[n-L-N]   if n - L - N >= 0 else 0.0
+        rON_im = s_im[n-L-N]   if n - L - N >= 0 else 0.0
+
+        # ── 2. Threshold check on REGISTERED accumulators (sync_detect.cpp:177-187) ──
+        P_magsq = _prod_q(P_re*P_re + P_im*P_im, use_q15)
+        R_Rl    = _prod_q(R * Rl,                use_q15)
+        thresh  = _prod_q(R_Rl * SC_TH_SQ,       use_q15)
+        sc_above  = (P_magsq > thresh) and (Rl > 0.0) and (R > 0.0)
+        pow_above = (pow_env > pow_threshold)
+
+        # Detection (HLS S_SEARCH gate); fires once and latches.
+        if (triggered_at < 0) and (n >= warmup_n) and sc_above and pow_above:
+            triggered_at = n
+            # rd_ptr = wr_ptr - CP_LEN - FFT_SIZE  (sync_detect.cpp:239)
+            start_offset = n - L - N
+
+        # ── 3. Update running sums (sync_detect.cpp:189-217) ──
+        new_P_re = _acc_q(cur_re*rN_re + cur_im*rN_im,  use_q15)
+        new_P_im = _acc_q(cur_im*rN_re - cur_re*rN_im,  use_q15)
+        old_P_re = _acc_q(rO_re*rON_re + rO_im*rON_im,  use_q15)
+        old_P_im = _acc_q(rO_im*rON_re - rO_re*rON_im,  use_q15)
+
+        new_pow  = _acc_q(cur_re*cur_re + cur_im*cur_im, use_q15)
+        newN_pow = _acc_q(rN_re*rN_re   + rN_im*rN_im,   use_q15)
+        oldL_pow = _acc_q(rO_re*rO_re   + rO_im*rO_im,   use_q15)
+        oldN_pow = _acc_q(rON_re*rON_re + rON_im*rON_im, use_q15)
+
+        # Power envelope (always live)
+        pow_out = pow_delay[pow_idx]
+        pow_delay[pow_idx] = new_pow
+        pow_idx = (pow_idx + 1) % POW_WIN
+        pow_env = _acc_q(pow_env + new_pow - pow_out, use_q15)
+
+        # Schmidl-Cox sums (live in S_SEARCH only — but we never leave it here)
+        P_re = _acc_q(P_re + new_P_re - old_P_re, use_q15)
+        P_im = _acc_q(P_im + new_P_im - old_P_im, use_q15)
+        R    = _acc_q(R    + newN_pow - oldN_pow, use_q15)
+        Rl   = _acc_q(Rl   + new_pow  - oldL_pow, use_q15)
+
+        # Track maxima for diagnostics (post-update so peak is captured cleanly)
+        if R > 0.0 and Rl > 0.0:
+            m = (P_re*P_re + P_im*P_im) / (R * Rl)
+            if m > metric_max:
+                metric_max = float(m)
+        if pow_env > pow_env_max:
+            pow_env_max = float(pow_env)
+
+    label = "Q15 " if use_q15 else "FP64"
+    if verbose:
+        print(f"  [SYNC {label}] pow_threshold={pow_threshold:.6e}  "
+              f"pow_env_max={pow_env_max:.6e}  metric_max={metric_max:.4f}  "
+              f"trigger@n={triggered_at}  start_offset={start_offset}")
+
+    return {
+        'detected':     (triggered_at >= 0),
+        'start_offset': start_offset,
+        'trigger_n':    triggered_at,
+        'metric_max':   metric_max,
+        'pow_env_max':  pow_env_max,
+        'pow_threshold': pow_threshold,
+    }
+
+
+# ============================================================
 # Unified full RX decoder — header + data, optional Q15 precision
 # ============================================================
 def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
-                guard_syms=1, use_q15=False):
+                guard_syms=1, use_q15=False, use_sync=False, use_soft=False,
+                use_channel_smooth=False, smooth_taps=64):
     """
     Full RX chain mirroring HLS step-by-step:
       1. preamble channel estimate G
@@ -806,7 +1057,9 @@ def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
     points (Q15 for freq_buf/G, Q20 for inv_t, Q22 for G_eq/eq).  This makes
     Python a precision-class apples-to-apples reference for HLS.
     """
-    label = "Q15 " if use_q15 else "FP64"
+    # Label encodes precision (FP64 vs Q15) and decision class (HARD vs SOFT).
+    label = ("Q15"  if use_q15  else "FP64") + ("+SOFT" if use_soft else "+HARD")
+    label = f"{label:<9}"   # pad so per-frame log lines line up
 
     if tx_file is None:
         tx_file = HLS_FILE
@@ -818,10 +1071,28 @@ def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
     sig_c = sig[:, 0] + 1j * sig[:, 1]
 
     sym_len   = FFT_SIZE + CP_LEN
-    guard_len = guard_syms * sym_len
-    expected_samps = (n_syms + 2 + guard_syms) * sym_len
+
+    # ── Optional sync stage ─────────────────────────────────────
+    # When use_sync=True, we run the Python sync_detect_reference (Q15 or FP64,
+    # matches `use_q15`) on the raw IQ stream and use the detected start offset
+    # in place of the fixed `guard_syms * sym_len` assumption.  This converts
+    # decode_full into a true end-to-end Q15 mirror of the HLS RX chain.
+    if use_sync:
+        sync = sync_detect_reference(sig_c, use_q15=use_q15, verbose=True)
+        if not sync['detected']:
+            print(f"  [{label}] sync_detect: NOT TRIGGERED — RX path returns FAIL.")
+            return {'header_pass': False, 'sync_fail': True,
+                    'metric_max': sync['metric_max']}
+        guard_len = max(sync['start_offset'], 0)
+        # No additional fixed offset — sync already aligned us to the preamble.
+    else:
+        guard_len = guard_syms * sym_len
+
+    expected_samps = guard_len + (n_syms + 2) * sym_len
     if len(sig_c) < expected_samps:
-        print(f"[{label}] FAIL: signal too short ({len(sig_c)} < {expected_samps})")
+        print(f"  [{label}] FAIL: signal too short "
+              f"({len(sig_c)} < {expected_samps})  "
+              f"guard_len={guard_len}  use_sync={use_sync}")
         return None
 
     zc = zc_sequence()
@@ -858,6 +1129,13 @@ def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
         G[k] = _q15(np.array([g]))[0] if use_q15 else g
     for k in PILOT_IDX:
         G[k] = Y_pre[k]   # pilot transmitted at +1 → G = Y_pre
+
+    # ── Step 1b: optional DFT-based channel smoothing ──
+    # Denoises G[k] by truncating its time-domain impulse response to L_taps.
+    # Cuts noise variance on the channel estimate by ~N/L_taps (typically 12 dB
+    # for L_taps=16, N=256), which roughly halves the equalize-step penalty.
+    if use_channel_smooth:
+        G = _smooth_channel_dft(G, L_taps=smooth_taps, use_q15=use_q15)
 
     # ── Step 2: header decode ──
     hdr_off  = guard_len + sym_len
@@ -904,8 +1182,15 @@ def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
           f"CRC 0x{rx_crc:04X}/0x{exp_crc:04X}  {'PASS' if header_pass else 'FAIL'}")
 
     # ── Step 3: data demap with per-symbol pilot CPE ──
+    # If use_soft: accumulate signed soft values per coded bit (positive = bit=0,
+    # negative = bit=1).  Otherwise: existing hard-decision bit accumulation.
+    # 16-QAM Gray soft mapping per axis:
+    #   high-bit (sign axis):  soft = X_hat.axis           (positive → bit=0)
+    #   low-bit  (mag axis):   soft = |X_hat.axis| - THR   (positive → outer = bit=0)
+    THR_16QAM = 2.0 / np.sqrt(10)   # ≈ 0.6325 — same threshold used in decode_axis_16qam
     bps = 2 if mod == 0 else 4
     decoded_bits = []
+    soft_bits    = []
 
     for s in range(n_syms):
         offset = guard_len + sym_len * (s + 2)
@@ -935,18 +1220,35 @@ def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
             if use_q15:
                 X_hat = _q22(np.array([X_hat]))[0]
 
+            xr = float(X_hat.real)
+            xi = float(X_hat.imag)
+
             if mod == 0:  # QPSK
-                b1 = 1 if X_hat.real < 0 else 0
-                b0 = 1 if X_hat.imag < 0 else 0
+                b1 = 1 if xr < 0 else 0
+                b0 = 1 if xi < 0 else 0
                 decoded_bits.extend([b1, b0])
+                if use_soft:
+                    sb1, sb0 = xr, xi
+                    if use_q15:
+                        sb1, sb0 = _q22_real(sb1), _q22_real(sb0)
+                    soft_bits.extend([sb1, sb0])
             else:  # 16-QAM
-                i_bits = decode_axis_16qam(X_hat.real)
-                q_bits = decode_axis_16qam(X_hat.imag)
+                i_bits = decode_axis_16qam(xr)
+                q_bits = decode_axis_16qam(xi)
                 b3 = (i_bits >> 1) & 1
                 b2 =  i_bits       & 1
                 b1 = (q_bits >> 1) & 1
                 b0 =  q_bits       & 1
                 decoded_bits.extend([b3, b2, b1, b0])
+                if use_soft:
+                    sb3 =      xr                       # I-axis high bit
+                    sb2 = abs(xr) - THR_16QAM           # I-axis low  bit
+                    sb1 =      xi                       # Q-axis high bit
+                    sb0 = abs(xi) - THR_16QAM           # Q-axis low  bit
+                    if use_q15:
+                        sb3, sb2 = _q22_real(sb3), _q22_real(sb2)
+                        sb1, sb0 = _q22_real(sb1), _q22_real(sb0)
+                    soft_bits.extend([sb3, sb2, sb1, sb0])
 
     # ── Step 4: pack bits → bytes (matches TX format) ──
     decoded_bits = np.array(decoded_bits, dtype=np.uint8)
@@ -975,8 +1277,14 @@ def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
     total_coded   = n_syms * coded_per_sym
     total_raw     = total_coded // 2 if fec_rate == 0 else total_coded * 2 // 3
 
-    deinterleaved = py_deinterleave(bytes(decoded_bytes), mod, n_syms)
-    raw_decoded   = fec_decode(deinterleaved, fec_rate, total_raw)
+    if use_soft:
+        # Soft pipeline: deinterleave the float soft-bit array, then linear-soft Viterbi.
+        # Skips the byte-pack/unpack roundtrip the hard path uses.
+        deinterleaved_soft = py_deinterleave_soft(soft_bits, mod, n_syms)
+        raw_decoded        = fec_decode_soft(deinterleaved_soft, fec_rate, total_raw)
+    else:
+        deinterleaved = py_deinterleave(bytes(decoded_bytes), mod, n_syms)
+        raw_decoded   = fec_decode(deinterleaved, fec_rate, total_raw)
     raw_decoded   = py_scramble(raw_decoded)
     decoded_bytes = np.frombuffer(raw_decoded, dtype=np.uint8)
 
@@ -1021,6 +1329,28 @@ if __name__ == "__main__":
                         help="Full RX chain (header + data) in float64 with per-symbol pilot CPE")
     parser.add_argument("--decode-full-q15", action="store_true",
                         help="Full RX chain (header + data) at HLS-equivalent Q15/Q20/Q22 precision")
+    parser.add_argument("--decode-full-sync", action="store_true",
+                        help="Full RX chain in float64 with Python sync_detect_reference (FP64) — end-to-end RX")
+    parser.add_argument("--decode-full-q15-sync", action="store_true",
+                        help="Full RX chain at Q15/Q20/Q22 with Python sync_detect_reference (Q15) — true HLS mirror")
+    parser.add_argument("--decode-full-soft", action="store_true",
+                        help="Full RX chain in float64 with sync + SOFT-decision Viterbi")
+    parser.add_argument("--decode-full-q15-soft", action="store_true",
+                        help="Full RX chain at Q15/Q20/Q22 with sync + SOFT-decision Viterbi")
+    parser.add_argument("--decode-full-smooth", action="store_true",
+                        help="Full RX chain in float64 with sync + HARD Viterbi + DFT channel smoothing")
+    parser.add_argument("--decode-full-q15-smooth", action="store_true",
+                        help="Full RX chain at Q15/Q20/Q22 with sync + HARD Viterbi + DFT channel smoothing")
+    parser.add_argument("--decode-full-soft-smooth", action="store_true",
+                        help="Full RX chain in float64 with sync + SOFT Viterbi + DFT channel smoothing")
+    parser.add_argument("--decode-full-q15-soft-smooth", action="store_true",
+                        help="Full RX chain at Q15/Q20/Q22 with sync + SOFT Viterbi + DFT channel smoothing")
+    parser.add_argument("--smooth-taps", type=int, default=64,
+                        help="Number of time-domain taps to keep in channel smoothing "
+                             "(default: 64). Sweet spot 64-128 — smaller hurts because "
+                             "the 50 null SCs spread the channel response in time.")
+    parser.add_argument("--sync-only", action="store_true",
+                        help="Run sync_detect_reference and print trigger / metric / pow_env (no decode)")
     parser.add_argument("--input",   type=str, default=None,
                         help="Override IQ input file for --decode-hls (default: tb_tx_output_hls.txt)")
     parser.add_argument("--mod",     type=int, default=MOD,      help="0=QPSK 1=16QAM")
@@ -1029,7 +1359,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if not any([args.gen, args.compare, args.decode, args.decode_hls, args.decode_header,
-                args.decode_header_q15, args.decode_full, args.decode_full_q15]):
+                args.decode_header_q15, args.decode_full, args.decode_full_q15,
+                args.decode_full_sync, args.decode_full_q15_sync,
+                args.decode_full_soft, args.decode_full_q15_soft,
+                args.decode_full_smooth, args.decode_full_q15_smooth,
+                args.decode_full_soft_smooth, args.decode_full_q15_soft_smooth,
+                args.sync_only]):
         parser.print_help()
     if args.gen:
         generate(mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate)
@@ -1054,3 +1389,50 @@ if __name__ == "__main__":
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
                     guard_syms=1, use_q15=True)
+    if args.decode_full_sync:
+        decode_full(tx_file=args.input if args.input else HLS_FILE,
+                    mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
+                    use_q15=False, use_sync=True)
+    if args.decode_full_q15_sync:
+        decode_full(tx_file=args.input if args.input else HLS_FILE,
+                    mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
+                    use_q15=True, use_sync=True)
+    if args.decode_full_soft:
+        decode_full(tx_file=args.input if args.input else HLS_FILE,
+                    mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
+                    use_q15=False, use_sync=True, use_soft=True)
+    if args.decode_full_q15_soft:
+        decode_full(tx_file=args.input if args.input else HLS_FILE,
+                    mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
+                    use_q15=True, use_sync=True, use_soft=True)
+    if args.decode_full_smooth:
+        decode_full(tx_file=args.input if args.input else HLS_FILE,
+                    mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
+                    use_q15=False, use_sync=True, use_soft=False,
+                    use_channel_smooth=True, smooth_taps=args.smooth_taps)
+    if args.decode_full_q15_smooth:
+        decode_full(tx_file=args.input if args.input else HLS_FILE,
+                    mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
+                    use_q15=True, use_sync=True, use_soft=False,
+                    use_channel_smooth=True, smooth_taps=args.smooth_taps)
+    if args.decode_full_soft_smooth:
+        decode_full(tx_file=args.input if args.input else HLS_FILE,
+                    mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
+                    use_q15=False, use_sync=True, use_soft=True,
+                    use_channel_smooth=True, smooth_taps=args.smooth_taps)
+    if args.decode_full_q15_soft_smooth:
+        decode_full(tx_file=args.input if args.input else HLS_FILE,
+                    mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
+                    use_q15=True, use_sync=True, use_soft=True,
+                    use_channel_smooth=True, smooth_taps=args.smooth_taps)
+    if args.sync_only:
+        path = args.input if args.input else HLS_FILE
+        if not os.path.exists(path):
+            print(f"[SYNC] {path} not found")
+        else:
+            sig_arr = np.loadtxt(path, dtype=float)
+            sig_c   = sig_arr[:, 0] + 1j * sig_arr[:, 1]
+            print("  ── FP64 ──")
+            sync_detect_reference(sig_c, use_q15=False, verbose=True)
+            print("  ── Q15  ──")
+            sync_detect_reference(sig_c, use_q15=True,  verbose=True)
