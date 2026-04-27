@@ -165,15 +165,37 @@ def viterbi_decode(coded_bytes: bytes, rate: int, n_data_bytes: int) -> bytes:
 #
 # The forward recursion / traceback structure is identical to the hard
 # decoder; only the branch metric changes from Hamming to linear-soft.
-def viterbi_decode_soft(soft_bits, rate: int, n_data_bytes: int) -> bytes:
+def viterbi_decode_soft(soft_bits, rate: int, n_data_bytes: int,
+                         clip_factor: float = 0.0) -> bytes:
     """Soft-decision Viterbi.  See module docstring above for sign convention.
 
     soft_bits     : iterable of floats (or None for punctured positions).
     rate          : 0 = rate-1/2, 1 = rate-2/3 (G1 punctured on odd input bits).
     n_data_bytes  : expected output payload size — also defines trellis length.
+    clip_factor   : if > 0, clip soft values to ±(clip_factor × median(|soft|)).
+                    A single SC with extreme magnitude (deep fade, CPE outlier,
+                    or numerical overflow) can dominate the trellis search and
+                    push all path metrics into one hypothesis — the so-called
+                    "metric outlier" failure mode.  Median-based clipping is
+                    robust against the outliers themselves (mean would be
+                    biased by them).  Typical values: 5.0 conservative, 3.0
+                    aggressive.  0.0 = disabled (matches old behavior).
     """
     n_data_bits  = n_data_bytes * 8
     soft = list(soft_bits)
+
+    # ── Optional LLR clipping (median-based robust outlier rejection) ──
+    if clip_factor > 0.0:
+        # Median of |soft|, ignoring None (erasures from puncture pattern).
+        finite_mags = [abs(v) for v in soft if v is not None]
+        if finite_mags:
+            import statistics as _stats
+            thresh = clip_factor * _stats.median(finite_mags)
+            if thresh > 0.0:
+                soft = [
+                    (max(-thresh, min(thresh, v)) if v is not None else None)
+                    for v in soft
+                ]
 
     # Build per-step (r0, r1) pairs.  For rate-2/3, every other r1 is None
     # (puncture pattern matches the encoder in conv_encode).
@@ -244,6 +266,149 @@ def viterbi_decode_soft(soft_bits, rate: int, n_data_bytes: int) -> bytes:
             if decoded_bits[byte_idx * 8 + p]:
                 out[byte_idx] |= (1 << (7 - p))
     return bytes(out)
+
+
+# ── Header FEC: K=7 convolutional, rate-1/2 or rate-1/3 ─────────────────────
+#
+# K=7 conv code, NASA Voyager / 802.11a generator polynomials:
+#   G0 = 0x5B (133 octal, 1011011) — same as data path
+#   G1 = 0x79 (171 octal, 1111001) — same as data path
+#   G2 = 0x75 (165 octal, 1110101) — added for rate-1/3
+#
+# Used to FEC-protect the OFDM BPSK header.  6 zero tail bits flush the
+# trellis to state 0 for clean traceback.
+#
+# Sizing for the 200-data-SC header symbol (200 BPSK SCs available):
+#   rate-1/2:  capacity = 100 input bits → ≤ 78 payload bits + 16 CRC + 6 tail
+#   rate-1/3:  capacity =  66 input bits → ≤ 44 payload bits + 16 CRC + 6 tail
+#
+# Default rate-1/2 was chosen for forward compatibility with MAC growth — the
+# header will eventually need ~70 bit payload (frame_type, src/dst addrs,
+# seq_num, priority, etc).  Rate-1/3 is available for the smaller current
+# header (10 payload bits) when extra coding gain matters more than capacity.
+#
+# Cost in HLS: small Viterbi (32-step trellis at today's 10-bit payload, up
+# to ~92 steps at 70-bit payload), 64 states, no sliding-window — ~50-100 LUT.
+# ────────────────────────────────────────────────────────────────────────────
+
+def conv_encode_header(input_bits, rate: str = "1/2") -> list:
+    """K=7 convolutional encoder for the OFDM header.
+
+    input_bits : iterable of bits to encode (MSB first).  Typically this is
+                 (payload_bits || CRC-16) — the caller composes them.
+    rate       : "1/2" → (G0, G1) — 2 output bits per input
+                 "1/3" → (G0, G1, G2) — 3 output bits per input
+
+    Appends 6 zero tail bits before encoding to flush the trellis.
+    Returns: list of coded bits, length = (len(input_bits) + 6) × {2 or 3}.
+    """
+    if rate not in ("1/2", "1/3"):
+        raise ValueError(f"unsupported header FEC rate: {rate!r} (use '1/2' or '1/3')")
+    bits = list(input_bits)
+
+    sr = 0  # 6-bit shift register, bit 5 = newest
+    coded = []
+    for b in bits + [0] * 6:                     # +6 tail bits to flush
+        b  = int(b) & 1
+        # Compute all generators BEFORE updating sr (they depend on the
+        # current state).
+        g0 = b ^ ((sr>>4)&1) ^ ((sr>>3)&1) ^ ((sr>>1)&1) ^ (sr&1)
+        g1 = b ^ ((sr>>5)&1) ^ ((sr>>4)&1) ^ ((sr>>3)&1) ^ (sr&1)
+        coded.append(g0)
+        coded.append(g1)
+        if rate == "1/3":
+            g2 = b ^ ((sr>>5)&1) ^ ((sr>>4)&1) ^ ((sr>>2)&1) ^ (sr&1)
+            coded.append(g2)
+        sr = ((b << 5) | (sr >> 1)) & 0x3F
+    return coded
+
+
+def viterbi_decode_header_soft(soft_bits, n_input_bits: int,
+                                rate: str = "1/2",
+                                clip_factor: float = 0.0) -> list:
+    """Soft-decision Viterbi for the K=7 header conv code.
+
+    soft_bits     : floats (positive → bit=0, negative → bit=1).  Length must
+                    equal (n_input_bits + 6) × {2 or 3} depending on rate.
+    n_input_bits  : number of input bits the encoder consumed (e.g. payload + CRC,
+                    not including tail).  Decoder strips the 6 tail bits before
+                    returning.
+    rate          : "1/2" or "1/3" — must match the encoder.
+    clip_factor   : if > 0, median-based outlier clipping.
+    Returns       : list of n_input_bits decoded bits (MSB first).
+    """
+    if rate not in ("1/2", "1/3"):
+        raise ValueError(f"unsupported header FEC rate: {rate!r}")
+    bits_per_step = 2 if rate == "1/2" else 3
+    n_steps       = n_input_bits + 6
+    expected_n    = n_steps * bits_per_step
+    if len(soft_bits) != expected_n:
+        raise ValueError(
+            f"expected {expected_n} soft bits for rate-{rate} on "
+            f"{n_input_bits}-bit input, got {len(soft_bits)}")
+    soft = list(soft_bits)
+
+    # Optional LLR clipping (median-based, robust to outliers).
+    if clip_factor > 0.0:
+        import statistics as _stats
+        thresh = clip_factor * _stats.median(abs(v) for v in soft)
+        if thresh > 0.0:
+            soft = [max(-thresh, min(thresh, v)) for v in soft]
+
+    N         = 64
+    INF       = float("inf")
+    pm        = [INF] * N
+    pm[0]     = 0.0          # encoder starts in state 0
+    decisions = []
+
+    for step in range(n_steps):
+        r0 = soft[step * bits_per_step]
+        r1 = soft[step * bits_per_step + 1]
+        r2 = soft[step * bits_per_step + 2] if rate == "1/3" else None
+        pm_new   = [INF] * N
+        dec_step = [0]   * N
+
+        for sp in range(N):
+            b  = (sp >> 5) & 1            # decoded bit = MSB of new state
+            p0 = (sp & 0x1F) << 1
+            p1 = ((sp & 0x1F) << 1) | 1
+
+            g0 = b ^ ((p0>>4)&1) ^ ((p0>>3)&1) ^ ((p0>>1)&1) ^ (p0&1)
+            g1 = b ^ ((p0>>5)&1) ^ ((p0>>4)&1) ^ ((p0>>3)&1) ^ (p0&1)
+            bm0 = (r0 if g0 == 1 else -r0) + (r1 if g1 == 1 else -r1)
+            bm1 = (r0 if (g0^1) == 1 else -r0) + (r1 if (g1^1) == 1 else -r1)
+            if rate == "1/3":
+                g2 = b ^ ((p0>>5)&1) ^ ((p0>>4)&1) ^ ((p0>>2)&1) ^ (p0&1)
+                bm0 += (r2 if g2 == 1 else -r2)
+                bm1 += (r2 if (g2^1) == 1 else -r2)
+
+            cost0 = (pm[p0] + bm0) if pm[p0] < INF else INF
+            cost1 = (pm[p1] + bm1) if pm[p1] < INF else INF
+            if cost0 <= cost1:
+                pm_new[sp]   = cost0
+                dec_step[sp] = 0
+            else:
+                pm_new[sp]   = cost1
+                dec_step[sp] = 1
+
+        pm = pm_new
+        decisions.append(dec_step)
+
+    # Traceback from state 0 (encoder appended 6 zero tail bits → final state = 0).
+    state = 0
+    decoded = [0] * n_steps
+    for step in range(n_steps - 1, -1, -1):
+        decoded[step] = (state >> 5) & 1
+        pred_idx      = decisions[step][state]
+        state         = ((state & 0x1F) << 1) | pred_idx
+
+    return decoded[:n_input_bits]              # strip 6 tail bits
+
+
+# Backwards-compat alias kept for any callers using the old name (now thin shim).
+def conv_encode_header_rate13(payload_bits) -> list:
+    """Deprecated — use conv_encode_header(input_bits, rate='1/3')."""
+    return conv_encode_header(payload_bits, rate="1/3")
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

@@ -43,7 +43,9 @@ N_SYMS    = 255
 MOD       = 1    # 0 = QPSK, 1 = 16QAM
 FEC_RATE  = 0    # 0 = rate 1/2, 1 = rate 2/3
 
-from fec_reference import conv_encode, viterbi_decode as fec_decode, viterbi_decode_soft as fec_decode_soft
+from fec_reference import (conv_encode, viterbi_decode as fec_decode,
+                           viterbi_decode_soft as fec_decode_soft,
+                           conv_encode_header, viterbi_decode_header_soft)
 
 IN_FILE  = "tb_input_to_tx.bin"
 REF_FILE = "tb_tx_output_ref.txt"
@@ -97,25 +99,45 @@ def crc16_hdr(payload_10bit):
             crc ^= 0x1021
     return crc
 
-def build_header_symbol(mod, n_syms, fec_rate=0):
-    """Build BPSK frame-header symbol (26 bits on DATA_SC_IDX[0..25]).
+def build_header_symbol(mod, n_syms, fec_rate=0, use_header_fec=True,
+                        header_fec_rate="1/2"):
+    """Build BPSK frame-header symbol.
 
-    Payload layout (matches HLS src/ofdm_tx.cpp:485 + ofdm_tx.h:54):
+    Default uncoded layout (matches HLS src/ofdm_tx.cpp:485 + ofdm_tx.h:54):
+      26 BPSK bits on DATA_SC_IDX[0..25]
       bits[9:2] = n_syms[7:0]
-      bits[1:0] = modcod = {mod, rate}   ← modcod[1]=mod, modcod[0]=rate
+      bits[1:0] = modcod = {mod, rate}
+      bits[25:10] = CRC-16 over the 10-bit payload
+
+    With use_header_fec=True (Path A header protection):
+      26-bit input (10 payload + 16 CRC) + 6 tail → conv-encode at the chosen
+      rate.  Default rate-1/2 (64 BPSK SCs today; scales to 184 SCs when MAC
+      grows the payload to ~70 bits).  rate-1/3 available for max coding gain
+      on the small current header (96 SCs at today's 10-bit payload).
     """
     modcod  = ((mod & 1) << 1) | (fec_rate & 1)
     payload = (n_syms << 2) | (modcod & 0x3)
     crc     = crc16_hdr(payload)
-    hdr     = (crc << 10) | payload   # 26-bit word
+    hdr     = (crc << 10) | payload   # 26-bit word, MSB-first on the wire
 
     freq = np.zeros(FFT_SIZE, dtype=complex)
     for p in PILOT_IDX:
         freq[p] = 0.999969 + 0j
-    for d in range(26):
-        bit = (hdr >> (25 - d)) & 1   # MSB first
-        freq[DATA_SC_IDX[d]] = (-0.999969 if bit else 0.999969) + 0j
-    # DATA_SC_IDX[26..199] stay zero
+
+    if use_header_fec:
+        # 26 bits MSB-first → rate-{1/2 or 1/3} conv-encode
+        hdr_bits = [(hdr >> (25 - d)) & 1 for d in range(26)]
+        coded    = conv_encode_header(hdr_bits, rate=header_fec_rate)
+        for d, bit in enumerate(coded):
+            freq[DATA_SC_IDX[d]] = (-0.999969 if bit else 0.999969) + 0j
+        # DATA_SC_IDX past len(coded) stays zero
+    else:
+        # Original 26-bit uncoded BPSK header
+        for d in range(26):
+            bit = (hdr >> (25 - d)) & 1
+            freq[DATA_SC_IDX[d]] = (-0.999969 if bit else 0.999969) + 0j
+        # DATA_SC_IDX[26..199] stay zero
+
     return build_ofdm_symbol(freq)
 
 def build_preamble():
@@ -281,7 +303,8 @@ def py_deinterleave_soft(soft_bits, mod, n_syms):
     return out
 
 # ── Main ─────────────────────────────────────────────────────────
-def generate(mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE):
+def generate(mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
+             use_header_fec=True, header_fec_rate="1/2"):
     """Generate random raw bits, FEC encode, write packed coded bytes and TX reference."""
     bps = 2 if mod == 0 else 4
 
@@ -321,12 +344,21 @@ def generate(mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE):
     # Build floating-point reference output (using FEC-coded bits)
     all_samples = []
 
+    # Guard symbol — HLS TX C2 fix prepends one (FFT_SIZE+CP_LEN) zero symbol
+    # before the preamble so sync_detect's running-sum warmup has time to
+    # settle.  Mirroring it here keeps the Python TX layout-compatible with
+    # the HLS TX output, so decode_full works on either with the same
+    # guard_syms=1 default.
+    all_samples.append(np.zeros(FFT_SIZE + CP_LEN, dtype=complex))
+
     # Preamble
     preamble = build_preamble()
     all_samples.append(preamble)
 
     # Header symbol
-    header = build_header_symbol(mod, n_syms, fec_rate)
+    header = build_header_symbol(mod, n_syms, fec_rate,
+                                  use_header_fec=use_header_fec,
+                                  header_fec_rate=header_fec_rate)
     all_samples.append(header)
 
     # Data symbols
@@ -1044,7 +1076,10 @@ def sync_detect_reference(sig_c, pow_threshold=None, use_q15=True, verbose=False
 # ============================================================
 def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
                 guard_syms=1, use_q15=False, use_sync=False, use_soft=False,
-                use_channel_smooth=False, smooth_taps=64):
+                use_channel_smooth=False, smooth_taps=64,
+                use_llr_clip=True, llr_clip_factor=5.0,
+                use_weighted_cpe=True,
+                use_header_fec=True, header_fec_rate="1/2"):
     """
     Full RX chain mirroring HLS step-by-step:
       1. preamble channel estimate G
@@ -1148,16 +1183,32 @@ def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
         eq = Y_hdr[k] * Geq_p
         if use_q15:
             eq = _q22(np.array([eq]))[0]
-        sum_re += eq.real
-        sum_im += eq.imag
+        if use_weighted_cpe:
+            w = float(G[k].real * G[k].real + G[k].imag * G[k].imag)
+            sum_re += w * eq.real
+            sum_im += w * eq.imag
+        else:
+            sum_re += eq.real
+            sum_im += eq.imag
     hdr_phase_err = np.arctan2(sum_im, sum_re)
 
     rot = np.exp(-1j * hdr_phase_err)
     if use_q15:
         rot = rot.astype(np.complex64)
 
-    hdr_bits = 0
-    for d in range(26):
+    # Number of header BPSK SCs depends on FEC mode + rate:
+    #   off       → 26 (uncoded BPSK directly carries hdr bits)
+    #   rate-1/2  → (26 + 6 tail) × 2 = 64
+    #   rate-1/3  → (26 + 6 tail) × 3 = 96
+    if use_header_fec:
+        bits_per_step = 2 if header_fec_rate == "1/2" else 3
+        n_hdr_sc = (26 + 6) * bits_per_step
+    else:
+        n_hdr_sc = 26
+
+    hdr_bits = 0           # used in uncoded path; FEC path bypasses it
+    hdr_soft = []          # used in FEC path; stores 96 soft demap values
+    for d in range(n_hdr_sc):
         k    = DATA_SC_IDX[d]
         Geq  = _compute_geq_at(k, G)
         Gf   = Geq * rot
@@ -1166,8 +1217,23 @@ def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
         eq   = Y_hdr[k] * Gf
         if use_q15:
             eq = _q22(np.array([eq]))[0]
-        bit  = 1 if eq.real < 0 else 0
-        hdr_bits |= (bit << (25 - d))
+        if use_header_fec:
+            # Soft BPSK: positive eq.real → bit=0, negative → bit=1.
+            hdr_soft.append(float(eq.real))
+        else:
+            bit  = 1 if eq.real < 0 else 0
+            hdr_bits |= (bit << (25 - d))
+
+    if use_header_fec:
+        # Soft Viterbi over hdr_soft → 26-bit header (CRC + payload).
+        # Default rate-1/2 (64 soft bits today; scales for future MAC growth).
+        clip_arg = llr_clip_factor if use_llr_clip else 0.0
+        decoded_26 = viterbi_decode_header_soft(
+            hdr_soft, n_input_bits=26, rate=header_fec_rate,
+            clip_factor=clip_arg)
+        hdr_bits = 0
+        for d, b in enumerate(decoded_26):
+            hdr_bits |= ((b & 1) << (25 - d))   # MSB first, same layout
 
     rx_crc     = (hdr_bits >> 10) & 0xFFFF
     rx_payload = hdr_bits & 0x3FF
@@ -1198,14 +1264,23 @@ def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
         Y      = _fft_body(sym_iq)
 
         # per-symbol CPE
+        # If use_weighted_cpe: weight each pilot's contribution by |G[k]|² —
+        # strong-channel pilots are more reliable, weak/faded ones get less say
+        # in the average phase estimate.  Helps on multipath where some pilots
+        # land in deep fades.
         sum_re = sum_im = 0.0
         for k in PILOT_IDX:
             Geq_p = _compute_geq_at(k, G)
             eq = Y[k] * Geq_p
             if use_q15:
                 eq = _q22(np.array([eq]))[0]
-            sum_re += eq.real
-            sum_im += eq.imag
+            if use_weighted_cpe:
+                w = float(G[k].real * G[k].real + G[k].imag * G[k].imag)
+                sum_re += w * eq.real
+                sum_im += w * eq.imag
+            else:
+                sum_re += eq.real
+                sum_im += eq.imag
         sym_phase_err = np.arctan2(sum_im, sum_re)
         sym_rot = np.exp(-1j * sym_phase_err)
         if use_q15:
@@ -1281,7 +1356,9 @@ def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
         # Soft pipeline: deinterleave the float soft-bit array, then linear-soft Viterbi.
         # Skips the byte-pack/unpack roundtrip the hard path uses.
         deinterleaved_soft = py_deinterleave_soft(soft_bits, mod, n_syms)
-        raw_decoded        = fec_decode_soft(deinterleaved_soft, fec_rate, total_raw)
+        clip_arg = llr_clip_factor if use_llr_clip else 0.0
+        raw_decoded = fec_decode_soft(deinterleaved_soft, fec_rate, total_raw,
+                                       clip_factor=clip_arg)
     else:
         deinterleaved = py_deinterleave(bytes(decoded_bytes), mod, n_syms)
         raw_decoded   = fec_decode(deinterleaved, fec_rate, total_raw)
@@ -1349,6 +1426,24 @@ if __name__ == "__main__":
                         help="Number of time-domain taps to keep in channel smoothing "
                              "(default: 64). Sweet spot 64-128 — smaller hurts because "
                              "the 50 null SCs spread the channel response in time.")
+    # Path-A refinements — DEFAULT ON.  Use --no-* to opt out (e.g. for HLS
+    # backward-compatibility testing where the chain doesn't yet have these).
+    parser.add_argument("--no-llr-clip", action="store_false", dest="llr_clip",
+                        help="Disable median-based soft-bit clipping (default ON).")
+    parser.add_argument("--llr-clip-factor", type=float, default=5.0,
+                        help="Multiplier on median(|soft|) for LLR clip (default 5.0).")
+    parser.add_argument("--no-weighted-cpe", action="store_false", dest="weighted_cpe",
+                        help="Disable pilot-magnitude-weighted CPE (default ON).")
+    parser.add_argument("--no-header-fec", action="store_false", dest="header_fec",
+                        help="Disable rate-1/2 K=7 conv-coded BPSK header (default ON). "
+                             "Use this when round-tripping with HLS TX (which produces "
+                             "an uncoded header) or decoding legacy IQ captures.")
+    parser.add_argument("--header-fec-rate", choices=["1/2", "1/3"], default="1/2",
+                        help="Header FEC rate (default 1/2). 1/3 = max coding "
+                             "gain but capacity-limited (≤44 payload + 16 CRC).")
+    # argparse defaults the dest to True when the flag is action='store_false'
+    # only if we set the default explicitly:
+    parser.set_defaults(llr_clip=True, weighted_cpe=True, header_fec=True)
     parser.add_argument("--sync-only", action="store_true",
                         help="Run sync_detect_reference and print trigger / metric / pow_env (no decode)")
     parser.add_argument("--input",   type=str, default=None,
@@ -1367,7 +1462,9 @@ if __name__ == "__main__":
                 args.sync_only]):
         parser.print_help()
     if args.gen:
-        generate(mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate)
+        generate(mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
+                 use_header_fec=args.header_fec,
+                 header_fec_rate=args.header_fec_rate)
     if args.compare:
         compare()
     if args.decode:
@@ -1384,47 +1481,85 @@ if __name__ == "__main__":
     if args.decode_full:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
-                    guard_syms=1, use_q15=False)
+                    guard_syms=1, use_q15=False,
+                    use_llr_clip=args.llr_clip, llr_clip_factor=args.llr_clip_factor,
+                    use_weighted_cpe=args.weighted_cpe,
+                    use_header_fec=args.header_fec,
+                    header_fec_rate=args.header_fec_rate)
     if args.decode_full_q15:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
-                    guard_syms=1, use_q15=True)
+                    guard_syms=1, use_q15=True,
+                    use_llr_clip=args.llr_clip, llr_clip_factor=args.llr_clip_factor,
+                    use_weighted_cpe=args.weighted_cpe,
+                    use_header_fec=args.header_fec,
+                    header_fec_rate=args.header_fec_rate)
     if args.decode_full_sync:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
-                    use_q15=False, use_sync=True)
+                    use_q15=False, use_sync=True,
+                    use_weighted_cpe=args.weighted_cpe,
+                    use_header_fec=args.header_fec,
+                    header_fec_rate=args.header_fec_rate)
     if args.decode_full_q15_sync:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
-                    use_q15=True, use_sync=True)
+                    use_q15=True, use_sync=True,
+                    use_weighted_cpe=args.weighted_cpe,
+                    use_header_fec=args.header_fec,
+                    header_fec_rate=args.header_fec_rate)
     if args.decode_full_soft:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
-                    use_q15=False, use_sync=True, use_soft=True)
+                    use_q15=False, use_sync=True, use_soft=True,
+                    use_llr_clip=args.llr_clip, llr_clip_factor=args.llr_clip_factor,
+                    use_weighted_cpe=args.weighted_cpe,
+                    use_header_fec=args.header_fec,
+                    header_fec_rate=args.header_fec_rate)
     if args.decode_full_q15_soft:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
-                    use_q15=True, use_sync=True, use_soft=True)
+                    use_q15=True, use_sync=True, use_soft=True,
+                    use_llr_clip=args.llr_clip, llr_clip_factor=args.llr_clip_factor,
+                    use_weighted_cpe=args.weighted_cpe,
+                    use_header_fec=args.header_fec,
+                    header_fec_rate=args.header_fec_rate)
     if args.decode_full_smooth:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
                     use_q15=False, use_sync=True, use_soft=False,
-                    use_channel_smooth=True, smooth_taps=args.smooth_taps)
+                    use_channel_smooth=True, smooth_taps=args.smooth_taps,
+                    use_llr_clip=args.llr_clip, llr_clip_factor=args.llr_clip_factor,
+                    use_weighted_cpe=args.weighted_cpe,
+                    use_header_fec=args.header_fec,
+                    header_fec_rate=args.header_fec_rate)
     if args.decode_full_q15_smooth:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
                     use_q15=True, use_sync=True, use_soft=False,
-                    use_channel_smooth=True, smooth_taps=args.smooth_taps)
+                    use_channel_smooth=True, smooth_taps=args.smooth_taps,
+                    use_llr_clip=args.llr_clip, llr_clip_factor=args.llr_clip_factor,
+                    use_weighted_cpe=args.weighted_cpe,
+                    use_header_fec=args.header_fec,
+                    header_fec_rate=args.header_fec_rate)
     if args.decode_full_soft_smooth:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
                     use_q15=False, use_sync=True, use_soft=True,
-                    use_channel_smooth=True, smooth_taps=args.smooth_taps)
+                    use_channel_smooth=True, smooth_taps=args.smooth_taps,
+                    use_llr_clip=args.llr_clip, llr_clip_factor=args.llr_clip_factor,
+                    use_weighted_cpe=args.weighted_cpe,
+                    use_header_fec=args.header_fec,
+                    header_fec_rate=args.header_fec_rate)
     if args.decode_full_q15_soft_smooth:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
                     use_q15=True, use_sync=True, use_soft=True,
-                    use_channel_smooth=True, smooth_taps=args.smooth_taps)
+                    use_channel_smooth=True, smooth_taps=args.smooth_taps,
+                    use_llr_clip=args.llr_clip, llr_clip_factor=args.llr_clip_factor,
+                    use_weighted_cpe=args.weighted_cpe,
+                    use_header_fec=args.header_fec,
+                    header_fec_rate=args.header_fec_rate)
     if args.sync_only:
         path = args.input if args.input else HLS_FILE
         if not os.path.exists(path):

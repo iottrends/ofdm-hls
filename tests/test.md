@@ -68,6 +68,130 @@ C-sim), (4) records header CRC + data BER per decoder.
 ./tests/run_regression.sh --snr 10 --soft --smooth --hls-rx --frames 3   # full diagnostic mode
 ```
 
+### Standard regression workflows (copy-paste ready)
+
+These are the canonical sweeps used to baseline + measure improvements.
+Run from the repo root.  All produce per-frame raw + aggregated mean+stddev CSVs.
+
+#### 1. Quick baseline (single-frame, ~12 min)
+
+```bash
+./tests/run_regression.sh --modcods "0:0 0:1" --snr "5 6 7 8 9 10" \
+    --channels combined --cfo-sc 0 --soft --smooth \
+ && mv regression_results.csv regression_qpsk_soft_smooth.csv \
+ && mv regression_summary.csv regression_qpsk_soft_smooth_summary.csv \
+ && \
+./tests/run_regression.sh --modcods "1:0 1:1" --snr "10 11 12 13 14 15 16" \
+    --channels combined --cfo-sc 0 --soft --smooth \
+ && mv regression_results.csv regression_16qam_soft_smooth.csv \
+ && mv regression_summary.csv regression_16qam_soft_smooth_summary.csv
+```
+
+#### 2. Frame-averaged sweep (5 frames per point, ~50 min — variance-limited cliff localization)
+
+```bash
+./tests/run_regression.sh --modcods "0:0 0:1" --snr "5 6 7 8 9 10" \
+    --channels combined --cfo-sc 0 --soft --smooth --frames 5 \
+ && mv regression_results.csv regression_qpsk_avg5.csv \
+ && mv regression_summary.csv regression_qpsk_avg5_summary.csv \
+ && \
+./tests/run_regression.sh --modcods "1:0 1:1" --snr "10 11 12 13 14 15 16" \
+    --channels combined --cfo-sc 0 --soft --smooth --frames 5 \
+ && mv regression_results.csv regression_16qam_avg5.csv \
+ && mv regression_summary.csv regression_16qam_avg5_summary.csv
+```
+
+#### 3. Baseline before changes (rename to `_baseline` to keep prior runs)
+
+Same as #2 but renames outputs to `regression_*_baseline.csv` so a prior `_avg5`
+run is preserved for comparison.  Use this pattern when you're about to add a
+chain feature and want a clean before/after.
+
+```bash
+./tests/run_regression.sh --modcods "0:0 0:1" --snr "5 6 7 8 9 10" \
+    --channels combined --cfo-sc 0 --soft --smooth --frames 5 \
+ && mv regression_results.csv regression_qpsk_baseline.csv \
+ && mv regression_summary.csv regression_qpsk_baseline_summary.csv \
+ && \
+./tests/run_regression.sh --modcods "1:0 1:1" --snr "10 11 12 13 14 15 16" \
+    --channels combined --cfo-sc 0 --soft --smooth --frames 5 \
+ && mv regression_results.csv regression_16qam_baseline.csv \
+ && mv regression_summary.csv regression_16qam_baseline_summary.csv
+```
+
+#### 4. CFO-enabled sweep (only after CFO correction is implemented in the chain)
+
+Real-radio CFO will be in the 0.05–0.30 SC range (sub-ppm AD9364 to ±20 ppm
+TCXO drift).  Today the chain has **no** CFO correction (`sync_detect` v5
+removed it), so this sweep will fail catastrophically until the CFO block is
+re-added.  Once CFO correction lands, the same matrix should produce cliffs
+within ~1 dB of the `--cfo-sc 0` baseline.
+
+```bash
+# 0.1 SC — modest realistic TCXO offset
+./tests/run_regression.sh --modcods "0:0 0:1" --snr "5 6 7 8 9 10" \
+    --channels combined --cfo-sc 0.1 --soft --smooth --frames 5 \
+ && mv regression_results.csv regression_qpsk_cfo01.csv \
+ && mv regression_summary.csv regression_qpsk_cfo01_summary.csv \
+ && \
+./tests/run_regression.sh --modcods "1:0 1:1" --snr "10 11 12 13 14 15 16" \
+    --channels combined --cfo-sc 0.1 --soft --smooth --frames 5 \
+ && mv regression_results.csv regression_16qam_cfo01.csv \
+ && mv regression_summary.csv regression_16qam_cfo01_summary.csv
+```
+
+CFO injection levels (channel sim `--cfo-sc N`, where 1 = one full subcarrier
+spacing ≈ 78 kHz at 20 MSPS):
+
+| `--cfo-sc` | What it represents |
+|---|---|
+| 0.001 | sub-ppm AD9364 (calibrated) — chain handles this today |
+| **0.05** | **±2 ppm TCXO at 2.4 GHz** — typical non-AD9364 RFIC |
+| **0.13** | **Ku-band 200 m/s Doppler** — MALE/HALE airframe |
+| 0.30 | aggressive stress test (currently → BER ~0.36) |
+| 0.50 | Schmidl-Cox max pull-in — absolute limit |
+| 1.0 | beyond pull-in — unphysical |
+
+#### 5. Path-A baked-in defaults — what runs by default in the Python chain
+
+These three refinements were measured during the Task-3 / Task-2 work and
+are **default ON** in the Python chain.  They are picked up automatically
+by `run_regression.sh`, `python3 sim/ofdm_reference.py --gen`, and every
+`--decode-full-*` variant.  No flags needed.
+
+| Refinement | What it does | Effect |
+|---|---|---|
+| **LLR clipping** | Median-based outlier clipping of soft Viterbi inputs (`--llr-clip-factor 5.0`) | Tames metric outliers at the cliff edge — small but consistent variance reduction |
+| **Weighted CPE** | Weights each pilot's CPE contribution by `\|G[k]\|²` | +0.3–0.5 dB on multipath; near-zero on AWGN |
+| **Header FEC (rate-1/2)** | K=7 conv-coded BPSK header (default rate-1/2 for forward-compat with future MAC ~70-bit payload; rate-1/3 available via `--header-fec-rate 1/3` for max gain on small headers) | +3–5 dB header-CRC margin |
+
+**To opt out** (e.g. for HLS-TX backward compat, or to measure the delta vs no refinements):
+
+| Flag | Effect |
+|---|---|
+| `--no-llr-clip` | Disable LLR clipping |
+| `--no-weighted-cpe` | Disable pilot-magnitude weighting |
+| `--no-header-fec` | Disable conv-coded header — uses original 26-bit uncoded BPSK layout |
+
+**HLS TX compatibility**: `run_regression.sh --hls-rx` automatically enables
+`--no-header-fec` because `./setup_vitis.sh csim` (the HLS TX) only produces
+the uncoded 26-bit header.  No user action needed — the `--hls-rx` flag
+takes care of it.
+
+**Default Python TX flow** (`run_regression.sh` without `--hls-rx`):
+- TX: `python3 sim/ofdm_reference.py --gen` writes `tb_tx_output_ref.txt`
+  (with header FEC ON by default — 64 BPSK SCs at rate-1/2)
+- Channel sim reads `tb_tx_output_ref.txt`
+- Python decoder reads the noisy IQ with all refinements ON
+- HLS TX C-sim is **not** invoked
+
+**HLS-comparison flow** (`run_regression.sh --hls-rx`):
+- TX: `python3 --gen --no-header-fec` + `./setup_vitis.sh csim` writes `tb_tx_output_hls.txt`
+  (uncoded header, matches HLS RX expectations)
+- Channel sim reads `tb_tx_output_hls.txt`
+- Python decoders called with `--no-header-fec`; HLS RX C-sim runs unmodified
+- Apples-to-apples HLS-vs-Python comparison on the same uncoded bitstream
+
 ### Per-point cost (rough)
 
 | Decoder | Time per frame |
