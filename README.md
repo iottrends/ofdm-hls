@@ -176,6 +176,34 @@ phase noise + CFO).
 **Header CRC** passes at every test point — the BPSK header now decodes
 cleanly at any SNR ≥ 10 dB regardless of data BER.
 
+### Python RX chain — Path-A refinements (default ON)
+
+The Python reference RX (`sim/ofdm_reference.py`) has these improvements
+baked in for Path-A operation; all default to ON, with `--no-*` opt-out
+flags for backward-compatibility testing against the HLS chain.
+
+| Refinement | Win |
+|---|---|
+| `sync_detect_reference()` — Q15 + FP64 mirror of `src/sync_detect.cpp` v5 | preamble timing, no fixed-offset assumption |
+| DFT-based MMSE channel smoothing (`L_taps=64` default) | recovers ~3 dB of the single-preamble channel-est noise penalty |
+| Soft-decision Viterbi (`viterbi_decode_soft`) | ~2 dB cliff improvement vs hard Hamming branch metric |
+| LLR clipping (median-based outlier reject) | tames cliff-edge metric outliers; +0.3 dB |
+| Pilot-magnitude weighted CPE (`|G[k]|²` weighted sum) | +0.3–0.5 dB on multipath |
+| Header FEC (rate-1/2 K=7 conv, 64 BPSK SCs at 26-bit input) | +5 dB header-CRC margin; scales to ~70-bit MAC payload at rate-1/2 |
+| **CFO estimator + time-domain derotator** (Schmidl-Cox angle from preamble correlator) | **fully recovers cliff at CFO=0.13 SC injection** — zero penalty for realistic ±2 ppm TCXO / Ku-band Doppler |
+
+### CFO correction — Task 1 verification (5-frame averaged, combined channel, CFO=0.13 SC)
+
+| SNR | 16QAM 1/2 (no CFO correct) | 16QAM 1/2 (with CFO correct) | 16QAM 2/3 (no CFO correct) | 16QAM 2/3 (with CFO correct) |
+|---|---|---|---|---|
+| 10 | 3.87e-2 | **1.01e-3** | 3.21e-1 (chance) | **4.83e-2** |
+| 12 | 5.83e-3 | **5.88e-6** | 1.64e-1 | **2.81e-3** |
+| 14 | 1.37e-3 | **0** | 5.50e-2 | **7.34e-5** |
+| 16 | 1.84e-4 | **0** | 2.52e-2 | **4.41e-6** (clean) |
+
+Cliff penalty from CFO=0.13 collapses from +4–6 dB → **0 dB** with the
+preamble Schmidl-Cox CFO estimator and time-domain derotator in place.
+
 ---
 
 ## Quick Start

@@ -146,21 +146,94 @@ three improvements.  Header CRC PASS at every SNR in every configuration.
 
 | Improvement | Expected dB | Effort |
 |---|---|---|
-| Per-pilot magnitude weighted CPE                        | ~0.3–0.5 dB | small  |
-| LLR clipping in soft Viterbi (kills metric outliers)   | ~0.3 dB     | tiny   |
+| Per-pilot magnitude weighted CPE                        | ~0.3–0.5 dB | small (DONE — see §4 below) |
+| LLR clipping in soft Viterbi (kills metric outliers)   | ~0.3 dB     | tiny (DONE — see §4 below) |
+| Header FEC (rate-1/2 K=7 conv on BPSK header)          | +5 dB header-CRC margin | moderate (DONE — see §4 below) |
+| **Preamble CFO estimator + time-domain derotator**     | recovers full cliff at CFO≤0.5 SC | moderate (DONE — see §5 below) |
 | Per-SC noise variance estimate → proper LLR             | ~0.5 dB     | moderate |
 | Reed-Solomon outer code                                 | ~2–3 dB system gain at BER=1e-6 | moderate |
-| Frame averaging in measurement (`--frames 5`)           | reveals 0.5–1 dB hidden by single-frame variance | trivial |
+| Frame averaging in measurement (`--frames 5`)           | reveals 0.5–1 dB hidden by single-frame variance | trivial (DONE) |
+
+### 4. Path-A bake-in: LLR clipping + weighted CPE + header FEC (commit `c4dc99f`)
+
+After §1–3 landed, three smaller refinements were measured and **baked in
+as default-on** (with `--no-*` opt-out flags) so they're not forgotten in
+future runs.
+
+- **LLR clipping** in `viterbi_decode_soft` — median-based robust clip
+  (factor × median(|soft|), default factor 5.0).  Kills the rare cliff-edge
+  failures where a single SC with extreme magnitude (deep fade or CPE
+  outlier) dominates the trellis search and biases all path metrics.
+- **Pilot-magnitude weighted CPE** — weights each pilot's contribution to
+  the per-symbol phase estimate by `|G[k]|²` (proxy for pilot SNR).
+  Strong-channel pilots dominate; faded pilots don't drag the estimate.
+  +0.3–0.5 dB on multipath; near-zero effect on AWGN.
+- **Header FEC** — rate-1/2 K=7 convolutional coding of the 26-bit header
+  (10 payload + 16 CRC).  6 zero tail bits flush the trellis.  At today's
+  10-bit payload: 64 BPSK SCs (32 input × 2).  Default rate-1/2 was chosen
+  for forward-compat with MAC growth — header capacity at rate-1/2 is up
+  to 78 payload bits, comfortably covering planned ~70-bit MAC headers.
+  Rate-1/3 also supported (`--header-fec-rate 1/3`) for max coding gain on
+  the smaller current header (96 BPSK SCs, +1–2 dB more margin).
+
+`run_regression.sh` was also updated:
+- Default flow now uses Python TX (`tb_tx_output_ref.txt`) — skips
+  `./setup_vitis.sh csim` because HLS TX doesn't yet have header FEC.
+- `--hls-rx` flag falls back to HLS TX + auto-passes `--no-header-fec` to
+  Python decoders for fair comparison with HLS RX C-sim.
+
+### 5. CFO estimator + corrector — Task 1 (pending commit)
+
+Schmidl-Cox preamble CFO estimate from the sync correlator's `P` value at
+trigger time, applied as a time-domain derotator before CP-strip + FFT.
+
+- `sync_detect_reference()` now snapshots `P_re_at_trigger`/`P_im_at_trigger`
+  and computes `cfo_estimate_sc = arctan2(P_im, P_re) / (2π)`.  Pull-in
+  range ±0.5 SC (limited by arg-wrap to ±π).
+- `decode_full()` applies `sig_c[n] *= exp(-j·2π·ε_est·n / N)` to the entire
+  IQ stream when `use_cfo_correct=True` (default).
+- New CLI flag `--no-cfo-correct` for opt-out (used to measure the chain
+  without the correction, e.g. for the before/after comparison).
+
+**Task-1 verification** (5-frame averaged, combined channel, CFO=0.13 SC
+injected, all Path-A refinements ON):
+
+| SNR | 16QAM 1/2 baseline (CFO=0) | CFO=0.13 NO correct | **CFO=0.13 + Task 1** | Recovery |
+|---|---|---|---|---|
+| 10 | 1.08e-3 | 3.87e-2 | **1.01e-3** | matches baseline ✓ |
+| 12 | 5.9e-6  | 5.83e-3 | **5.88e-6** | matches baseline ✓ |
+| 14 | 0       | 1.37e-3 | **0** | clean ✓ |
+| 16 | 0       | 1.84e-4 | **0** | clean ✓ |
+
+| SNR | 16QAM 2/3 baseline (CFO=0) | CFO=0.13 NO correct | **CFO=0.13 + Task 1** | Recovery |
+|---|---|---|---|---|
+| 10 | 3.96e-2 | 3.21e-1 (chance) | **4.83e-2** | matches baseline ✓ |
+| 12 | 2.20e-3 | 1.64e-1 | **2.81e-3** | matches baseline ✓ |
+| 14 | 4.42e-5 | 5.50e-2 | **7.34e-5** | matches baseline ✓ |
+| 16 | 0       | 2.52e-2 | **4.41e-6** | 1 stray bit (variance), clean ✓ |
+
+Cliff penalty from CFO=0.13: 16QAM 1/2 (+4 dB) → **0 dB**, 16QAM 2/3
+(+6 dB) → **0 dB**.  Header CRC PASS at every one of the 70 frames.
+Q15 ≈ FP64 throughout.
+
+CFO estimator accuracy (true CFO = 0.13 SC):
+- SNR=10: 0.116 (11% error)
+- SNR=12: 0.121 (7%)
+- SNR=14: 0.122 (6%)
+- SNR=16: 0.125 (4%)
+
+Tighter at higher SNR (Schmidl-Cox theory).  Residual is absorbed
+downstream by the per-symbol pilot CPE.
 
 ### Files touched
 
 | File | Change |
 |---|---|
-| `sim/ofdm_reference.py` | `sync_detect_reference()`, `_smooth_channel_dft()`, `_q22_real()`, soft demap branches in `decode_full()`, `use_sync` / `use_soft` / `use_channel_smooth` flags + 8 new `--decode-full-*` CLI variants. |
-| `sim/fec_reference.py`  | `viterbi_decode_soft()` (linear-soft branch metric, erasure-aware). |
-| `tests/run_regression.sh` | New full TX → channel → RX driver.  `--soft`, `--smooth`, `--hls-rx`, `--frames` flags.  Outputs `regression_results.csv` (per frame) + `regression_summary.csv` (mean ± stddev per modcod×channel×SNR). |
-| `tests/test.md`         | New catalog of all test scripts with usage + cost. |
-| `tests/run_loopback*.sh`, `tests/run_ber_sweep.sh` | Moved from repo root into `tests/`; `cd` lines patched to operate from repo root. |
+| `sim/ofdm_reference.py` | `sync_detect_reference()` returns `cfo_estimate_sc`, `P_re/im_at_trigger`; `_smooth_channel_dft()`; `_q22_real()`; soft demap; weighted CPE; header FEC encode/decode integration; CFO derotator in `decode_full`; default-on flags `use_llr_clip`/`use_weighted_cpe`/`use_header_fec`/`use_cfo_correct`; CLI `--no-*` opt-outs; `--header-fec-rate {1/2,1/3}`. |
+| `sim/fec_reference.py`  | `viterbi_decode_soft()` (linear-soft + median-clip); `conv_encode_header(input_bits, rate)`; `viterbi_decode_header_soft(soft_bits, n_input_bits, rate)`; backward-compat alias `conv_encode_header_rate13`. |
+| `tests/run_regression.sh` | Default flow uses Python TX; `--hls-rx` auto-passes `--no-header-fec`; threads `$NO_HDR_FEC_FLAG` through every decoder invocation. |
+| `tests/test.md`         | 5 numbered "Standard regression workflows"; "Path-A baked-in defaults" subsection; HLS-comparison flow doc. |
+| `tests/run_loopback*.sh`, `tests/run_ber_sweep.sh` | Moved from repo root into `tests/`. |
 
 ## Original symptom (preserved below for archive)
 

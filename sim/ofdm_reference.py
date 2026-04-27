@@ -996,6 +996,11 @@ def sync_detect_reference(sig_c, pow_threshold=None, use_q15=True, verbose=False
     pow_env_max = 0.0
     triggered_at = -1
     start_offset = -1
+    # P_at_trigger captures the registered (pre-update) Schmidl-Cox correlator
+    # values when detection fires.  arg(P) gives the per-N-sample phase rotation
+    # caused by CFO, which we convert to subcarrier units below.
+    P_re_at_trigger = 0.0
+    P_im_at_trigger = 0.0
 
     # warmup: the running sums need at least N+L samples of history before
     # they reflect a true sliding window.  +POW_WIN guards the pow_env tap.
@@ -1023,6 +1028,9 @@ def sync_detect_reference(sig_c, pow_threshold=None, use_q15=True, verbose=False
             triggered_at = n
             # rd_ptr = wr_ptr - CP_LEN - FFT_SIZE  (sync_detect.cpp:239)
             start_offset = n - L - N
+            # Snapshot the registered (pre-update) P for CFO estimation.
+            P_re_at_trigger = P_re
+            P_im_at_trigger = P_im
 
         # ── 3. Update running sums (sync_detect.cpp:189-217) ──
         new_P_re = _acc_q(cur_re*rN_re + cur_im*rN_im,  use_q15)
@@ -1055,19 +1063,37 @@ def sync_detect_reference(sig_c, pow_threshold=None, use_q15=True, verbose=False
         if pow_env > pow_env_max:
             pow_env_max = float(pow_env)
 
+    # ── CFO estimate from P at trigger ──────────────────────────
+    # Schmidl-Cox: P[n] = Σ x[n-k] · conj(x[n-N-k]) for k=0..L-1.
+    # When CFO ε_sc is present, x_obs[n] = x_clean[n] · exp(j·2π·ε_sc·n/N), so
+    # the matching CP/body pair has a phase difference of exactly 2π·ε_sc per N
+    # samples.  arg(P) recovers this phase difference directly:
+    #     ε_sc_estimate = arg(P) / (2π)     (in subcarrier units)
+    # Pull-in range ±0.5 SC because arg() wraps to ±π.
+    if (triggered_at >= 0
+            and (abs(P_re_at_trigger) > 1e-12 or abs(P_im_at_trigger) > 1e-12)):
+        cfo_estimate_sc = float(np.arctan2(P_im_at_trigger, P_re_at_trigger)
+                                / (2.0 * np.pi))
+    else:
+        cfo_estimate_sc = 0.0
+
     label = "Q15 " if use_q15 else "FP64"
     if verbose:
         print(f"  [SYNC {label}] pow_threshold={pow_threshold:.6e}  "
               f"pow_env_max={pow_env_max:.6e}  metric_max={metric_max:.4f}  "
-              f"trigger@n={triggered_at}  start_offset={start_offset}")
+              f"trigger@n={triggered_at}  start_offset={start_offset}  "
+              f"cfo_est={cfo_estimate_sc:+.4f} SC")
 
     return {
-        'detected':     (triggered_at >= 0),
-        'start_offset': start_offset,
-        'trigger_n':    triggered_at,
-        'metric_max':   metric_max,
-        'pow_env_max':  pow_env_max,
-        'pow_threshold': pow_threshold,
+        'detected':       (triggered_at >= 0),
+        'start_offset':   start_offset,
+        'trigger_n':      triggered_at,
+        'metric_max':     metric_max,
+        'pow_env_max':    pow_env_max,
+        'pow_threshold':  pow_threshold,
+        'cfo_estimate_sc': cfo_estimate_sc,
+        'P_re_at_trigger': P_re_at_trigger,
+        'P_im_at_trigger': P_im_at_trigger,
     }
 
 
@@ -1079,7 +1105,8 @@ def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
                 use_channel_smooth=False, smooth_taps=64,
                 use_llr_clip=True, llr_clip_factor=5.0,
                 use_weighted_cpe=True,
-                use_header_fec=True, header_fec_rate="1/2"):
+                use_header_fec=True, header_fec_rate="1/2",
+                use_cfo_correct=True):
     """
     Full RX chain mirroring HLS step-by-step:
       1. preamble channel estimate G
@@ -1119,7 +1146,28 @@ def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
             return {'header_pass': False, 'sync_fail': True,
                     'metric_max': sync['metric_max']}
         guard_len = max(sync['start_offset'], 0)
-        # No additional fixed offset — sync already aligned us to the preamble.
+
+        # ── CFO correction (Path-A default ON) ──────────────────
+        # Schmidl-Cox preamble-based CFO estimate from sync.  Apply a
+        # time-domain derotator e^(-j·2π·ε_sc·n / N) to the entire stream
+        # before CP strip + FFT.  Removes the per-sample phase rotation
+        # caused by carrier-frequency offset; intra-symbol ICI vanishes,
+        # leaving the per-symbol pilot CPE to handle only fine residual
+        # drift (phase noise).
+        if use_cfo_correct:
+            cfo_est = sync['cfo_estimate_sc']
+            if abs(cfo_est) > 1e-9:
+                # Derotate the entire signal in place.  Reference time origin
+                # is the start of the buffer (sample 0); since CFO is constant,
+                # the absolute phase at any sample n cancels regardless of
+                # sync_offset — only the per-sample rate matters.
+                n_idx = np.arange(len(sig_c))
+                derot = np.exp(-1j * 2.0 * np.pi * cfo_est * n_idx / FFT_SIZE)
+                sig_c = sig_c * derot
+                if use_q15:
+                    sig_c = _q15(sig_c)
+                print(f"  [{label}] CFO correct: ε_est = {cfo_est:+.4f} SC "
+                      f"({cfo_est * 78.125:+.2f} kHz @ 20 MSPS) — applied")
     else:
         guard_len = guard_syms * sym_len
 
@@ -1441,9 +1489,14 @@ if __name__ == "__main__":
     parser.add_argument("--header-fec-rate", choices=["1/2", "1/3"], default="1/2",
                         help="Header FEC rate (default 1/2). 1/3 = max coding "
                              "gain but capacity-limited (≤44 payload + 16 CRC).")
+    parser.add_argument("--no-cfo-correct", action="store_false", dest="cfo_correct",
+                        help="Disable preamble-based CFO estimate + time-domain "
+                             "derotator (default ON). Use this to measure how much "
+                             "the chain breaks at non-zero CFO without correction.")
     # argparse defaults the dest to True when the flag is action='store_false'
     # only if we set the default explicitly:
-    parser.set_defaults(llr_clip=True, weighted_cpe=True, header_fec=True)
+    parser.set_defaults(llr_clip=True, weighted_cpe=True, header_fec=True,
+                        cfo_correct=True)
     parser.add_argument("--sync-only", action="store_true",
                         help="Run sync_detect_reference and print trigger / metric / pow_env (no decode)")
     parser.add_argument("--input",   type=str, default=None,
@@ -1485,7 +1538,8 @@ if __name__ == "__main__":
                     use_llr_clip=args.llr_clip, llr_clip_factor=args.llr_clip_factor,
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
-                    header_fec_rate=args.header_fec_rate)
+                    header_fec_rate=args.header_fec_rate,
+                    use_cfo_correct=args.cfo_correct)
     if args.decode_full_q15:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
@@ -1493,21 +1547,24 @@ if __name__ == "__main__":
                     use_llr_clip=args.llr_clip, llr_clip_factor=args.llr_clip_factor,
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
-                    header_fec_rate=args.header_fec_rate)
+                    header_fec_rate=args.header_fec_rate,
+                    use_cfo_correct=args.cfo_correct)
     if args.decode_full_sync:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
                     use_q15=False, use_sync=True,
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
-                    header_fec_rate=args.header_fec_rate)
+                    header_fec_rate=args.header_fec_rate,
+                    use_cfo_correct=args.cfo_correct)
     if args.decode_full_q15_sync:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
                     use_q15=True, use_sync=True,
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
-                    header_fec_rate=args.header_fec_rate)
+                    header_fec_rate=args.header_fec_rate,
+                    use_cfo_correct=args.cfo_correct)
     if args.decode_full_soft:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
@@ -1515,7 +1572,8 @@ if __name__ == "__main__":
                     use_llr_clip=args.llr_clip, llr_clip_factor=args.llr_clip_factor,
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
-                    header_fec_rate=args.header_fec_rate)
+                    header_fec_rate=args.header_fec_rate,
+                    use_cfo_correct=args.cfo_correct)
     if args.decode_full_q15_soft:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
@@ -1523,7 +1581,8 @@ if __name__ == "__main__":
                     use_llr_clip=args.llr_clip, llr_clip_factor=args.llr_clip_factor,
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
-                    header_fec_rate=args.header_fec_rate)
+                    header_fec_rate=args.header_fec_rate,
+                    use_cfo_correct=args.cfo_correct)
     if args.decode_full_smooth:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
@@ -1532,7 +1591,8 @@ if __name__ == "__main__":
                     use_llr_clip=args.llr_clip, llr_clip_factor=args.llr_clip_factor,
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
-                    header_fec_rate=args.header_fec_rate)
+                    header_fec_rate=args.header_fec_rate,
+                    use_cfo_correct=args.cfo_correct)
     if args.decode_full_q15_smooth:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
@@ -1541,7 +1601,8 @@ if __name__ == "__main__":
                     use_llr_clip=args.llr_clip, llr_clip_factor=args.llr_clip_factor,
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
-                    header_fec_rate=args.header_fec_rate)
+                    header_fec_rate=args.header_fec_rate,
+                    use_cfo_correct=args.cfo_correct)
     if args.decode_full_soft_smooth:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
@@ -1550,7 +1611,8 @@ if __name__ == "__main__":
                     use_llr_clip=args.llr_clip, llr_clip_factor=args.llr_clip_factor,
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
-                    header_fec_rate=args.header_fec_rate)
+                    header_fec_rate=args.header_fec_rate,
+                    use_cfo_correct=args.cfo_correct)
     if args.decode_full_q15_soft_smooth:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
@@ -1559,7 +1621,8 @@ if __name__ == "__main__":
                     use_llr_clip=args.llr_clip, llr_clip_factor=args.llr_clip_factor,
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
-                    header_fec_rate=args.header_fec_rate)
+                    header_fec_rate=args.header_fec_rate,
+                    use_cfo_correct=args.cfo_correct)
     if args.sync_only:
         path = args.input if args.input else HLS_FILE
         if not os.path.exists(path):

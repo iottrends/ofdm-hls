@@ -279,7 +279,7 @@ Reference testbenches: `tb/ofdm_tx_tb.cpp`, `tb/ofdm_rx_tb.cpp`.
 
 ## 14. Known Limitations and Roadmap
 
-- **No CFO correction in HLS chain.** Removed in `sync_detect` v5 — relies on AD9364 sub-ppm RX-LO + per-symbol pilot CPE. Works for AD9364-class radios; non-AD9364 RFICs would need CFO reintroduced (planned: separate `cfo_correct` block behind a CSR enable).
+- **No CFO correction in HLS chain** (yet). Removed in `sync_detect` v5 — HLS relies on AD9364 sub-ppm RX-LO + per-symbol pilot CPE. Python reference (`sim/ofdm_reference.py:sync_detect_reference` + the CFO derotator in `decode_full`) now has Schmidl-Cox preamble CFO estimate + time-domain derotator implemented and verified — at CFO = 0.13 SC injection (Ku-band Doppler / ±2 ppm TCXO regime), the chain recovers the cliff to within frame-variance of the CFO=0 baseline. HLS port pending: separate `cfo_correct` block behind a CSR enable, algorithm spec from the Python reference.
 - **Hard-decision Viterbi** in HLS — soft-decision upgrade pending (+2–3 dB). Python reference (`sim/ofdm_reference.py:viterbi_decode_soft`) measured the gain; HLS port to use Xilinx Viterbi v9.1 IP rather than hand-rolled.
 - **One-shot (preamble-only) channel estimate.** Python reference now has DFT-based MMSE smoothing (`_smooth_channel_dft`, ~2 dB win measured); HLS port pending.
 - **Header has CRC-16 only, no FEC.** Single bit flip voids the frame. Planned: rate-1/3 K=7 conv on the 26-bit header (~50 LUT, +3 dB header CRC pass-rate).

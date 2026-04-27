@@ -119,13 +119,15 @@ chain feature and want a clean before/after.
  && mv regression_summary.csv regression_16qam_baseline_summary.csv
 ```
 
-#### 4. CFO-enabled sweep (only after CFO correction is implemented in the chain)
+#### 4. CFO-enabled sweep (Python CFO correction in the chain — Task 1, default ON)
 
 Real-radio CFO will be in the 0.05–0.30 SC range (sub-ppm AD9364 to ±20 ppm
-TCXO drift).  Today the chain has **no** CFO correction (`sync_detect` v5
-removed it), so this sweep will fail catastrophically until the CFO block is
-re-added.  Once CFO correction lands, the same matrix should produce cliffs
-within ~1 dB of the `--cfo-sc 0` baseline.
+TCXO drift, Ku-band Doppler).  The Python chain now has Schmidl-Cox preamble
+CFO estimate + time-domain derotator (`use_cfo_correct=True` default) — see
+`docs/RX_LOW_SNR_DEBUG.md` §5.  At CFO=0.13 SC, the cliff lands within frame
+variance of the `--cfo-sc 0` baseline (verified 5-frame avg5 sweep, both
+16QAM modcods).  HLS chain still lacks CFO correction; this is the spec
+reference for the future HLS port.
 
 ```bash
 # 0.1 SC — modest realistic TCXO offset
@@ -164,6 +166,7 @@ by `run_regression.sh`, `python3 sim/ofdm_reference.py --gen`, and every
 | **LLR clipping** | Median-based outlier clipping of soft Viterbi inputs (`--llr-clip-factor 5.0`) | Tames metric outliers at the cliff edge — small but consistent variance reduction |
 | **Weighted CPE** | Weights each pilot's CPE contribution by `\|G[k]\|²` | +0.3–0.5 dB on multipath; near-zero on AWGN |
 | **Header FEC (rate-1/2)** | K=7 conv-coded BPSK header (default rate-1/2 for forward-compat with future MAC ~70-bit payload; rate-1/3 available via `--header-fec-rate 1/3` for max gain on small headers) | +3–5 dB header-CRC margin |
+| **CFO correction** | Schmidl-Cox preamble CFO estimate from sync correlator + time-domain derotator before CP strip | Fully recovers cliff penalty for any CFO ≤ 0.5 SC pull-in (verified zero penalty at 0.13 SC injection vs the CFO=0 baseline) |
 
 **To opt out** (e.g. for HLS-TX backward compat, or to measure the delta vs no refinements):
 
@@ -172,6 +175,7 @@ by `run_regression.sh`, `python3 sim/ofdm_reference.py --gen`, and every
 | `--no-llr-clip` | Disable LLR clipping |
 | `--no-weighted-cpe` | Disable pilot-magnitude weighting |
 | `--no-header-fec` | Disable conv-coded header — uses original 26-bit uncoded BPSK layout |
+| `--no-cfo-correct` | Disable Schmidl-Cox preamble CFO estimate + derotator |
 
 **HLS TX compatibility**: `run_regression.sh --hls-rx` automatically enables
 `--no-header-fec` because `./setup_vitis.sh csim` (the HLS TX) only produces
