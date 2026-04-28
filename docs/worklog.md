@@ -4,7 +4,7 @@ Append-only log of significant work sessions. Newest entries on top.
 
 ---
 
-## 2026-04-28 — Reed-Solomon outer code (RS(255, 223)) integrated, ACM thresholds locked
+## 2026-04-28 — RS(255, 223) integrated, ACM thresholds locked, **Pluto SDR PHY bring-up — full OFDM frame BER=0 through real silicon**
 
 Branch: `rx-dsp-opt`
 
@@ -81,11 +81,126 @@ Pluto's TX power is ~7 dBm — at -85 dBm RX sensitivity, link budget = 92 dB.  
 
 `sync_detect`'s Schmidl-Cox estimator uses the preamble's two-identical-halves property → unambiguous CFO range = **±0.5 SC**.  Beyond that the estimator aliases (CFO 0.8 SC misread as -0.2 SC, "correction" leaves residual +1.0 SC = catastrophic).  Tested 0.13 and 0.2 SC; both correct cleanly.  AD9363 TCXO drift at 2.4 GHz is sub-ppm = <2.4 kHz = <0.03 SC at 20 MSPS — comfortable margin to the 0.5 SC ceiling.
 
+### Pluto SDR PHY bring-up — same-day milestone
+
+Originally planned for a separate sprint after MAC.  Pulled forward
+because the modded Pluto + AD9364 firmware was ready in lab.  Result:
+**end-to-end OFDM PHY validated through real silicon in a single
+session.**
+
+#### Hardware baseline
+
+| Item | Value |
+|---|---|
+| Hardware | ADALM-Pluto Rev.C (Z7010 + AD9361 silicon) |
+| Mode | AD9364 device-tree override (70 MHz–6 GHz, 1R1T) |
+| Firmware | v0.32 |
+| u-boot env | `compatible=ad9364`, `mode=1r1t` |
+| Confirmation | LO accepts 5 GHz write-back; AD9363 would clamp |
+| SSH | `root@192.168.2.1` / `analog` |
+
+#### Scripts added
+
+| File | Role |
+|---|---|
+| `sim/pluto_loopback.py` | Production wrapper: `digital`, `pluto-bist`, `pluto-rf`, `two-pluto` modes.  Q15+SOFT+RS hardcoded per `feedback_rx_modes.md`. |
+| `sim/pluto_bist_probe.py` | Raw-IQ diagnostic: 1000 random samples, linear-fit residual SNR + zero-region oracle. |
+| `sim/pluto_bist_diag.py` | OFDM-burst-based bit-exactness check (Gemini contributed). |
+| `sim/pluto_bist_ofdm_test.py` | Standalone proof-of-concept that demonstrated the alignment+scale fix in isolation. |
+| `sim/pluto_dump.py` | Minimal side-by-side TX/RX text dump (4 columns). |
+| `docs/ad93loopback.md` | Diagnostic reference: BIST quirks on FW v0.32, fix recipe, antenna self-loop fallback. |
+
+#### Investigation arc — what we got wrong, then right
+
+| Step | Hypothesis | Verdict |
+|---|---|---|
+| 1 | "BIST is broken on this firmware" | **wrong** — based on a strict ±1 LSB equality test on de-scaled random IQ |
+| 2 | Gemini's diag using OFDM-burst zero regions | **right** — TX zeros come back as exactly 0, signal at α·tx with α purely real and 45.84 dB residual SNR |
+| 3 | "BIST is bit-exact, modulo a constant 1/16 attenuation" | **right** — the −24 dB scale is a fixed silicon BIST tap point downstream of two ÷4 decimation stages |
+| 4 | "Wrapper bug: non-deterministic `normalize_from_adc` + sync_detect ambiguity over multi-cycle cyclic capture" | **right** — fixed |
+
+#### Two fixes that landed BER=0
+
+In `sim/pluto_loopback.py`:
+
+1. **Cross-correlation alignment**.  The captured RX (200k samples) contains
+   2.65 cycles of the cyclic TX burst; sync_detect's Schmidl-Cox
+   autocorrelation can find a preamble but is ambiguous when multiple
+   complete + partial cycles coexist.  Since we know the TX waveform
+   exactly, cross-correlate to find the first full cycle and slice it
+   out before handing to `decode_full`.
+2. **Deterministic ×16/2^13 magnitude restore** for `pluto-bist`.
+   Replaced the previous 95th-percentile `normalize_from_adc` (whose
+   scale factor varied per run because the captured sample mix of
+   zero/signal regions changed) with an exact constant `16.0/(2**13) =
+   2^(-9)`.  Bit-shift equivalent in floating point — no precision loss.
+
+#### Engineering insight
+
+**1/16 = 2^(-9) = exact bit shift** — the `* 0.001953125` in Python is
+mathematically identical to `>> 9` in HLS.  IEEE 754 representation of
+power-of-2 fractions is exact, so the scale-back introduces zero error.
+For HLS production this folds into the existing Q15 quantizer's shift
+chain: zero LUT, single cycle.
+
+#### USB bandwidth (sanity check the user raised)
+
+20 MSPS × 4 bytes = 640 Mbps of IQ data.  USB 2.0 high-speed is
+~280 Mbps practical.  Could USB be dropping samples?  **No** — Pluto's
+FPGA buffers the capture internally, USB drains afterwards.  Cyclic
+TX plays from on-chip RAM with zero USB load after initial upload.
+Short-burst captures (200k samples × 4 bytes = 800 KB) drain
+comfortably.
+
+#### Measurement — what the BIST loopback decoded
+
+```
+mod=1 (16QAM), fec_rate=0 (1/2), n_syms=255 (full frame)
+TX: 75 456 samples (3.77 ms at 20 MSPS), peak |x|=8192 (int16)
+RX: 200 000 samples captured via libiio
+Cross-corr alignment: offset=49 721
+α scale-back: 1/512 (deterministic, NOT percentile-based)
+RX peak after scale-back: 1.0002 (matches Python TX exactly)
+
+Sync metric: 1.0000 (perfect autocorrelation)
+CFO estimate: 0.0000 SC (BIST shares the LO between TX and RX)
+Phase error: +0.049 deg (essentially zero)
+Header CRC: 0xEC21 / 0xEC21 → PASS
+Data: byte_err = 0/11150  bit_err = 0/89 200  BER = 0.00e+00
+```
+
+**11 150 application bytes of random payload, 89 200 bits, transmitted
+through real Pluto silicon, decoded with BER = 0.**  This is the same
+chain (Q15 + soft Viterbi + RS(255, 223)) that will run on the FPGA
+later; the algorithm has now been physically validated.
+
+#### Bring-up status
+
+| Mode | Status | BER |
+|---|---|---|
+| `--mode digital` | wrapper sanity | 0 |
+| `--mode pluto-bist` | **landed today** | 0 |
+| `--mode pluto-rf` | not yet tested (close-coupled antennas) | — |
+| `--mode two-pluto` | future, after MAC sprint | — |
+
+### Commits today
+
+| SHA | Title |
+|---|---|
+| `23015cc` | sim/tests: RS(255, 223) outer code (default ON); .venv/ + ACM thresholds |
+| `984f196` | sim/docs: Pluto SDR bring-up — full OFDM frame BER=0 through BIST loopback |
+
 ### Discussion-only / planned next
 
-- **MAC redesign** — single `ofdm_mac` HLS block with internal `mac_tx_main()` / `mac_rx_main()` functions; ACM closed loop using thresholds above; 2 priority classes (control vs payload); selective ARQ on the control class; AES-128 stub; fragmentation > 4 KB Ethernet/MAVLink frames.
-- **Pluto SDR OTA bring-up** — once MAC is stable in Python sim.  Lab line-of-sight first, then short-range outdoor.
-- HLS port of the Path-A refinements (sync_detect+CFO, soft Viterbi, RS, channel smoothing, weighted CPE) deferred until MAC sprint completes.
+- **`--mode pluto-rf`** with two antennas close-coupled (tx+rx SMAs touching, ~1 cm).  Frugal alternative to coax+attenuator.  Math says local link dominates over WiFi by 30–50 dB at 2.4 GHz, so should work.  ~30 min test.
+- **MAC redesign** — single `ofdm_mac` HLS block with internal `mac_tx_main()` / `mac_rx_main()`; ACM closed loop using thresholds above; 2 priority classes (control vs payload); selective ARQ on control class; AES-128 stub; fragmentation > 4 KB Ethernet/MAVLink frames.
+- **Two-Pluto OTA** — after MAC stable.  Real CFO between independent TCXOs (~0.03–0.06 SC at 2.4 GHz, well inside our ±0.5 SC pull-in).
+- HLS port of Path-A refinements (sync_detect+CFO, soft Viterbi, RS, channel smoothing, weighted CPE) deferred until MAC sprint completes.
+
+### What we got wrong today (lessons)
+
+- **Strict ±1 LSB sample-equality on heavily attenuated signals is a misleading bit-exactness test.**  The de-scaled LSBs are quantization noise, not signal corruption.  Use linear-fit residual SNR + structural zero-region oracle instead (Gemini's approach).  Doc'd in `ad93loopback.md` § 7 "Lessons for future debug".
+- **When a wrapper proves the chain digitally and the same chain fails on hardware, the bug is almost always in the wrapper's data-handling glue (alignment, scaling, slicing), not in the silicon.**  Today we burned ~45 min suspecting BIST silicon; the real bug was 95th-percentile non-determinism + multi-cycle capture ambiguity in `pluto_loopback.py`.
 
 ---
 
