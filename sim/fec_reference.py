@@ -17,6 +17,57 @@ Usage:
 import sys
 import numpy as np
 
+# ── Reed-Solomon outer code (RS(255, 223), CCSDS deep-space standard) ───────
+#
+# nsym=32 parity bytes per codeword, t=16 byte-error correction.  reedsolo's
+# default RSCodec(32) auto-chunks: messages up to 223 bytes → single
+# codeword (output K + 32); longer messages → multiple full codewords with
+# the last one shortened.  Output length is exactly K + 32 * ceil(K/223),
+# but only at *reachable* K — there is a "dead zone" of output sizes between
+# 256 and 287 bytes (1 codeword maxes at 255, 2 codewords starts at 288).
+# Callers in dead-zone regimes use rs_max_payload() to pick the largest
+# reachable K and zero-pad the unused tail before conv encoding.
+#
+# Library: reedsolo (pure Python).  HLS production uses the Xilinx RS IP.
+# ────────────────────────────────────────────────────────────────────────────
+import reedsolo as _reedsolo
+
+RS_NSYM     = 32                          # parity bytes per codeword
+RS_K_PER_CW = 255 - RS_NSYM               # 223 — max msg bytes per codeword
+_RSC        = _reedsolo.RSCodec(RS_NSYM)
+
+
+def rs_encode(msg: bytes) -> bytes:
+    """RS(255, 223) encode.  Output length: K + 32*ceil(K/223)."""
+    return bytes(_RSC.encode(msg))
+
+
+def rs_decode(coded: bytes) -> bytes:
+    """Inverse of rs_encode.  Raises reedsolo.ReedSolomonError if uncorrectable."""
+    decoded, _, _ = _RSC.decode(bytes(coded))
+    return bytes(decoded)
+
+
+def rs_max_payload(rs_output_size: int):
+    """Pick the largest message length K such that rs_encode(K bytes) yields
+    AT MOST rs_output_size bytes.  Returns (K, rs_actual_out).  Caller pads
+    the conv-encoder input from rs_actual_out → rs_output_size with zeros.
+
+    Example: rs_output_size=266 (16QAM 2/3, 4 syms) lands in the dead zone
+    between 1-codeword (max 255) and 2-codewords (min 288).  Returns
+    K=223, rs_actual_out=255, leaving 11 zero-pad bytes.
+    """
+    best_K, best_out = -1, -1
+    for n_cw in range(1, rs_output_size // RS_NSYM + 1):
+        K_min = (n_cw - 1) * RS_K_PER_CW + 1
+        K_max = min(n_cw * RS_K_PER_CW, rs_output_size - RS_NSYM * n_cw)
+        if K_max >= K_min and K_max > best_K:
+            best_K, best_out = K_max, K_max + RS_NSYM * n_cw
+    if best_K < 0:
+        raise ValueError(f"rs_output_size={rs_output_size} too small for any RS codeword")
+    return best_K, best_out
+
+
 # ── Encoder ──────────────────────────────────────────────────────────────────
 
 def conv_encode(data_bytes: bytes, rate: int) -> bytes:

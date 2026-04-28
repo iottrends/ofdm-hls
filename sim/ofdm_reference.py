@@ -45,7 +45,9 @@ FEC_RATE  = 0    # 0 = rate 1/2, 1 = rate 2/3
 
 from fec_reference import (conv_encode, viterbi_decode as fec_decode,
                            viterbi_decode_soft as fec_decode_soft,
-                           conv_encode_header, viterbi_decode_header_soft)
+                           conv_encode_header, viterbi_decode_header_soft,
+                           rs_encode, rs_decode, rs_max_payload, RS_NSYM)
+import reedsolo as _reedsolo  # for ReedSolomonError exception type
 
 IN_FILE  = "tb_input_to_tx.bin"
 REF_FILE = "tb_tx_output_ref.txt"
@@ -304,7 +306,8 @@ def py_deinterleave_soft(soft_bits, mod, n_syms):
 
 # ── Main ─────────────────────────────────────────────────────────
 def generate(mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
-             use_header_fec=True, header_fec_rate="1/2"):
+             use_header_fec=True, header_fec_rate="1/2",
+             use_reed_solomon=True):
     """Generate random raw bits, FEC encode, write packed coded bytes and TX reference."""
     bps = 2 if mod == 0 else 4
 
@@ -312,20 +315,37 @@ def generate(mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
     coded_per_sym = NUM_DATA_SC // 4 if mod == 0 else NUM_DATA_SC // 2
     total_coded   = n_syms * coded_per_sym
 
-    # Raw data bytes (before FEC)
+    # Raw data bytes (before FEC) — also the conv encoder's input length
     total_raw = total_coded // 2 if fec_rate == 0 else total_coded * 2 // 3
 
-    # Generate random raw bytes
     rng = np.random.default_rng(seed=42)
-    raw_bytes = bytes(rng.integers(0, 256, total_raw, dtype=np.uint8))
+
+    # Application-payload size: with RS off, app == total_raw (no parity).
+    # With RS on, app shrinks to leave room for 32 parity bytes per codeword
+    # plus any zero-pad needed to land on a reachable RS output length.
+    if use_reed_solomon:
+        K_app, rs_actual = rs_max_payload(total_raw)
+        pad_bytes = total_raw - rs_actual
+        raw_bytes = bytes(rng.integers(0, 256, K_app, dtype=np.uint8))
+    else:
+        raw_bytes = bytes(rng.integers(0, 256, total_raw, dtype=np.uint8))
 
     # Write raw bytes to file — this is the ground truth for BER comparison
     with open(IN_FILE, 'wb') as f:
         f.write(raw_bytes)
-    print(f"[REF] Wrote {len(raw_bytes)} bytes to {IN_FILE}")
+    rs_tag = (f"  (RS: K_app={len(raw_bytes)}, parity={rs_actual-len(raw_bytes)}, "
+              f"pad={pad_bytes})") if use_reed_solomon else ""
+    print(f"[REF] Wrote {len(raw_bytes)} bytes to {IN_FILE}{rs_tag}")
 
-    # Scramble → FEC encode → interleave  (matches ofdm_tx_tb.cpp chain)
+    # TX chain:  app → scramble → [RS encode + zero-pad] → conv encode → interleave
     scrambled_bytes = py_scramble(raw_bytes)
+    if use_reed_solomon:
+        rs_coded = rs_encode(scrambled_bytes)
+        assert len(rs_coded) == rs_actual, \
+            f"RS output size mismatch: {len(rs_coded)} != {rs_actual}"
+        if pad_bytes > 0:
+            rs_coded = rs_coded + bytes(pad_bytes)   # deterministic zero pad
+        scrambled_bytes = rs_coded                   # feed into conv encoder
     coded_bytes     = conv_encode(scrambled_bytes, fec_rate)
     assert len(coded_bytes) == total_coded, \
         f"FEC output size mismatch: {len(coded_bytes)} != {total_coded}"
@@ -459,7 +479,8 @@ def decode_axis_16qam(v):
     elif v >= -thresh: return 0b11
     else:              return 0b10
 
-def decode(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE, guard_syms=0):
+def decode(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE, guard_syms=0,
+           use_reed_solomon=True):
     """
     Decode an OFDM signal file and compare with original bits.
 
@@ -556,6 +577,14 @@ def decode(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE, guard_syms=0
     coded_packed   = bytes(decoded_bytes)
     deinterleaved  = py_deinterleave(coded_packed, mod, n_syms)   # undo TX interleaver
     raw_decoded    = fec_decode(deinterleaved, fec_rate, total_raw)
+    if use_reed_solomon:
+        K_app, rs_actual = rs_max_payload(total_raw)
+        rs_coded = bytes(raw_decoded[:rs_actual])
+        try:
+            raw_decoded = rs_decode(rs_coded)
+        except _reedsolo.ReedSolomonError as e:
+            print(f"[DEC] RS UNCORRECTABLE: {e}")
+            raw_decoded = bytes(K_app)
     raw_decoded    = py_scramble(raw_decoded)                      # descramble (self-inverse)
     decoded_bytes  = np.frombuffer(raw_decoded, dtype=np.uint8)
 
@@ -1106,7 +1135,8 @@ def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
                 use_llr_clip=True, llr_clip_factor=5.0,
                 use_weighted_cpe=True,
                 use_header_fec=True, header_fec_rate="1/2",
-                use_cfo_correct=True):
+                use_cfo_correct=True,
+                use_reed_solomon=True):
     """
     Full RX chain mirroring HLS step-by-step:
       1. preamble channel estimate G
@@ -1410,6 +1440,16 @@ def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
     else:
         deinterleaved = py_deinterleave(bytes(decoded_bytes), mod, n_syms)
         raw_decoded   = fec_decode(deinterleaved, fec_rate, total_raw)
+
+    # RS decode: strip zero-pad, run RS, then descramble.  Inverse of TX.
+    if use_reed_solomon:
+        K_app, rs_actual = rs_max_payload(total_raw)
+        rs_coded = bytes(raw_decoded[:rs_actual])
+        try:
+            raw_decoded = rs_decode(rs_coded)
+        except _reedsolo.ReedSolomonError as e:
+            print(f"  [{label}] RS UNCORRECTABLE: {e}  (treating as all-error frame)")
+            raw_decoded = bytes(K_app)        # all-zero → BER comparison will fail
     raw_decoded   = py_scramble(raw_decoded)
     decoded_bytes = np.frombuffer(raw_decoded, dtype=np.uint8)
 
@@ -1493,10 +1533,14 @@ if __name__ == "__main__":
                         help="Disable preamble-based CFO estimate + time-domain "
                              "derotator (default ON). Use this to measure how much "
                              "the chain breaks at non-zero CFO without correction.")
+    parser.add_argument("--no-rs", action="store_false", dest="reed_solomon",
+                        help="Disable RS(255, 223) outer code (default ON). Use "
+                             "this when round-tripping with HLS TX (no RS yet) "
+                             "or to measure raw conv-only BER cliffs.")
     # argparse defaults the dest to True when the flag is action='store_false'
     # only if we set the default explicitly:
     parser.set_defaults(llr_clip=True, weighted_cpe=True, header_fec=True,
-                        cfo_correct=True)
+                        cfo_correct=True, reed_solomon=True)
     parser.add_argument("--sync-only", action="store_true",
                         help="Run sync_detect_reference and print trigger / metric / pow_env (no decode)")
     parser.add_argument("--input",   type=str, default=None,
@@ -1517,14 +1561,17 @@ if __name__ == "__main__":
     if args.gen:
         generate(mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
                  use_header_fec=args.header_fec,
-                 header_fec_rate=args.header_fec_rate)
+                 header_fec_rate=args.header_fec_rate,
+                 use_reed_solomon=args.reed_solomon)
     if args.compare:
         compare()
     if args.decode:
-        decode(tx_file=REF_FILE, mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate)
+        decode(tx_file=REF_FILE, mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
+               use_reed_solomon=args.reed_solomon)
     if args.decode_hls:
         decode(tx_file=args.input if args.input else HLS_FILE, mod=args.mod, n_syms=args.nsyms,
-               fec_rate=args.rate, guard_syms=1)
+               fec_rate=args.rate, guard_syms=1,
+               use_reed_solomon=args.reed_solomon)
     if args.decode_header:
         decode_header(tx_file=args.input if args.input else HLS_FILE,
                       mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate, guard_syms=1)
@@ -1539,7 +1586,8 @@ if __name__ == "__main__":
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
                     header_fec_rate=args.header_fec_rate,
-                    use_cfo_correct=args.cfo_correct)
+                    use_cfo_correct=args.cfo_correct,
+                    use_reed_solomon=args.reed_solomon)
     if args.decode_full_q15:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
@@ -1548,7 +1596,8 @@ if __name__ == "__main__":
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
                     header_fec_rate=args.header_fec_rate,
-                    use_cfo_correct=args.cfo_correct)
+                    use_cfo_correct=args.cfo_correct,
+                    use_reed_solomon=args.reed_solomon)
     if args.decode_full_sync:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
@@ -1556,7 +1605,8 @@ if __name__ == "__main__":
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
                     header_fec_rate=args.header_fec_rate,
-                    use_cfo_correct=args.cfo_correct)
+                    use_cfo_correct=args.cfo_correct,
+                    use_reed_solomon=args.reed_solomon)
     if args.decode_full_q15_sync:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
@@ -1564,7 +1614,8 @@ if __name__ == "__main__":
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
                     header_fec_rate=args.header_fec_rate,
-                    use_cfo_correct=args.cfo_correct)
+                    use_cfo_correct=args.cfo_correct,
+                    use_reed_solomon=args.reed_solomon)
     if args.decode_full_soft:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
@@ -1573,7 +1624,8 @@ if __name__ == "__main__":
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
                     header_fec_rate=args.header_fec_rate,
-                    use_cfo_correct=args.cfo_correct)
+                    use_cfo_correct=args.cfo_correct,
+                    use_reed_solomon=args.reed_solomon)
     if args.decode_full_q15_soft:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
@@ -1582,7 +1634,8 @@ if __name__ == "__main__":
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
                     header_fec_rate=args.header_fec_rate,
-                    use_cfo_correct=args.cfo_correct)
+                    use_cfo_correct=args.cfo_correct,
+                    use_reed_solomon=args.reed_solomon)
     if args.decode_full_smooth:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
@@ -1592,7 +1645,8 @@ if __name__ == "__main__":
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
                     header_fec_rate=args.header_fec_rate,
-                    use_cfo_correct=args.cfo_correct)
+                    use_cfo_correct=args.cfo_correct,
+                    use_reed_solomon=args.reed_solomon)
     if args.decode_full_q15_smooth:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
@@ -1602,7 +1656,8 @@ if __name__ == "__main__":
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
                     header_fec_rate=args.header_fec_rate,
-                    use_cfo_correct=args.cfo_correct)
+                    use_cfo_correct=args.cfo_correct,
+                    use_reed_solomon=args.reed_solomon)
     if args.decode_full_soft_smooth:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
@@ -1612,7 +1667,8 @@ if __name__ == "__main__":
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
                     header_fec_rate=args.header_fec_rate,
-                    use_cfo_correct=args.cfo_correct)
+                    use_cfo_correct=args.cfo_correct,
+                    use_reed_solomon=args.reed_solomon)
     if args.decode_full_q15_soft_smooth:
         decode_full(tx_file=args.input if args.input else HLS_FILE,
                     mod=args.mod, n_syms=args.nsyms, fec_rate=args.rate,
@@ -1622,7 +1678,8 @@ if __name__ == "__main__":
                     use_weighted_cpe=args.weighted_cpe,
                     use_header_fec=args.header_fec,
                     header_fec_rate=args.header_fec_rate,
-                    use_cfo_correct=args.cfo_correct)
+                    use_cfo_correct=args.cfo_correct,
+                    use_reed_solomon=args.reed_solomon)
     if args.sync_only:
         path = args.input if args.input else HLS_FILE
         if not os.path.exists(path):

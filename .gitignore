@@ -26,6 +26,10 @@ __pycache__/
 *.pyc
 *.pyo
 
+# Project venv (numpy + scipy + reedsolo) — local dev tool, not in source
+.venv/
+*.swp
+
 # Temp TCL scripts written at runtime (csim/cosim flows only — synth flows live in tcl/)
 /tmp/ofdm_csim.tcl
 /tmp/ofdm_rx_csim.tcl

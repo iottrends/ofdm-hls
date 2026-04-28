@@ -40,6 +40,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_DIR"
 
+# Use the repo venv if it exists (has reedsolo + numpy); otherwise fall back.
+if [ -x "$REPO_DIR/.venv/bin/python" ]; then
+    PYTHON="$REPO_DIR/.venv/bin/python"
+else
+    PYTHON="python3"
+fi
+
 # ── Defaults ────────────────────────────────────────────────
 MODCODS="0:0 0:1 1:0 1:1"
 CHANNELS="awgn multipath phase cfo combined"
@@ -127,10 +134,11 @@ for MC in $MODCODS; do
     # HLS TX C-sim — but the HLS chain doesn't have header FEC yet, so the
     # whole sweep falls back to NO_HEADER_FEC mode for that run.
     NO_HDR_FEC_FLAG=""
+    NO_RS_FLAG=""
     if [ "$ENABLE_HLS" -eq 1 ]; then
-        # HLS-RX comparison: we need to use HLS TX (uncoded header) + tell the
-        # Python decoders to expect uncoded too, so the comparison is fair.
-        python3 sim/ofdm_reference.py --gen --mod "$M" --rate "$R" --no-header-fec > /dev/null 2>&1
+        # HLS-RX comparison: HLS TX has neither header FEC nor RS, so disable
+        # both on the Python side to keep the comparison fair.
+        "$PYTHON" sim/ofdm_reference.py --gen --mod "$M" --rate "$R" --no-header-fec --no-rs > /dev/null 2>&1
         ./setup_vitis.sh csim "$M" "$R" > /tmp/regression_tx_${M}${R}.log 2>&1
         if [[ ! -f tb_tx_output_hls.txt ]]; then
             echo "  [ERR] HLS TX C-sim failed for $LABEL — see /tmp/regression_tx_${M}${R}.log"
@@ -138,9 +146,10 @@ for MC in $MODCODS; do
         fi
         TX_INPUT_FILE=tb_tx_output_hls.txt
         NO_HDR_FEC_FLAG="--no-header-fec"
+        NO_RS_FLAG="--no-rs"
     else
         # Python-only flow: generate the FEC-coded reference once.
-        python3 sim/ofdm_reference.py --gen --mod "$M" --rate "$R" > /dev/null 2>&1
+        "$PYTHON" sim/ofdm_reference.py --gen --mod "$M" --rate "$R" > /dev/null 2>&1
         if [[ ! -f tb_tx_output_ref.txt ]]; then
             echo "  [ERR] Python TX --gen failed for $LABEL"
             continue
@@ -172,7 +181,7 @@ for MC in $MODCODS; do
                          + $(echo "$CH" | cksum | awk '{print $1}') % 991 ))
 
                 # ── Apply channel ─────────────────────────────────────
-                python3 sim/ofdm_channel_sim.py \
+                "$PYTHON" sim/ofdm_channel_sim.py \
                     --channel "$CH" --snr "$SNR" --seed "$SEED" --mod "$M" \
                     --phase-sigma "$PHASE_SIGMA" --cfo-sc "$CFO_SC" \
                     --write-noisy --input "$TX_INPUT_FILE" > /dev/null 2>&1
@@ -183,7 +192,7 @@ for MC in $MODCODS; do
 
                 # ── FP64 + sync + HARD (+ smoothing if --smooth) ─────
                 FP64H_FLAG=$([ "$ENABLE_SMOOTH" -eq 1 ] && echo "--decode-full-smooth --smooth-taps $SMOOTH_TAPS" || echo "--decode-full-sync")
-                FP64H_OUT=$(python3 sim/ofdm_reference.py $FP64H_FLAG $NO_HDR_FEC_FLAG \
+                FP64H_OUT=$("$PYTHON" sim/ofdm_reference.py $FP64H_FLAG $NO_HDR_FEC_FLAG $NO_RS_FLAG \
                     --input tb_tx_output_hls_noise.txt --mod "$M" --rate "$R" 2>&1)
                 FP64H_HDR=$(extract_hdr "$(echo "$FP64H_OUT" | grep 'phase_err')")
                 FP64H_LINE=$(echo "$FP64H_OUT" | grep "data: byte" | head -1)
@@ -192,7 +201,7 @@ for MC in $MODCODS; do
 
                 # ── Q15  + sync + HARD (+ smoothing if --smooth) ─────
                 Q15H_FLAG=$([ "$ENABLE_SMOOTH" -eq 1 ] && echo "--decode-full-q15-smooth --smooth-taps $SMOOTH_TAPS" || echo "--decode-full-q15-sync")
-                Q15H_OUT=$(python3 sim/ofdm_reference.py $Q15H_FLAG $NO_HDR_FEC_FLAG \
+                Q15H_OUT=$("$PYTHON" sim/ofdm_reference.py $Q15H_FLAG $NO_HDR_FEC_FLAG $NO_RS_FLAG \
                     --input tb_tx_output_hls_noise.txt --mod "$M" --rate "$R" 2>&1)
                 Q15H_HDR=$(extract_hdr "$(echo "$Q15H_OUT" | grep 'phase_err')")
                 Q15H_LINE=$(echo "$Q15H_OUT" | grep "data: byte" | head -1)
@@ -204,7 +213,7 @@ for MC in $MODCODS; do
                 Q15S_HDR="";  Q15S_BE="";  Q15S_BER=""
                 if [ "$ENABLE_SOFT" -eq 1 ]; then
                     FP64S_FLAG=$([ "$ENABLE_SMOOTH" -eq 1 ] && echo "--decode-full-soft-smooth --smooth-taps $SMOOTH_TAPS" || echo "--decode-full-soft")
-                    FP64S_OUT=$(python3 sim/ofdm_reference.py $FP64S_FLAG $NO_HDR_FEC_FLAG \
+                    FP64S_OUT=$("$PYTHON" sim/ofdm_reference.py $FP64S_FLAG $NO_HDR_FEC_FLAG $NO_RS_FLAG \
                         --input tb_tx_output_hls_noise.txt --mod "$M" --rate "$R" 2>&1)
                     FP64S_HDR=$(extract_hdr "$(echo "$FP64S_OUT" | grep 'phase_err')")
                     FP64S_LINE=$(echo "$FP64S_OUT" | grep "data: byte" | head -1)
@@ -212,7 +221,7 @@ for MC in $MODCODS; do
                     FP64S_BER=$(extract_ber "$FP64S_LINE")
 
                     Q15S_FLAG=$([ "$ENABLE_SMOOTH" -eq 1 ] && echo "--decode-full-q15-soft-smooth --smooth-taps $SMOOTH_TAPS" || echo "--decode-full-q15-soft")
-                    Q15S_OUT=$(python3 sim/ofdm_reference.py $Q15S_FLAG $NO_HDR_FEC_FLAG \
+                    Q15S_OUT=$("$PYTHON" sim/ofdm_reference.py $Q15S_FLAG $NO_HDR_FEC_FLAG $NO_RS_FLAG \
                         --input tb_tx_output_hls_noise.txt --mod "$M" --rate "$R" 2>&1)
                     Q15S_HDR=$(extract_hdr "$(echo "$Q15S_OUT" | grep 'phase_err')")
                     Q15S_LINE=$(echo "$Q15S_OUT" | grep "data: byte" | head -1)
@@ -227,7 +236,7 @@ for MC in $MODCODS; do
                     HLS_BE=$(grep '\[TB\] Bit  errors' vitis_rx_noisy_csim.log | head -1 | awk '{print $5}')
                     HLS_TB=$(grep '\[TB\] Bit  errors' vitis_rx_noisy_csim.log | head -1 | awk '{print $7}')
                     if [[ -n "$HLS_BE" && -n "$HLS_TB" && "$HLS_TB" -gt 0 ]]; then
-                        HLS_BER=$(python3 -c "print(f'{$HLS_BE/$HLS_TB:.3e}')")
+                        HLS_BER=$("$PYTHON" -c "print(f'{$HLS_BE/$HLS_TB:.3e}')")
                     fi
                 fi
 
@@ -271,7 +280,7 @@ for MC in $MODCODS; do
 done
 
 # ── Aggregate: mean BER per (modcod, channel, SNR) across frames ─
-python3 - "$RAW_CSV" "$SUM_CSV" "$ENABLE_SOFT" "$ENABLE_HLS" <<'PYEOF'
+"$PYTHON" - "$RAW_CSV" "$SUM_CSV" "$ENABLE_SOFT" "$ENABLE_HLS" <<'PYEOF'
 import csv, sys, statistics
 raw_path, sum_path, en_soft, en_hls = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
 rows = list(csv.DictReader(open(raw_path)))
