@@ -183,6 +183,117 @@ later; the algorithm has now been physically validated.
 | `--mode pluto-rf` | not yet tested (close-coupled antennas) | — |
 | `--mode two-pluto` | future, after MAC sprint | — |
 
+#### Frame-size × modcod timing sweep (BIST loopback)
+
+Added `sim/pluto_timing_sweep.py` — sweeps both 16QAM modcods across 6
+frame sizes, instruments six discrete phases per cycle (TX prep, TX
+upload, settle, RX capture, align+scale, decode), verifies BER=0.
+
+Q15 + soft Viterbi + RS(255, 223) hardcoded (production decoder
+configuration per `feedback_rx_modes.md`).  Sizes chosen as multiples
+of 3 so rate-2/3 puncturing is byte-aligned.
+
+**Result: 12 / 12 PASS (BER=0)** through Pluto BIST loopback.
+
+| Modcod | n_syms | k_app | total wall | decode | wire kbps | on-air |
+|---|---:|---:|---:|---:|---:|---:|
+| 16QAM 1/2 | 9 | 386 | 438 ms | 318 ms | 7.0 | 158 µs |
+| 16QAM 1/2 | 18 | 772 | 709 ms | 575 ms | 8.7 | 288 µs |
+| 16QAM 1/2 | 33 | 1426 | 1.20 s | 1.01 s | 9.5 | 504 µs |
+| 16QAM 1/2 | 60 | 2616 | 2.09 s | 1.83 s | 10.0 | 893 µs |
+| 16QAM 1/2 | 120 | 5232 | 4.18 s | 3.72 s | 10.0 | 1.76 ms |
+| 16QAM 1/2 | 255 | 11150 | 9.50 s | 8.62 s | 9.4 | 3.70 ms |
+| 16QAM 2/3 | 9 | 504 | 546 ms | 424 ms | 7.4 | 158 µs |
+| 16QAM 2/3 | 18 | 1040 | 912 ms | 762 ms | 9.1 | 288 µs |
+| 16QAM 2/3 | 33 | 1912 | 1.55 s | 1.34 s | 9.9 | 504 µs |
+| 16QAM 2/3 | 60 | 3488 | 2.78 s | 2.47 s | 10.0 | 893 µs |
+| 16QAM 2/3 | 120 | 6976 | 5.28 s | 4.74 s | 10.6 | 1.76 ms |
+| 16QAM 2/3 | 255 | 14856 | 11.37 s | 10.30 s | 10.4 | 3.70 ms |
+
+**Observations from timing breakdown:**
+
+- **Decode dominates 70–90 %** of total wall time — pure Python soft
+  Viterbi over thousands of trellis states.  Not representative of
+  HLS production (which collapses this to microseconds via
+  hard-Viterbi macro + Xilinx FFT/RS IPs).
+- **TX prep scales linearly** with `n_syms` (~2 ms / OFDM symbol in
+  Python's `build_data_symbol` for-loop).  Vectorizable but irrelevant
+  for HLS.
+- **TX upload + settle ≈ constant ~80 ms** regardless of frame size —
+  one-time USB push of cyclic buffer + drain stale RX.
+- **RX capture scales with buffer** at ~3–4 MB/s effective USB drain.
+- **Align (cross-corr)** scales O(N²-ish) with frame size due to
+  `np.correlate`; could move to FFT-based correlate if it ever
+  matters for sim speed.
+- **PHY rate is masked** by Python overhead.  At n_syms=255 + 16QAM
+  2/3, decoded bits / on-air time = 32.1 Mbps (the real PHY rate);
+  Python wall-clock wire_kbps reports just 10.4 kbps because decode
+  takes ~3000× longer than the OFDM signal duration in this harness.
+
+**Wire-rate insight:** payload efficiency improves with larger frames
+because preamble + header are fixed 2-symbol overhead:
+
+| n_syms | Overhead fraction | Payload fraction |
+|---:|---:|---:|
+| 9 | 18.2 % | 81.8 % |
+| 18 | 10.0 % | 90.0 % |
+| 33 | 5.7 % | 94.3 % |
+| 60 | 3.2 % | 96.8 % |
+| 120 | 1.6 % | 98.4 % |
+| 255 | 0.78 % | 99.2 % |
+
+#### Per-symbol pilot CPE — code-confirmed
+
+User questioned whether the chain actually does **per-symbol** pilot
+CPE (each OFDM symbol uses its own 6 pilots to estimate residual
+phase) vs a single static H[k] from the preamble.  Confirmed in
+`sim/ofdm_reference.py:decode_full` around line 1344:
+
+```python
+for s in range(n_syms):                                  # per-symbol
+    Y = FFT(sig_c[offset_s + CP_LEN : offset_s + sym_len])
+    sum_re = sum_im = 0.0
+    for k in PILOT_IDX:                                  # this symbol's 6 pilots
+        Geq_p = _compute_geq_at(k, G)                    # G from preamble (held)
+        eq    = Y[k] * Geq_p
+        if use_weighted_cpe:
+            w = |G[k]|²                                  # de-weight faded pilots
+            sum_re += w * eq.real
+            sum_im += w * eq.imag
+    sym_phase_err = arctan2(sum_im, sum_re)              # CPE for this symbol
+    sym_rot       = exp(-j * sym_phase_err)
+    # apply sym_rot to all 200 data SCs of this symbol → demap
+```
+
+So:
+1. **H[k] estimated once** from preamble (frozen for the whole frame)
+2. **For each data symbol**: equalize 6 pilots, compute residual phase,
+   apply that symbol's correction to all 200 data SCs of that symbol,
+   demap → soft Viterbi → RS → descramble
+
+This survives common-phase drift / phase noise / slow CFO walk within
+a frame.  Does **not** survive per-SC channel changes (Doppler-induced
+H[k] rotation), which is fine for Path A (UAV slow, ~30 km/h, 67 Hz
+Doppler at 2.4 GHz, coherence time ~2.4 ms — 4 ms frame is right at
+the edge but the CPE soaks the linear phase walk).
+
+For fast UAVs / Path C tactical, would either need (a) shorter frames
+(~64 syms = 1 ms = inside coherence) or (b) per-symbol H[k]
+re-estimation from pilot interpolation.  Deferred until OTA testing
+shows we need it.
+
+#### Discussion: frame size as second ACM knob (forward-looking)
+
+Discussion captured but **NOT implemented** — premature optimization
+for a hypothetical channel.  Currently we run BIST loopback (zero
+fading, zero Doppler), so frame-size adaptation is theoretical.  Will
+revisit when two-Pluto OTA / moving-Pluto setups give us real
+channel-coherence data.
+
+The idea: when MAC observes 255-sym frames failing but 64-sym frames
+passing, that hints at coherence time in (1, 4) ms range, suggesting
+fast UAV motion → drop to 64 syms.  Not actionable until measured.
+
 ### Commits today
 
 | SHA | Title |
