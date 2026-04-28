@@ -30,6 +30,10 @@ __pycache__/
 .venv/
 *.swp
 
+# Pluto BIST diagnostic artifacts (regenerated each run)
+sim/tb_pluto_bist_*.npy
+pluto_dump.txt
+
 # Temp TCL scripts written at runtime (csim/cosim flows only — synth flows live in tcl/)
 /tmp/ofdm_csim.tcl
 /tmp/ofdm_rx_csim.tcl

@@ -1155,12 +1155,17 @@ def decode_full(tx_file=None, mod=MOD, n_syms=N_SYMS, fec_rate=FEC_RATE,
 
     if tx_file is None:
         tx_file = HLS_FILE
-    if not os.path.exists(tx_file):
-        print(f"[{label}] {tx_file} not found")
-        return None
-
-    sig = np.loadtxt(tx_file, dtype=float)
-    sig_c = sig[:, 0] + 1j * sig[:, 1]
+    # Accept either a path (str) or an in-memory complex array (e.g. live
+    # capture from Pluto, where a multi-MB text round-trip per frame would be
+    # silly).  All downstream code uses sig_c only.
+    if isinstance(tx_file, np.ndarray):
+        sig_c = tx_file.astype(np.complex128)
+    else:
+        if not os.path.exists(tx_file):
+            print(f"[{label}] {tx_file} not found")
+            return None
+        sig = np.loadtxt(tx_file, dtype=float)
+        sig_c = sig[:, 0] + 1j * sig[:, 1]
 
     sym_len   = FFT_SIZE + CP_LEN
 
